@@ -36,6 +36,7 @@ export default function ScheduleSheet({ items, quotesUnlocked, api, post, onClos
       if (!alive) return;
       for (const c of check.items) patchRow(c.itemId, { problems: c.problems, hasSlides: c.hasSlides });
       for (const item of items) {
+        if (!alive) return; // the sheet was closed: stop drawing
         try {
           const blob = await renderCover(item, { quoteOn: Boolean(item.showQuote && quotesUnlocked) });
           const form = new FormData();

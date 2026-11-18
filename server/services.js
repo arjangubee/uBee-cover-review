@@ -17,13 +17,19 @@ export function suggestQuote(item, quotes) {
 }
 
 // ---------- Songs: Spotify library first, Instagram trending by default ----------
+// The shipped seed (trending-instagram.json) is never written, so app updates never collide
+// with it. Refreshes from the creator's Muse land in trending.json, which wins when present.
 export function loadTrending() {
-  const p = join(DATA_DIR, "trending-instagram.json");
-  try { return JSON.parse(readFileSync(p, "utf8")); } catch { return { songs: [], updated_at: null, source: "unavailable" }; }
+  for (const f of ["trending.json", "trending-instagram.json"]) {
+    const p = join(DATA_DIR, f);
+    if (!existsSync(p)) continue;
+    try { return JSON.parse(readFileSync(p, "utf8")); } catch { /* try the next one */ }
+  }
+  return { songs: [], updated_at: null, source: "unavailable" };
 }
 export function saveTrending(payload) {
   const doc = { songs: payload.songs || [], updated_at: new Date().toISOString(), source: payload.source || "claude-instagram-refresh" };
-  writeFileSync(join(DATA_DIR, "trending-instagram.json"), JSON.stringify(doc, null, 1));
+  writeFileSync(join(DATA_DIR, "trending.json"), JSON.stringify(doc, null, 1));
   return doc;
 }
 export function suggestSong(item) {

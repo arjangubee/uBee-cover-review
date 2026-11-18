@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-export const DATA_DIR = join(root, "data");
+// COVER_REVIEW_DATA_DIR lets tests (and a second workspace) keep data somewhere else.
+export const DATA_DIR = process.env.COVER_REVIEW_DATA_DIR ? resolve(process.env.COVER_REVIEW_DATA_DIR) : join(root, "data");
 export const UPLOAD_DIR = join(DATA_DIR, "uploads");
 export const DUMP_DIR = join(DATA_DIR, "dump");
 export const LIBRARY_DIR = join(DATA_DIR, "library");

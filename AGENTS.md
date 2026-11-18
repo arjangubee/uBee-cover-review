@@ -40,6 +40,8 @@ You may edit any file in this repo to fix a grievance. You may not delete the cr
 - If you fixed code for her and the new version changes the same lines, the new version wins. Your fix is saved as data/backups/<time>/local-changes.patch and stays in `git stash list`. Re-apply what is still needed and word it so it can go upstream.
 - Start the app with `npm start`. It restarts itself after an update.
 - A copy that wasn't installed with `git clone` can't update itself. Reinstall it with `git clone`, then move data/ across.
+- Working from her own fork: name uBee's repo `upstream` (`git remote add upstream https://github.com/arjangubee/uBee-cover-review.git`). Updates come from `upstream` whenever it exists.
+- Keep the running copy on `main`, and keep her fork's `main` identical to uBee's. Build fixes on a branch, push the branch to her fork, and tell uBee which branch to pick up. Fixes reach every creator through uBee's review, then come back to her with UPDATE NOW. A fix merged into her fork's `main` blocks her updates.
 
 ## Before any push (every AI, every time, no exceptions)
 

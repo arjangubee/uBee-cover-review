@@ -32,6 +32,35 @@ export function styleDefaults() {
   };
 }
 
+// ---------- Drive import progress + in-flight guard ----------
+// In-memory only: this is progress state, never creator data, and it must
+// not persist a creator's photos or Drive ids to disk.
+// A fresh batch sets importStartedAt and state "loading", then "ready" once
+// its items are created. The guard only blocks an exact repeat of the same
+// batch: same Drive ids, within 30 seconds, returns { inFlight: true,
+// started: false } and creates nothing, so repeat taps can never pile
+// duplicate jobs on top of each other. A different batch, like the next chunk
+// of a large import, always goes through, even inside the window.
+// Dedupe by driveId also applies after the window: a driveId already in
+// the queue is never enqueued a second time.
+export const IMPORT_WINDOW_MS = 30_000;
+const importState = { state: "idle", startedAt: null, lastBatchAt: 0, lastBatchSize: 0, totalEnqueued: 0, lastBatchDriveIds: [] };
+function sameBatchDriveIds(entries) {
+  const ids = entries.map((e) => e.driveId).filter(Boolean).sort();
+  if (!ids.length || ids.length !== importState.lastBatchDriveIds.length) return false;
+  return ids.every((id, i) => id === importState.lastBatchDriveIds[i]);
+}
+export function getImportStatus() {
+  return {
+    importState: importState.state,
+    importStartedAt: importState.startedAt,
+    lastBatchSize: importState.lastBatchSize,
+    totalEnqueued: importState.totalEnqueued,
+    // Queue length is the pending-style count: photos enqueued, not yet decided.
+    importPending: store.db.items.filter((i) => i.status === "queue").length,
+  };
+}
+
 function mustItem(req, res) {
   const item = store.getItem(req.params.id);
   if (!item) res.status(404).json({ error: "item not found" });
@@ -284,10 +313,21 @@ export function registerFull(app, upload) {
   // a stock quote is assigned on the way in, per the original queue rule.
   app.post("/api/items/enqueue", (req, res) => {
     const entries = Array.isArray(req.body.items) ? req.body.items : [];
+    // In-flight guard: only an exact repeat of the same batch, inside the
+    // window, is blocked. A different batch (next chunk) goes through.
+    if (importState.lastBatchAt && Date.now() - importState.lastBatchAt < IMPORT_WINDOW_MS && sameBatchDriveIds(entries)) {
+      return res.json({ ok: true, inFlight: true, started: false, created: [], ...getImportStatus() });
+    }
     const quotes = loadQuotes();
+    const seenDriveIds = new Set(store.db.items.map((i) => i.driveId).filter(Boolean));
     const created = [];
+    importState.state = "loading";
+    importState.startedAt = new Date().toISOString();
     for (const e of entries) {
       if (!e.imageUrl) continue;
+      // Dedupe by driveId when present: never a second item for one Drive file.
+      if (e.driveId && seenDriveIds.has(e.driveId)) continue;
+      if (e.driveId) seenDriveIds.add(e.driveId);
       if (e.imageQualityStatus === "quarantined") {
         created.push(store.addItem({ title: e.title || e.driveId || "drive photo", imageUrl: e.imageUrl, source: "drive", driveId: e.driveId || null, imageQualityStatus: "quarantined", status: "rejected" }));
         continue;
@@ -298,9 +338,17 @@ export function registerFull(app, upload) {
       item.caption = generateCaption(item, store.settings.voiceProfile);
       created.push(item);
     }
+    importState.lastBatchAt = Date.now();
+    importState.lastBatchSize = created.length;
+    importState.lastBatchDriveIds = entries.map((e) => e.driveId).filter(Boolean).sort();
+    importState.totalEnqueued += created.length;
+    importState.state = "ready";
     store.saveDb();
-    res.json({ ok: true, created });
+    res.json({ ok: true, inFlight: false, started: true, created, ...getImportStatus() });
   });
+
+  // Import progress for the client / the creator's AI to poll.
+  app.get("/api/import/status", (_req, res) => res.json(getImportStatus()));
 
   // Photo search across the sorted library and the queue: searchphotos in the original.
   app.get("/api/photos/search", (req, res) => {

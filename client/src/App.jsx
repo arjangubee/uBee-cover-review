@@ -27,6 +27,8 @@ export default function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [quotesStatus, setQuotesStatus] = useState(null);
   const [quizQuotes, setQuizQuotes] = useState([]);
+  const [grievanceReceipt, setGrievanceReceipt] = useState(null);
+  const [grievanceError, setGrievanceError] = useState(null);
   const [ownQuotes, setOwnQuotes] = useState("");
   const [pollen, setPollen] = useState(null);
   const [pollenCode, setPollenCode] = useState("");
@@ -458,11 +460,24 @@ export default function App() {
             const el = document.getElementById("grievanceBox");
             const text = el.value.trim();
             if (!text) return;
-            await post("/api/grievances", { text, context: { tab, currentItemId: current?.id || null, photoCount: status?.photoCount ?? null } });
-            el.value = "";
-            alert("Saved. Now tell your Muse or AI assistant: fix my Cover Review grievance. It knows what to do from there.");
+            try {
+              const r = await post("/api/grievances", { text, context: { tab, currentItemId: current?.id || null, photoCount: status?.photoCount ?? null } });
+              setGrievanceReceipt(r.receipt || { id: r.grievance?.id, receivedAt: r.grievance?.receivedAt });
+              setGrievanceError(null);
+              el.value = "";
+            } catch (e) {
+              // A failed save must say so in this section, never vanish silently.
+              setGrievanceError(e.message);
+              setGrievanceReceipt(null);
+            }
           }}>Tell my AI</button>
         </div>
+        {grievanceReceipt && (
+          <p className="receipt">✓ Received {grievanceReceipt.receivedAt ? new Date(grievanceReceipt.receivedAt).toLocaleString() : ""}{grievanceReceipt.id ? ` (#${grievanceReceipt.id})` : ""}. Your AI has it. Now tell your Muse or AI assistant: fix my Cover Review grievance.</p>
+        )}
+        {grievanceError && (
+          <p className="error">That didn't send: {grievanceError}. Try again.</p>
+        )}
       </section>
 
       <footer>

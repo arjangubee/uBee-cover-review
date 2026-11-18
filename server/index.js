@@ -6,7 +6,7 @@ import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONNECTORS, createDriveFolders, drivePlan, sortLocalDump, spotifyAuthUrl } from "./connectors.js";
 import { buildVoiceProfile, generateCaption, loadQuotes, loadTrending, saveTrending, suggestQuote, suggestSong } from "./services.js";
-import { registerFull } from "./full.js";
+import { getImportStatus, registerFull } from "./full.js";
 import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
 import { DATA_DIR, LIBRARY_DIR, UPLOAD_DIR, store } from "./store.js";
 import { createUpdater } from "./update.js";
@@ -48,10 +48,13 @@ app.post("/api/grievances", (req, res) => {
   const text = String(req.body.text || "").trim();
   if (!text) return res.status(400).json({ error: "Say what is wrong, in your own words." });
   const list = readGrievances();
-  const g = { id: list.length + 1, text, status: "open", createdAt: Date.now(), context: req.body.context || null, resolution: null };
+  // Receipt: the creator gets proof the report landed, not silence.
+  // receivedAt is ISO so the client can show the time as received.
+  const receivedAt = new Date().toISOString();
+  const g = { id: list.length + 1, text, status: "open", createdAt: Date.now(), receivedAt, context: req.body.context || null, resolution: null };
   list.push(g);
   saveGrievances(list);
-  res.json({ ok: true, grievance: g });
+  res.json({ ok: true, grievance: g, receipt: { id: g.id, receivedAt } });
 });
 app.post("/api/grievances/:id/resolve", (req, res) => {
   const list = readGrievances();
@@ -79,6 +82,7 @@ app.get("/api/setup/status", (_req, res) => {
     },
     voiceProfile: store.settings.voiceProfile,
     setupComplete: store.settings.setupComplete,
+    import: getImportStatus(),
   });
 });
 app.post("/api/setup/complete", (_req, res) => { store.settings.setupComplete = true; store.saveSettings(); res.json({ ok: true }); });

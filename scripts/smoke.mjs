@@ -207,6 +207,9 @@ try {
     assert(health.ok === true, "health should respond");
     const g = await (await fetch(`${base}/api/grievances`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "smoke grievance", context: { smoke: true } }) })).json();
     assert(g.grievance.status === "open", "grievance should open");
+    assert(g.receipt && g.receipt.id === g.grievance.id, "grievance should return a receipt with the same id");
+    assert(typeof g.receipt.receivedAt === "string" && !Number.isNaN(Date.parse(g.receipt.receivedAt)), "receipt should carry an ISO receivedAt time");
+    assert(g.grievance.receivedAt === g.receipt.receivedAt, "grievance should store the same receivedAt");
     const resolved = await (await fetch(`${base}/api/grievances/${g.grievance.id}/resolve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resolution: "smoke resolved" }) })).json();
     assert(resolved.grievance.status === "resolved", "grievance should resolve");
   });
@@ -328,6 +331,46 @@ try {
     const ch = await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
     assert(ch.connected === false && ch.revoked === true && /doesn't work anymore/.test(ch.message), `expected the revoked message: ${JSON.stringify(ch)}`);
     hive.revoked = false;
+  });
+  await check("import status and repeat enqueue returns inFlight without duplicates", async () => {
+    const batch = { items: [
+      { imageUrl: "https://example.com/import-a.jpg", driveId: "smoke-import-a", title: "import a" },
+      { imageUrl: "https://example.com/import-b.jpg", driveId: "smoke-import-b", title: "import b" },
+    ] };
+    const enqueue = async () => (await fetch(`${base}/api/items/enqueue`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(batch) })).json();
+    let first = await enqueue();
+    if (first.inFlight) {
+      // An earlier enqueue in this run is still inside the 30s window; wait it out, then retry once.
+      await wait(31000);
+      first = await enqueue();
+    }
+    assert(first.started === true && first.inFlight === false, `first enqueue should start, got ${JSON.stringify(first).slice(0, 200)}`);
+    assert(first.created.length === 2, `first enqueue should create 2 items, got ${first.created.length}`);
+    const queueCount = async () => (await (await fetch(`${base}/api/items?status=queue`)).json()).items.length;
+    const before = await queueCount();
+    const st = await (await fetch(`${base}/api/import/status`)).json();
+    assert(st.importState === "ready", `import state should be ready after a batch, got ${st.importState}`);
+    assert(typeof st.importStartedAt === "string" && !Number.isNaN(Date.parse(st.importStartedAt)), "import status should carry an ISO importStartedAt");
+    assert(st.lastBatchSize === 2, `last batch size should be 2, got ${st.lastBatchSize}`);
+    assert(st.totalEnqueued >= 2, "total enqueued should count the batch");
+    assert(typeof st.importPending === "number", "import status should carry an importPending count");
+    const repeat = await enqueue();
+    assert(repeat.inFlight === true && repeat.started === false, "repeat enqueue inside the window should return inFlight, not start");
+    assert(repeat.created.length === 0, "repeat enqueue should create nothing");
+    assert((await queueCount()) === before, "repeat enqueue must not create duplicate items");
+    // The next chunk is a different batch, so it must go through even inside the window.
+    const nextChunk = await (await fetch(`${base}/api/items/enqueue`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: [{ imageUrl: "https://example.com/import-c.jpg", driveId: "smoke-import-c", title: "import c" }] }) })).json();
+    assert(nextChunk.started === true && nextChunk.inFlight === false, `next chunk with different Drive ids should start, got ${JSON.stringify(nextChunk).slice(0, 200)}`);
+    assert(nextChunk.created.length === 1, "next chunk should create its item");
+    const setup = await (await fetch(`${base}/api/setup/status`)).json();
+    assert(setup.import && typeof setup.import.importState === "string", "setup status should carry import state");
+  });
+  await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
+    const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);
+    const root = new URL("../", import.meta.url).pathname;
+    const files = execFileSync("git", ["ls-files", "client/src", "server", "scripts", "docs", "README.md", "AGENTS.md", "TROUBLESHOOTING.md"], { cwd: root }).toString().split("\n").filter(Boolean);
+    const hits = files.filter((f) => existsSync(join(root, f)) && dashes.test(readFileSync(join(root, f), "utf8")));
+    assert(!hits.length, `dashes found in: ${hits.join(", ")}`);
   });
   await check("smoke never touched the repo's own data folder", async () => {
     const now = execFileSync("git", ["status", "--porcelain", "--", "data"], { cwd: join(REPO_DATA, "..") }).toString();

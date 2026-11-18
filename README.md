@@ -23,6 +23,10 @@ Open http://localhost:4173
 
 For development with hot reload, run the server with `npm run dev` and the client with `npm --prefix client run dev`.
 
+## Updates
+
+The app checks for a new version when it starts and every 2 minutes. When there is one, a big UPDATE NOW button shows at the top. One tap backs up your data, updates, and restarts the app. Your photos, decisions and notes are never touched. Install with `git clone` so updates work.
+
 ## Let your Muse set it up
 
 Open this repo in Muse and say: set up Cover Review for me.
@@ -82,6 +86,8 @@ Muse native first, since that is where it was built. It also works with any agen
 - "dev git push" means push to the private developer repo, ubee-cover-review-dev, the testing grounds. Nothing goes public from there until a worldwide push.
 
 Say either phrase to Quill and it happens, with a reminder of which one you used. Creators never need these commands, they are the publisher's side of the fence.
+
+Every AI follows the same rule before any push: pull first, run `npm test`, never force-push, dev first, a second AI reviews, then worldwide. A worldwide push shows UPDATE NOW on every creator's copy within 2 minutes. The full rule is in AGENTS.md.
 
 ## The full editor
 

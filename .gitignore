@@ -10,3 +10,10 @@ data/uploads/
 data/dump/
 *.log
 .DS_Store
+data/quotes.json
+data/grievances.json
+data/song-pool.json
+data/trending.json
+data/last-update.json
+data/backups/
+data/renders/

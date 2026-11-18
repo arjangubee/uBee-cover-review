@@ -23,11 +23,27 @@ The creator will point at problems in plain words, in chat or in the app's "Some
 
 1. Read the grievance. In-app reports land at GET /api/grievances. Also check GET /api/health first.
 2. Back up data/db.json and data/settings.json before touching anything. Creator data is never the price of a fix.
-3. Reproduce it. Run `npm run smoke`, read the server log, try the exact thing the creator described.
+3. Reproduce it. Run `npm test` (it runs in a throwaway data folder, so it never touches her photos), read the server log, try the exact thing the creator described.
 4. Read TROUBLESHOOTING.md. Half of all issues are already in that table.
 5. Fix the smallest thing that actually causes it, in the app code. No workarounds that hide the problem from the creator while leaving it broken.
-6. Prove it: `npm run smoke` green, plus do the creator's exact action again yourself and see it work.
+6. Prove it: `npm test` green, plus do the creator's exact action again yourself and see it work.
 7. Close it: POST /api/grievances/:id/resolve with a plain words resolution, then tell the creator what was wrong, what you changed, and that you tested it. Short message, no jargon.
 8. If the bug is in the shipped app itself and not this creator's setup, say so in the resolution, worded so the fix can be shared back upstream to the uBee repo later.
 
 You may edit any file in this repo to fix a grievance. You may not delete the creator's photos, decisions, notes, quotes or voice samples as a fix, ever.
+
+## Updates
+
+- The app checks GitHub when it starts and every 2 minutes. When a new version is out, a big UPDATE NOW banner shows at the top of the app.
+- UPDATE NOW backs up her data to data/backups, downloads the new version, reinstalls, rebuilds and restarts. Her photos, decisions and notes are never touched.
+- If you fixed code for her and the new version changes the same lines, the new version wins. Your fix is saved as data/backups/<time>/local-changes.patch and stays in `git stash list`. Re-apply what is still needed and word it so it can go upstream.
+- Start the app with `npm start`. It restarts itself after an update.
+- A copy that wasn't installed with `git clone` can't update itself. Reinstall it with `git clone`, then move data/ across.
+
+## Before any push (every AI, every time, no exceptions)
+
+1. Pull first: `git pull --rebase origin main`. Someone else may have pushed since you last pulled. Never push an older copy over a newer one.
+2. Run `npm test`. It must end with UPDATE TEST OK and SMOKE OK.
+3. Never force-push main.
+4. Push to the dev repo first. A second AI reviews it there. Only then push worldwide.
+5. A worldwide push reaches every creator: their app shows UPDATE NOW within 2 minutes. Only ship what you'd be happy for every creator to install tonight.

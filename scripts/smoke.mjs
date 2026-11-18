@@ -1,11 +1,21 @@
 // Smoke test: boots the API on a test port and walks the photos-only flow.
 // Run with the server stopped: node scripts/smoke.mjs
-import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Smoke runs in a throwaway data folder, so it never touches a creator's real photos,
+// decisions, workspace or settings.
+const REPO_DATA = new URL("../data/", import.meta.url).pathname;
+const DATA = mkdtempSync(join(tmpdir(), "cr-smoke-"));
+for (const f of ["default-quotes.json", "quiz-quotes.json", "trending-instagram.json"]) copyFileSync(join(REPO_DATA, f), join(DATA, f));
+const repoDataBefore = execFileSync("git", ["status", "--porcelain", "--", "data"], { cwd: join(REPO_DATA, "..") }).toString();
+const seedBefore = readFileSync(join(DATA, "trending-instagram.json"), "utf8");
 
 const PORT = 4199;
 const base = `http://localhost:${PORT}`;
-const server = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(PORT), COVER_REVIEW_NO_UPDATE_LOOP: "1" }, stdio: "pipe" });
+const server = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(PORT), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: DATA }, stdio: "pipe" });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function check(name, fn) {
@@ -92,6 +102,10 @@ try {
   await check("trending refresh saves", async () => {
     const r = await (await fetch(`${base}/api/trending/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ songs: [{ title: "Smoke Song", artist: "Tester" }], source: "smoke" }) })).json();
     assert(r.trending.songs[0].title === "Smoke Song", "trending should save");
+    assert(readFileSync(join(DATA, "trending-instagram.json"), "utf8") === seedBefore, "the shipped trending seed must stay untouched so updates never collide with it");
+    assert(existsSync(join(DATA, "trending.json")), "refreshed trending should live in data/trending.json");
+    const t = await (await fetch(`${base}/api/trending`)).json();
+    assert(t.songs[0].title === "Smoke Song", "the refreshed list should be the one in use");
   });
   await check("quote toggle locked, quiz generalized, steal unlocks", async () => {
     const items = await (await fetch(`${base}/api/items?status=queue`)).json();
@@ -136,7 +150,14 @@ try {
     const resolved = await (await fetch(`${base}/api/grievances/${g.grievance.id}/resolve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resolution: "smoke resolved" }) })).json();
     assert(resolved.grievance.status === "resolved", "grievance should resolve");
   });
+  await check("smoke never touched the repo's own data folder", async () => {
+    const now = execFileSync("git", ["status", "--porcelain", "--", "data"], { cwd: join(REPO_DATA, "..") }).toString();
+    assert(now === repoDataBefore, `repo data changed during smoke:\n${now}`);
+    assert(!existsSync(join(REPO_DATA, "db.json")) || repoDataBefore.includes("db.json") || existsSync(join(DATA, "db.json")), "smoke data should be in the temp folder");
+    assert(existsSync(join(DATA, "db.json")), "the temp folder should hold the smoke data");
+  });
 } finally {
   server.kill();
+  rmSync(DATA, { recursive: true, force: true });
 }
 console.log(process.exitCode ? "SMOKE FAILED" : "SMOKE OK");

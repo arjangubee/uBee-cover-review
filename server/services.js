@@ -1,0 +1,100 @@
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { extname, join } from "node:path";
+import { DATA_DIR, store } from "./store.js";
+
+// ---------- Quotes: uBee default pack by default, creator can override ----------
+export function loadQuotes() {
+  const own = join(DATA_DIR, "quotes.json");
+  if (existsSync(own)) {
+    try { return JSON.parse(readFileSync(own, "utf8")).map((q) => (typeof q === "string" ? { text: q, source: "creator" } : q)); } catch { /* fall through */ }
+  }
+  return JSON.parse(readFileSync(join(DATA_DIR, "default-quotes.json"), "utf8"));
+}
+export function suggestQuote(item, quotes) {
+  if (!quotes.length) return "";
+  // Deterministic rotation by item id so re-renders stay stable.
+  return quotes[item.id % quotes.length].text;
+}
+
+// ---------- Songs: Spotify library first, Instagram trending by default ----------
+export function loadTrending() {
+  const p = join(DATA_DIR, "trending-instagram.json");
+  try { return JSON.parse(readFileSync(p, "utf8")); } catch { return { songs: [], updated_at: null, source: "unavailable" }; }
+}
+export function saveTrending(payload) {
+  const doc = { songs: payload.songs || [], updated_at: new Date().toISOString(), source: payload.source || "claude-instagram-refresh" };
+  writeFileSync(join(DATA_DIR, "trending-instagram.json"), JSON.stringify(doc, null, 1));
+  return doc;
+}
+export function suggestSong(item) {
+  const lib = store.settings.spotifyLibrary || [];
+  if (lib.length) {
+    const s = lib[item.id % lib.length];
+    return { song: `${s.artist} - ${s.title}`, songSource: "spotify" };
+  }
+  const trending = loadTrending().songs || [];
+  if (trending.length) {
+    const s = trending[item.id % trending.length];
+    return { song: `${s.artist} - ${s.title}`, songSource: "trending" };
+  }
+  return { song: "", songSource: "none" };
+}
+
+// ---------- Voice profile: learned from the creator's own captions, with consent ----------
+export function buildVoiceProfile(samples) {
+  const clean = samples.map((s) => String(s || "").trim()).filter(Boolean);
+  if (!clean.length) return null;
+  const words = clean.join(" ").split(/\s+/);
+  const avgWords = Math.round(words.length / clean.length);
+  const emojiCount = (clean.join(" ").match(/\p{Extended_Pictographic}/gu) || []).length;
+  const lower = clean.filter((s) => s === s.toLowerCase()).length;
+  const freq = {};
+  for (const w of words) { const k = w.toLowerCase().replace(/[^a-z0-9']/g, ""); if (k.length > 3) freq[k] = (freq[k] || 0) + 1; }
+  const signatureWords = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([w]) => w);
+  return {
+    sampleCount: clean.length,
+    avgWords,
+    usesEmoji: emojiCount >= clean.length / 3,
+    mostlyLowercase: lower >= clean.length / 2,
+    signatureWords,
+    builtAt: new Date().toISOString(),
+  };
+}
+
+// Offline caption generator. Works with zero keys and zero connectors.
+// If an LLM key is configured, the user's Muse can replace this with a model call
+// through generateCaptionWithLLM (kept as a documented hook, never required).
+export function generateCaption(item, profile) {
+  const quote = (item.quote || "").trim();
+  const base = quote || "new post, who dis";
+  if (!profile) return base;
+  let out = base;
+  if (profile.mostlyLowercase) out = out.charAt(0).toLowerCase() + out.slice(1);
+  if (profile.signatureWords && profile.signatureWords.length && !out.includes(profile.signatureWords[0])) {
+    out = `${out} - ${profile.signatureWords.slice(0, 2).join(" ")} energy today`;
+  }
+  if (profile.usesEmoji) out = `${out} ✨`;
+  return out;
+}
+
+// ---------- DUMP sorting: buckets the Muse creates in Drive / locally ----------
+export const BUCKETS = ["Images", "Videos", "Quotes", "Music", "Voice Profile", "Captions", "Other"];
+const EXT_BUCKET = {
+  ".jpg": "Images", ".jpeg": "Images", ".png": "Images", ".webp": "Images", ".heic": "Images", ".gif": "Images",
+  ".mp4": "Videos", ".mov": "Videos", ".m4v": "Videos", ".webm": "Videos",
+  ".mp3": "Music", ".wav": "Music", ".m4a": "Voice Profile", ".aac": "Music",
+  ".txt": "Quotes", ".md": "Quotes", ".csv": "Quotes", ".json": "Quotes", ".docx": "Quotes", ".pdf": "Quotes",
+};
+const NAME_HINTS = [
+  [/voice|memo|note to self/i, "Voice Profile"],
+  [/caption/i, "Captions"],
+  [/quote|hook/i, "Quotes"],
+  [/song|beat|demo/i, "Music"],
+];
+export function classifyFile(name, mimetype = "") {
+  if (mimetype.startsWith("image/")) return "Images";
+  if (mimetype.startsWith("video/")) return "Videos";
+  if (mimetype.startsWith("audio/")) return "Music";
+  for (const [re, bucket] of NAME_HINTS) if (re.test(name)) return bucket;
+  return EXT_BUCKET[extname(name).toLowerCase()] || "Other";
+}

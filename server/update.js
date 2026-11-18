@@ -12,9 +12,11 @@ import { join } from "node:path";
 const DATA_FILES = ["db.json", "settings.json", "grievances.json", "quotes.json", "trending.json", "song-pool.json", "drive-plan.json", "last-update.json"];
 const KEEP_BACKUPS = 10;
 const CHECK_EVERY_MS = 2 * 60 * 1000;
-const DEFAULT_COMMANDS = [
+// The client's build tool (vite) is a dev package. --include=dev keeps the build working on a machine
+// where npm skips dev packages (NODE_ENV=production or omit=dev).
+export const DEFAULT_COMMANDS = [
   ["npm", ["install", "--no-audit", "--no-fund"]],
-  ["npm", ["--prefix", "client", "install", "--no-audit", "--no-fund"]],
+  ["npm", ["--prefix", "client", "install", "--include=dev", "--no-audit", "--no-fund"]],
   ["npm", ["run", "build"]],
 ];
 

@@ -196,6 +196,12 @@ try {
     assert(h.version === pkg.version, `health says ${h.version}, package.json says ${pkg.version}`);
     assert(typeof h.boot === "string" && h.boot.length >= 8, "health needs a per-start boot id so the page reloads only once the new version answers");
   });
+  await check("release.json carries the same version as package.json, with what's new", async () => {
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    const rel = JSON.parse(readFileSync(new URL("../release.json", import.meta.url), "utf8"));
+    assert(rel.version === pkg.version, `release.json says ${rel.version}, package.json says ${pkg.version}. Bump both together.`);
+    assert(Array.isArray(rel.whatsNew) && rel.whatsNew.length >= 1 && rel.whatsNew.length <= 3, "release.json needs 1 to 3 lines of what's new");
+  });
   await check("health and grievance loop", async () => {
     const health = await (await fetch(`${base}/api/health`)).json();
     assert(health.ok === true, "health should respond");

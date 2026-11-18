@@ -1,8 +1,9 @@
-// Cover rendering and Pollen badges, checked without a browser: the layout math that puts the quote on
-// the posted cover where the review deck shows it, and the words the Approved grid uses.
+// Client logic checked without a browser: the layout math that puts the quote on the posted cover where
+// the review deck shows it, the words the Approved grid uses, and the new-version check for hosted copies.
 // Run: node scripts/render-test.mjs
 import { PREVIEW_WIDTH, coverLayout, wrapText } from "../client/src/renderCover.js";
 import { LOCKED, badgeFor, formatDay, selectable } from "../client/src/pollenView.js";
+import { RELEASE_URL, newer, releaseBanner } from "../client/src/release.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -71,6 +72,18 @@ check("booked, waiting and posted covers can't be picked again; failed and unsen
   for (const s of ["waiting", "leased", "booked", "posted"]) assert(LOCKED.includes(s) && !selectable({ pollen: { status: s } }), s);
   for (const s of ["failed", "not_sent"]) assert(selectable({ pollen: { status: s } }), s);
   assert(selectable({ pollen: null }), "a fresh cover");
+});
+
+check("version numbers compare as numbers, not text", () => {
+  assert(newer("1.4.0", "1.3.0") && newer("1.10.0", "1.9.9") && newer("2.0.0", "1.99.99"), "newer versions should win");
+  assert(!newer("1.3.0", "1.3.0") && !newer("1.3.0", "1.10.0") && !newer("bad", "1.0.0") && !newer(null, "1.0.0"), "same, older or broken is not newer");
+});
+check("a hosted copy hears about a new release and gets one line to send its Muse", () => {
+  const b = releaseBanner({ version: "1.4.0", whatsNew: ["Carousels", "Unschedule"] }, "1.3.0");
+  assert(b && b.version === "1.4.0" && b.whatsNew.join() === "Carousels,Unschedule", JSON.stringify(b));
+  assert(b.ask === "Update my Cover Review to version 1.4.0.", b.ask);
+  assert(releaseBanner({ version: "1.3.0" }, "1.3.0") === null && releaseBanner(null, "1.3.0") === null, "nothing new, no banner");
+  assert(RELEASE_URL === "https://raw.githubusercontent.com/arjangubee/uBee-cover-review/main/release.json", RELEASE_URL);
 });
 
 console.log(failed ? "RENDER TEST FAILED" : "RENDER TEST OK");

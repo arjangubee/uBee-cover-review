@@ -67,19 +67,28 @@ export function buildVoiceProfile(samples) {
   };
 }
 
+// uBee clients post through Pollen, which refuses emoji and dash pivots in captions.
+export function isUbeeClient() {
+  return store.settings.workspace?.mode === "ubee_shared" || Boolean(store.settings.pollen);
+}
+const EMOJI = /[\u{1F000}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D\u203C\u2049\u2122\u2139\u2194-\u21AA\u231A-\u23FF\u24C2\u25AA-\u25FE\u3030\u303D\u3297\u3299]/gu;
+
 // Offline caption generator. Works with zero keys and zero connectors.
 // If an LLM key is configured, the user's Muse can replace this with a model call
 // through generateCaptionWithLLM (kept as a documented hook, never required).
+// uBee clients get the quote as written, minus any emoji: no dash tail, no sparkle.
 export function generateCaption(item, profile) {
   const quote = (item.quote || "").trim();
   const base = quote || "new post, who dis";
-  if (!profile) return base;
-  let out = base;
+  const ubee = isUbeeClient();
+  let out = ubee ? base.replace(EMOJI, "").replace(/[ \t]{2,}/g, " ").trim() || "new post, who dis" : base;
+  if (!profile) return out;
   if (profile.mostlyLowercase) out = out.charAt(0).toLowerCase() + out.slice(1);
+  if (ubee) return out;
   if (profile.signatureWords && profile.signatureWords.length && !out.includes(profile.signatureWords[0])) {
     out = `${out} - ${profile.signatureWords.slice(0, 2).join(" ")} energy today`;
   }
-  if (profile.usesEmoji) out = `${out} ✨`;
+  if (profile.usesEmoji) out = `${out} \u2728`;
   return out;
 }
 

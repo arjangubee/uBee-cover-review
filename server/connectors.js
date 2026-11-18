@@ -44,6 +44,20 @@ export const CONNECTORS = [
       "Refresh trending songs through the Instagram connector and POST them to /api/trending/refresh.",
     ],
   },
+  {
+    id: "pollen",
+    name: "Pollen (uBee clients only)",
+    required: false,
+    purpose: "Schedules approved covers through uBee's publisher. Pollen books each cover on a quiet day about a week out, on every channel where a photo belongs, and the app shows the booked date.",
+    env: [],
+    claudeSteps: [
+      "Only for uBee clients. Skip this for everyone else; the Schedule button stays hidden without a code.",
+      "Ask uBee for the creator's Pollen code. Never paste it into a file, a commit, a grievance or a chat log.",
+      "POST /api/connectors/pollen with {code}. The app keeps it in data/settings.json, which never leaves her computer.",
+      "Check GET /api/pollen/channels: her channels are listed, photo channels on by default, Substack off.",
+      "Tell the creator: in Approved, tap Select, pick covers, then Schedule with Pollen.",
+    ],
+  },
 ];
 
 export const DRIVE_ROOT_NAME = "uBee Cover Review";

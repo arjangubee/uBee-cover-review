@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { CONNECTORS, createDriveFolders, drivePlan, sortLocalDump, spotifyAuthUrl } from "./connectors.js";
 import { buildVoiceProfile, generateCaption, loadQuotes, loadTrending, saveTrending, suggestQuote, suggestSong } from "./services.js";
 import { registerFull } from "./full.js";
+import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
 import { DATA_DIR, LIBRARY_DIR, UPLOAD_DIR, store } from "./store.js";
 import { createUpdater } from "./update.js";
 
@@ -38,6 +39,7 @@ app.get("/api/health", (_req, res) => {
     ok: true, app: "ubee-cover-review", version: v.version, commit: v.commit, boot: BOOT,
     items: { total: store.db.items.length, queue: store.db.items.filter((i) => i.status === "queue").length },
     connectors: store.settings.connectors, workspace: store.settings.workspace,
+    pollen: (({ connected, revoked }) => ({ connected, revoked }))(pollenStatus()),
     openGrievances: readGrievances().filter((g) => g.status === "open").length,
   });
 });
@@ -73,6 +75,7 @@ app.get("/api/setup/status", (_req, res) => {
       google_drive: { required: false, status: store.settings.connectors.google_drive.status },
       spotify: { required: false, status: store.settings.connectors.spotify.status },
       instagram: { required: false, status: store.settings.connectors.instagram.status },
+      pollen: { required: false, status: pollenStatus().connected ? "connected" : "not_connected", note: "uBee clients only" },
     },
     voiceProfile: store.settings.voiceProfile,
     setupComplete: store.settings.setupComplete,
@@ -176,6 +179,10 @@ app.get("/api/voice/profile", (_req, res) => res.json({ voiceProfile: store.sett
 
 // ---------- Full feature set (editor, slides, story, ratings, verification) ----------
 registerFull(app, upload);
+
+// ---------- Pollen: approved covers go out through uBee's publisher (uBee clients only) ----------
+registerPollen(app);
+startPollenSync();
 
 // ---------- Updates: check on start and every 2 minutes, UPDATE NOW applies ----------
 app.get("/api/update", (_req, res) => res.json(updater.status()));

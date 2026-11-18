@@ -288,11 +288,17 @@ export function registerFull(app, upload) {
     res.json({ item });
   });
 
+  // A new revision is its own cover: a deep copy (so slides and image edits never change both), with no
+  // Pollen booking and no compose check carried over from the cover it came from. v1.4.
+  function revisionOf(src) {
+    const { id, status, decidedAt, pollen, pollenRender, beacons, composeAttestedAt, ...rest } = structuredClone(src);
+    return rest;
+  }
+
   // Remix: duplicate as a new revision in the queue. Original: remixcover.
   app.post("/api/items/:id/remix", (req, res) => {
     const src = mustItem(req, res); if (!src) return;
-    const { id, status, decidedAt, ...rest } = src;
-    const copy = store.addItem({ ...rest, status: "queue", parentId: src.id, revision: (src.revision || 1) + 1, title: `${src.title} (remix)` });
+    const copy = store.addItem({ ...revisionOf(src), status: "queue", parentId: src.id, revision: (src.revision || 1) + 1, title: `${src.title} (remix)` });
     res.json({ item: copy });
   });
 
@@ -300,8 +306,7 @@ export function registerFull(app, upload) {
   app.post("/api/items/:id/reject-revise", (req, res) => {
     const src = mustItem(req, res); if (!src) return;
     src.status = "rejected"; src.decidedAt = Date.now(); store.saveDb();
-    const { id, status, decidedAt, ...rest } = src;
-    const copy = store.addItem({ ...rest, status: "queue", parentId: src.id, revision: (src.revision || 1) + 1, note: String(req.body?.note || src.note || "") });
+    const copy = store.addItem({ ...revisionOf(src), status: "queue", parentId: src.id, revision: (src.revision || 1) + 1, note: String(req.body?.note || src.note || "") });
     res.json({ item: copy });
   });
 

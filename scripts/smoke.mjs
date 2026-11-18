@@ -224,6 +224,17 @@ try {
     const cleared = await postJson(`/api/items/${item.id}/rate`, { songRating: null });
     assert(cleared.item.songRating === null, `cleared to ${cleared.item.songRating}`);
   });
+  await check("v1.4 a remix is its own cover: removing its slide keeps the original's, and it isn't booked with Pollen", async () => {
+    const item = await newItem("quill-remix.png");
+    const form = new FormData();
+    form.append("slide", new Blob([PNG_1PX], { type: "image/png" }), "remix-slide.png");
+    await (await fetch(`${base}/api/items/${item.id}/slides`, { method: "POST", body: form })).json();
+    const remix = (await postJson(`/api/items/${item.id}/remix`, {})).item;
+    await postJson(`/api/items/${remix.id}/slides/0/remove`, {});
+    const original = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === item.id);
+    assert(!original.slides[0].deletedAt, "removing the remix's slide removed the original's too");
+    assert(remix.pollen == null && remix.pollenRender == null && remix.beacons == null, `remix carries Pollen or check state: ${JSON.stringify([remix.pollen, remix.pollenRender, remix.beacons])}`);
+  });
   await check("trending refresh saves", async () => {
     const r = await (await fetch(`${base}/api/trending/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ songs: [{ title: "Smoke Song", artist: "Tester" }], source: "smoke" }) })).json();
     assert(r.trending.songs[0].title === "Smoke Song", "trending should save");

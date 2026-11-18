@@ -157,6 +157,8 @@ await check("the update installs the client's build tools even where npm skips d
   assert(client && client[1].includes("--include=dev"), `client install: ${JSON.stringify(client)}`);
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert(/npm --prefix client install --include=dev/.test(pkg.scripts.setup), `setup script: ${pkg.scripts.setup}`);
+  // The 1.3 to 1.4 hop runs 1.3's own install commands, then this release's build script, so the build installs vite itself.
+  assert(/npm --prefix client install --include=dev/.test(pkg.scripts.build), `build script: ${pkg.scripts.build}`);
 });
 console.log(failed ? "UPDATE TEST FAILED" : "UPDATE TEST OK");
 process.exitCode = failed ? 1 : 0;

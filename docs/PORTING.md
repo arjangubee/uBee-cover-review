@@ -24,7 +24,7 @@ image are drawn by the same code (client/src/renderCover.js). Server changes are
 | textWidth | number, 20 to 100 | 84 | Wrap box width, % of the cover |
 | textHeight | number, 60 to 200 | 100 | Line spacing, % of the text size |
 | extraTexts | JSON array, at most 5 | [] | Her own text boxes. Each has quote (up to 300 characters) and the same style fields as the cover: textColor, textFont, textAlign, fontSize, fontWeight, opacity, horizontalPosition, verticalPosition, lineCount, textWidth, textHeight |
-| why | JSON or null | null | Why it matches: { text, tags (up to 8), audience, source, recordedAt } |
+| why | JSON or null | null | Why it matches: { text (up to 1,200 characters), tags (up to 8, 40 characters each), audience and source (up to 200 characters each), recordedAt } |
 | songPreviewUrl | text | "" | A song preview to play, when the song pool has one |
 
 Fields that already existed but now take more values:
@@ -52,6 +52,9 @@ Fields that already existed but now take more values:
 | POST /api/items/enqueue | Each item may carry why |
 | GET /api/palette | Adds customColors |
 | GET /api/setup/status | Adds counts { queue, approved, rejected } |
+| GET /api/items/:id/image | Now required by the cover screen: every cover on screen, Download and the posted render load the photo through it. It must serve the photo from the space's own origin (proxy a Drive or remote photo, never redirect to another site), or the photo won't show and the eyedropper, contrast and Download fail |
+| POST /api/connectors/spotify/sync-library | Each track may carry previewUrl |
+| POST /api/items/:id/remix | A remix is a deep copy: its slides and image edits are its own, and it carries no Pollen booking and no compose check |
 
 Unchanged and still used by the new screen: decide (like is approved, dislike is rejected, undo sends queue),
 remix, slides add, remove and restore, story-framing, verify, swap-photo, restore-original, quote-toggle,
@@ -61,7 +64,8 @@ embedded-text, grievances, the quote quiz, Pollen.
 
 New files: api.js, icons.jsx, reviewMath.js, undo.js, CoverCanvas.jsx, CoverStage.jsx, CoverEditor.jsx, CoverTop.jsx,
 CoverDetails.jsx, LibraryView.jsx, InfoSheet.jsx. Changed: App.jsx, renderCover.js, styles.css, main.jsx.
-The client now bundles TikTok Sans from @fontsource/tiktok-sans (SIL Open Font License).
+The client now bundles TikTok Sans from @fontsource/tiktok-sans (SIL Open Font License). The root `npm run build`
+installs the client's packages first (with dev packages), so the build works even where npm skips them.
 
 Auto-detect AI text doesn't read the photo itself. It hands her a line for her Muse, and shows the result once the
 Muse records it with POST /api/items/:id/embedded-text.

@@ -6,6 +6,8 @@ import { storyCrop } from "./reviewMath.js";
 // text wraps, sizes and sits exactly where it will post.
 
 const images = new Map(); // photo address -> Promise of a loaded <img>, so going back and forth is instant
+const ready = new Map(); // photo address -> the loaded <img>, for an instant first frame
+const KEEP = 10; // full-size photos held in memory; a phone has little to spare
 
 /** The photo from this app's own address, so the canvas can always read and export it. */
 export const imageUrlFor = (item) => `/api/items/${item.id}/image?v=${encodeURIComponent(String(item.imageUrl || "").slice(-80))}`;
@@ -15,32 +17,43 @@ export function loadImage(url) {
     const p = new Promise((resolve, reject) => {
       const img = new Image();
       img.decoding = "async";
-      img.onload = () => resolve(img);
+      img.onload = () => { ready.set(url, img); resolve(img); };
       img.onerror = () => reject(new Error("The photo didn't load."));
       img.src = url;
     });
     images.set(url, p);
     p.catch(() => images.delete(url));
-    if (images.size > 40) images.delete(images.keys().next().value);
+    while (images.size > KEEP) {
+      const oldest = images.keys().next().value;
+      images.delete(oldest);
+      ready.delete(oldest);
+    }
   }
   return images.get(url);
 }
 
 /** The cover fit inside maxW x maxH. children({ cssW, cssH }) draws overlays on top, in CSS pixels. */
-export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, canvasRef, children, className = "", ...rest }) {
+export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, canvasRef, onDrawn, children, className = "", ...rest }) {
   const ref = useRef(null);
   const base = useRef({ key: "", canvas: null });
-  const [img, setImg] = useState(null);
-  const [failed, setFailed] = useState(false);
-  const [, setFontsReady] = useState(0);
+  const reported = useRef(null);
   const url = imageUrlFor(item);
+  // The photo belongs to one address: while the next cover's photo loads, nothing of the last one shows.
+  const [photo, setPhoto] = useState(() => ({ url, img: ready.get(url) || null, failed: false }));
+  const [, setFontsReady] = useState(0);
 
   useEffect(() => {
     let alive = true;
-    setFailed(false);
-    loadImage(url).then((i) => { if (alive) setImg(i); }).catch(() => { if (alive) { setImg(null); setFailed(true); } });
+    const hit = ready.get(url);
+    setPhoto({ url, img: hit || null, failed: false });
+    if (!hit) {
+      loadImage(url).then((i) => { if (alive) setPhoto({ url, img: i, failed: false }); })
+        .catch(() => { if (alive) setPhoto({ url, img: null, failed: true }); });
+    }
     return () => { alive = false; };
   }, [url]);
+  const img = photo.url === url ? photo.img : null;
+  const failed = photo.url === url && photo.failed;
 
   const fontKey = JSON.stringify([quoteOn, item.textFont, item.fontWeight, (item.extraTexts || []).map((b) => [b.textFont, b.fontWeight])]);
   useEffect(() => {
@@ -73,7 +86,9 @@ export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, 
       base.current = { key, canvas: layer };
     }
     drawCover(canvas.getContext("2d"), { ...item, imageEdit: null }, base.current.canvas, W, H, { quoteOn });
+    if (reported.current !== url) { reported.current = url; onDrawn?.(item.id); }
   });
+  useEffect(() => { if (!img) reported.current = null; }, [img]);
 
   const setRef = (el) => { ref.current = el; if (canvasRef) canvasRef.current = el; };
   const label = [item.title, quoteOn && item.quote ? `Quote: ${item.quote}` : "", ...(item.extraTexts || []).map((b) => b.quote)].filter(Boolean).join(". ");
@@ -81,8 +96,10 @@ export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, 
     <div className={`coverWrap ${className}`} style={{ width: cssW, height: cssH }} {...rest}>
       {failed ? (
         <div className="coverMissing" role="img" aria-label="The photo didn't load">The photo didn't load. Ask your Muse to import it again.</div>
-      ) : (
+      ) : img ? (
         <canvas ref={setRef} className="coverCanvas" role="img" aria-label={label || "Cover"} />
+      ) : (
+        <div className="coverLoading" role="img" aria-label="Loading the photo"><span className="loadingDot" /></div>
       )}
       {!failed && img && children?.({ cssW, cssH, natural })}
     </div>

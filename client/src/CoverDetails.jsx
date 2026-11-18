@@ -47,13 +47,14 @@ export function Steppers({ slide, total, onSlide, onAddSlide, onRemoveSlide, can
   );
 }
 
-export function NoteComposer({ item, onPost, inputRef }) {
+export function NoteComposer({ item, onPost, onDraft, inputRef }) {
   const [text, setText] = useState(item.note || "");
   useEffect(() => { setText(item.note || ""); }, [item.id, item.note]);
   const changed = text.trim() !== String(item.note || "").trim();
   return (
     <form className="noteRow" onSubmit={(e) => { e.preventDefault(); if (changed) onPost(text.trim()); }}>
-      <input ref={inputRef} className="noteInput" value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a note for the next revision" aria-label="Note for the next revision" />
+      <input ref={inputRef} className="noteInput" value={text} onChange={(e) => { setText(e.target.value); onDraft?.(e.target.value); }}
+        placeholder="Add a note for the next revision" aria-label="Note for the next revision" />
       <button type="submit" className="linkBtn" disabled={!changed}>Post</button>
     </form>
   );
@@ -71,7 +72,7 @@ export function TitleRow({ item }) {
   );
 }
 
-export function CaptionRow({ item, onSave, onRedo }) {
+export function CaptionRow({ item, onSave, onRedo, onDraft }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(item.caption || "");
   useEffect(() => { setText(item.caption || ""); setEditing(false); }, [item.id, item.caption]);
@@ -80,17 +81,15 @@ export function CaptionRow({ item, onSave, onRedo }) {
       <span className="captionLabel">Instagram caption</span>
       {editing ? (
         <form className="captionEdit" onSubmit={(e) => { e.preventDefault(); onSave(text); setEditing(false); }}>
-          <textarea className="field" rows={3} value={text} onChange={(e) => setText(e.target.value)} aria-label="Instagram caption" autoFocus />
+          <textarea className="field" rows={3} value={text} onChange={(e) => { setText(e.target.value); onDraft?.(e.target.value); }} aria-label="Instagram caption" autoFocus />
           <div className="rowEnd">
-            <button type="button" className="linkBtn muted" onClick={() => { setText(item.caption || ""); setEditing(false); }}>Cancel</button>
+            <button type="button" className="linkBtn muted" onClick={onRedo}><Icon name="refresh" size={18} /> New caption</button>
+            <button type="button" className="linkBtn muted" onClick={() => { setText(item.caption || ""); setEditing(false); onDraft?.(null); }}>Cancel</button>
             <button type="submit" className="linkBtn">Save</button>
           </div>
         </form>
       ) : (
-        <div className="captionBody">
-          <button type="button" className="captionText" onClick={() => setEditing(true)} aria-label="Edit the caption">{item.caption || "No caption yet"}</button>
-          <button type="button" className="iconBtn small" onClick={onRedo} aria-label="Write a new caption"><Icon name="refresh" size={20} /></button>
-        </div>
+        <button type="button" className="captionText" onClick={() => setEditing(true)} aria-label="Edit the caption">{item.caption || "No caption yet"}</button>
       )}
     </div>
   );

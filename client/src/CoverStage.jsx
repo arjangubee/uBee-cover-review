@@ -12,8 +12,15 @@ const TAP = 8; // a press that moves less than this many pixels is a tap
 
 export default function CoverStage({
   item, quoteOn, slides, slide, setSlide, story, editing, activeBox, onStartEdit, onSelectBox, onMoveBox,
-  pickMode, onPick, onNewBox, onAddMosaic, onMosaicsChange, canAddBox,
+  pickMode, onPick, onNewBox, onAddMosaic, onMosaicsChange, canAddBox, burst = 0, onDrawn,
 }) {
+  const [showBurst, setShowBurst] = useState(false);
+  useEffect(() => {
+    if (!burst) return undefined;
+    setShowBurst(true);
+    const t = setTimeout(() => setShowBurst(false), 800);
+    return () => clearTimeout(t);
+  }, [burst]);
   const stageRef = useRef(null);
   const trackRef = useRef(null);
   const canvasRef = useRef(null);
@@ -31,7 +38,7 @@ export default function CoverStage({
     return () => ro.disconnect();
   }, []);
   const stageH = Math.round((stageW * 5) / 4);
-  const slideW = single ? stageW : Math.round(stageW * 0.8); // the next slide peeks in at the edge
+  const slideW = stageW; // every slide pages full width, like a carousel post
 
   // Steppers and keys move the strip; a swipe moves it natively and reports where it landed.
   useEffect(() => {
@@ -107,7 +114,7 @@ export default function CoverStage({
   }
 
   const cover = (maxW, maxH, extra = {}) => (
-    <CoverCanvas item={item} quoteOn={quoteOn} maxW={maxW} maxH={maxH} story={story} canvasRef={canvasRef}
+    <CoverCanvas item={item} quoteOn={quoteOn} maxW={maxW} maxH={maxH} story={story} canvasRef={canvasRef} onDrawn={onDrawn}
       className={[editing && "editing", pickMode && "picking"].filter(Boolean).join(" ")} {...extra}>
       {({ cssW, cssH }) => (
         <>
@@ -146,6 +153,7 @@ export default function CoverStage({
         </div>
       )}
       {pickMode && <p className="pickHint" role="status">Tap the photo to pick a color</p>}
+      {showBurst && <span key={burst} className="likeBurst" aria-hidden="true"><Icon name="heart" size={110} filled /></span>}
     </div>
   );
 }

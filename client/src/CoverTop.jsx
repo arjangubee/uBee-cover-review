@@ -1,0 +1,82 @@
+import { useEffect, useRef, useState } from "react";
+import Icon from "./icons.jsx";
+import { displayTitle, parseSong } from "./reviewMath.js";
+
+// The top of the review screen: the header row that stays put, the Review deck | Story view switch,
+// and the song row.
+
+const LIST_WORDS = { queue: "in queue", approved: "approved", rejected: "passed" };
+
+export function CoverHeader({ list, count, position, total, canUndo, canRedo, onBack, onInfo, onUndo, onRedo }) {
+  return (
+    <header className="topbar">
+      <button type="button" className="iconBtn" onClick={onBack} aria-label="All covers"><Icon name="back" /></button>
+      <button type="button" className={`queuePill ${list}`} onClick={onBack} aria-label={`${count} ${LIST_WORDS[list]}. Show all covers`}>
+        <span className="pillFace">
+          <span className="dot" aria-hidden="true" />
+          <span>{count} {LIST_WORDS[list]}</span>
+        </span>
+      </button>
+      <button type="button" className="iconBtn info" onClick={onInfo} aria-label="Setup and help"><Icon name="info" /></button>
+      <span className="coverCount" aria-live="polite">{total ? <><span className="word">Cover </span>{position} of {total}</> : null}</span>
+      <button type="button" className="iconBtn small" onClick={onUndo} disabled={!canUndo} aria-label="Undo"><Icon name="undo" size={22} /></button>
+      <button type="button" className="iconBtn small" onClick={onRedo} disabled={!canRedo} aria-label="Redo"><Icon name="redo" size={22} /></button>
+      <img src="/brand/ubee-bee-chartreuse.png" alt="uBee" className="bee" />
+    </header>
+  );
+}
+
+export function ModeSwitch({ story, setStory, disabled }) {
+  return (
+    <div className="modeSwitch" role="tablist" aria-label="View">
+      <button type="button" role="tab" aria-selected={!story} className={!story ? "on" : ""} onClick={() => setStory(false)}>Review deck</button>
+      <button type="button" role="tab" aria-selected={story} className={story ? "on" : ""} disabled={disabled} onClick={() => setStory(true)}>Story view</button>
+    </div>
+  );
+}
+
+export function SongRow({ item, onShuffle, onSetSong }) {
+  const { artist, title } = parseSong(item.song);
+  const [playing, setPlaying] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(item.song || "");
+  const audio = useRef(null);
+  useEffect(() => {
+    setPlaying(false);
+    setEditing(false);
+    setText(item.song || "");
+    audio.current?.pause();
+  }, [item.id, item.song]);
+
+  function toggle() {
+    const a = audio.current;
+    if (!a) return;
+    if (playing) { a.pause(); setPlaying(false); return; }
+    a.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+  }
+
+  return (
+    <div className="songRow">
+      <div className="songMeta">
+        <strong className="songOwner">{displayTitle(item.title)}</strong>
+        {editing ? (
+          <form className="songEdit" onSubmit={(e) => { e.preventDefault(); onSetSong(text.trim()); setEditing(false); }}>
+            <input className="field" value={text} onChange={(e) => setText(e.target.value)} placeholder="Artist - Song" aria-label="Song, as Artist - Song" autoFocus />
+            <button type="submit" className="linkBtn">Save</button>
+          </form>
+        ) : (
+          <button type="button" className="songLine" onClick={() => setEditing(true)} aria-label={`Song: ${item.song || "none yet"}. Tap to change it`}>
+            {item.song ? <>{artist && <>{artist} · </>}<span className="u">{title}</span></> : <span>No song yet. Tap shuffle or type one.</span>}
+          </button>
+        )}
+      </div>
+      {item.songPreviewUrl ? (
+        <>
+          <button type="button" className="playBtn" onClick={toggle} aria-label={playing ? "Pause the song preview" : "Play the song preview"}><Icon name={playing ? "pause" : "play"} size={26} /></button>
+          <audio ref={audio} src={item.songPreviewUrl} preload="none" onEnded={() => setPlaying(false)} />
+        </>
+      ) : null}
+      <button type="button" className="iconBtn" onClick={onShuffle} aria-label="Shuffle the song"><Icon name="shuffle" /></button>
+    </div>
+  );
+}

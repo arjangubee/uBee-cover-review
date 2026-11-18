@@ -1,22 +1,54 @@
-// Draws a cover the way the review deck shows it: the photo, and the quote on top when it's on.
-// What she approved is what posts. The photo comes from this app's own address (/api/items/:id/image),
-// so a photo from Drive or another site never blocks the canvas export.
+// Draws a cover the way the review screen shows it: the photo, its image effects, and the text on top.
+// The screen and the posted JPEG both go through drawCover, so what she approved is what posts.
+// The photo comes from this app's own address (/api/items/:id/image), so a photo from Drive or
+// another site never blocks the canvas export.
 
 export const FONT_CSS = {
   tiktok: "'TikTok Sans', system-ui, sans-serif",
-  avenir: "Avenir, 'Segoe UI', system-ui, sans-serif",
+  avenir: "Avenir, 'Avenir Next', 'Segoe UI', system-ui, sans-serif",
   serif: "Georgia, 'Times New Roman', serif",
   condensed: "'Arial Narrow', 'Helvetica Neue Condensed', sans-serif",
   papyrus: "Papyrus, fantasy",
   papyrus_condensed: "Papyrus, fantasy",
 };
 
-// The deck's photo width on a computer screen. Text sizes in the deck are set against it, so the
-// posted cover scales them up by (cover width / this) and the quote covers the same share of the photo.
-export const PREVIEW_WIDTH = 494;
-const BOX = 0.84; // the quote box is 84% of the photo's width, like the deck's overlay
+/** What the font menu says for each font. */
+export const FONT_LABELS = {
+  tiktok: "TikTok Sans Classic",
+  avenir: "Avenir",
+  serif: "Serif",
+  condensed: "Condensed",
+  papyrus: "Papyrus",
+  papyrus_condensed: "Papyrus Condensed",
+};
 
-/** The deck's text size for a cover, before scaling: 55% of the size slider, never under 14px. */
+// The deck's photo width on a computer screen. Text sizes are set against it, so a cover drawn wider
+// scales them up by (cover width / this) and the quote covers the same share of the photo.
+export const PREVIEW_WIDTH = 494;
+
+/** Every text box style field, with the value a cover had before it existed. */
+export const STYLE_DEFAULTS = {
+  textColor: "#FFFFFF", textFont: "tiktok", textAlign: "center",
+  fontSize: 58, fontWeight: 500, opacity: 100,
+  horizontalPosition: 50, verticalPosition: 50, lineCount: 0,
+  textWidth: 84, textHeight: 100,
+};
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const num = (v, fallback) => (v == null || v === "" || !Number.isFinite(Number(v)) ? fallback : Number(v));
+
+/** A text box with every style field filled in. */
+export function withDefaults(box) {
+  const out = { ...STYLE_DEFAULTS, ...box };
+  for (const k of Object.keys(STYLE_DEFAULTS)) {
+    if (typeof STYLE_DEFAULTS[k] === "number") out[k] = num(box?.[k], STYLE_DEFAULTS[k]);
+    else if (out[k] == null || out[k] === "") out[k] = STYLE_DEFAULTS[k];
+  }
+  out.quote = String(box?.quote ?? "");
+  return out;
+}
+
+/** The deck's text size for a box, before scaling: 55% of the size slider, never under 14px. */
 export const previewFontPx = (item) => Math.max(14, Number(item.fontSize ?? 58) * 0.55);
 
 /** Lines the way the deck wraps them: at spaces, inside long words when one doesn't fit, her line breaks kept. */
@@ -43,18 +75,237 @@ export function wrapText(text, maxWidth, measure) {
 }
 
 /**
- * Where the quote goes on a cover of width x height. measureAt(px) returns a function that measures a
- * string at that text size. Line height is one text size, like the deck.
+ * The Lines picker: the quote's words in exactly `count` rows (fewer when there are fewer words),
+ * split so the widest row is as narrow as it can be. Her own line breaks become spaces here.
  */
-export function coverLayout(item, width, height, measureAt) {
-  const fontPx = previewFontPx(item) * (width / PREVIEW_WIDTH);
-  const boxW = width * BOX;
-  const lines = wrapText(item.quote, boxW, measureAt(fontPx));
-  const cx = (width * Number(item.horizontalPosition ?? 50)) / 100;
-  const cy = (height * Number(item.verticalPosition ?? 50)) / 100;
-  const align = ["left", "right"].includes(item.textAlign) ? item.textAlign : "center";
-  const x = align === "left" ? cx - boxW / 2 : align === "right" ? cx + boxW / 2 : cx;
-  return { fontPx, lines, x, top: cy - (lines.length * fontPx) / 2, lineHeight: fontPx, align, alpha: Number(item.opacity ?? 100) / 100 };
+export function balanceLines(text, count, measure) {
+  const words = String(text ?? "").split(/\s+/).filter(Boolean);
+  const k = Math.min(Math.max(1, Math.round(count)), words.length);
+  if (!words.length) return [];
+  const n = words.length;
+  const width = [];
+  for (let i = 0; i < n; i++) {
+    width[i] = [];
+    for (let j = i; j < n; j++) width[i][j] = measure(words.slice(i, j + 1).join(" "));
+  }
+  // best[r][i]: the best way to set words i.. in r rows, as [widest row, sum of squared widths, first cut].
+  const best = Array.from({ length: k + 1 }, () => new Array(n + 1).fill(null));
+  for (let i = 0; i < n; i++) best[1][i] = [width[i][n - 1], width[i][n - 1] ** 2, n];
+  for (let r = 2; r <= k; r++) {
+    for (let i = 0; i <= n - r; i++) {
+      let pick = null;
+      for (let cut = i + 1; cut <= n - r + 1; cut++) {
+        const rest = best[r - 1][cut];
+        if (!rest) continue;
+        const w = width[i][cut - 1];
+        const cand = [Math.max(w, rest[0]), w * w + rest[1], cut];
+        if (!pick || cand[0] < pick[0] - 1e-9 || (Math.abs(cand[0] - pick[0]) <= 1e-9 && cand[1] < pick[1])) pick = cand;
+      }
+      best[r][i] = pick;
+    }
+  }
+  const rows = [];
+  for (let r = k, i = 0; r >= 1; r--) {
+    const cut = best[r][i][2];
+    rows.push(words.slice(i, cut).join(" "));
+    i = cut;
+  }
+  return rows;
+}
+
+/**
+ * Where a text box goes on a cover of width x height. measureAt(px) returns a function that measures a
+ * string at that text size. Rows never cross the photo's edges: when one would, the block slides in.
+ */
+export function coverLayout(box, width, height, measureAt) {
+  const s = withDefaults(box);
+  const boxW = (width * clamp(s.textWidth, 20, 100)) / 100;
+  let fontPx = previewFontPx(s) * (width / PREVIEW_WIDTH);
+  let lines;
+  const lineCount = clamp(Math.round(s.lineCount), 0, 4);
+  if (lineCount > 0) {
+    lines = balanceLines(s.quote, lineCount, measureAt(fontPx));
+    // Lines picks the rows; the size gives way so the widest row fits the box.
+    for (let pass = 0; pass < 3 && lines.length; pass++) {
+      const m = measureAt(fontPx);
+      const widest = Math.max(...lines.map((l) => m(l)));
+      if (widest <= boxW + 1e-9) break;
+      fontPx *= boxW / widest;
+    }
+  } else {
+    lines = wrapText(s.quote, boxW, measureAt(fontPx));
+  }
+  const measure = measureAt(fontPx);
+  const lineHeight = (fontPx * clamp(s.textHeight, 60, 200)) / 100;
+  const cx = (width * s.horizontalPosition) / 100;
+  const cy = (height * s.verticalPosition) / 100;
+  const justify = s.textAlign === "justify";
+  const align = justify ? "left" : ["left", "right"].includes(s.textAlign) ? s.textAlign : "center";
+  let boxLeft = cx - boxW / 2;
+  const top = cy - (lines.length * lineHeight) / 2;
+
+  // Her line breaks end a paragraph; the last row of a paragraph is never stretched.
+  const paraEnds = new Set();
+  if (justify && lineCount === 0) {
+    let at = 0;
+    for (const para of String(s.quote).split("\n")) {
+      at += wrapText(para, boxW, measure).length;
+      paraEnds.add(at - 1);
+    }
+  } else paraEnds.add(lines.length - 1);
+
+  let rows = lines.map((text, i) => {
+    const w = measure(text);
+    const y = top + (i + 0.5) * lineHeight;
+    if (justify) {
+      const words = text.split(" ").filter(Boolean);
+      if (!paraEnds.has(i) && words.length > 1) {
+        const gap = (boxW - words.reduce((sum, wd) => sum + measure(wd), 0)) / (words.length - 1);
+        let x = boxLeft;
+        const placed = words.map((wd) => { const at = x; x += measure(wd) + gap; return { text: wd, x: at }; });
+        return { text, y, x: boxLeft, left: boxLeft, width: boxW, words: placed };
+      }
+      let x = boxLeft;
+      const placed = words.map((wd) => { const at = x; x += measure(wd) + measure(" "); return { text: wd, x: at }; });
+      return { text, y, x: boxLeft, left: boxLeft, width: w, words: placed };
+    }
+    const x = align === "left" ? boxLeft : align === "right" ? boxLeft + boxW : boxLeft + boxW / 2;
+    const left = align === "left" ? x : align === "right" ? x - w : x - w / 2;
+    return { text, y, x, left, width: w };
+  });
+
+  // Keep every row on the photo: slide the whole block in by what spills over an edge.
+  if (rows.length) {
+    const minLeft = Math.min(...rows.map((r) => r.left));
+    const maxRight = Math.max(...rows.map((r) => r.left + r.width));
+    const shift = minLeft < 0 ? -minLeft : maxRight > width ? width - maxRight : 0;
+    if (shift) {
+      boxLeft += shift;
+      rows = rows.map((r) => ({ ...r, x: r.x + shift, left: r.left + shift, words: r.words?.map((wd) => ({ ...wd, x: wd.x + shift })) }));
+    }
+  }
+  const x = align === "left" ? boxLeft : align === "right" ? boxLeft + boxW : boxLeft + boxW / 2;
+  return { fontPx, lines, rows, x, top, lineHeight, align, justify, boxLeft, boxW, alpha: clamp(s.opacity, 0, 100) / 100,
+    color: s.textColor, font: s.textFont, weight: s.fontWeight };
+}
+
+/** The text boxes a cover draws: the quote when it's on, then her extra boxes, which always draw. */
+export function textBoxes(item, quoteOn) {
+  const boxes = [];
+  if (quoteOn && String(item.quote || "").trim()) boxes.push({ ...withDefaults(item), quote: String(item.quote), main: true });
+  (Array.isArray(item.extraTexts) ? item.extraTexts : []).forEach((extra, extraIndex) => {
+    if (extra && String(extra.quote || "").trim()) boxes.push({ ...withDefaults(extra), extraIndex });
+  });
+  return boxes;
+}
+
+/** One pixel through the Image contrast setting: normal, high (more contrast) or bw (black and white). */
+export function contrastPixel(r, g, b, mode) {
+  if (mode === "bw") {
+    const l = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+    return [l, l, l];
+  }
+  if (mode === "high") return [r, g, b].map((v) => clamp(Math.round((v - 128) * 1.35 + 128), 0, 255));
+  return [r, g, b];
+}
+
+export const CONTRAST_MODES = [
+  { id: "normal", label: "Normal color" },
+  { id: "high", label: "More contrast" },
+  { id: "bw", label: "Black and white" },
+];
+
+/** Face mosaic boxes (percent of the photo) as whole pixels inside a width x height cover. Broken ones are dropped. */
+export function mosaicRects(list, width, height) {
+  const out = [];
+  for (const r of Array.isArray(list) ? list : []) {
+    if (!r) continue;
+    const [x, y, w, h] = [r.x, r.y, r.w, r.h].map(Number);
+    if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) continue;
+    const px = Math.round((clamp(x, 0, 100) * width) / 100);
+    const py = Math.round((clamp(y, 0, 100) * height) / 100);
+    const pw = Math.min(Math.round((w * width) / 100), width - px);
+    const ph = Math.min(Math.round((h * height) / 100), height - py);
+    if (pw > 0 && ph > 0) out.push({ x: px, y: py, w: pw, h: ph });
+  }
+  return out;
+}
+
+const fontString = (box, px) => `${box.fontWeight || 500} ${px}px ${FONT_CSS[box.textFont] || FONT_CSS.tiktok}`;
+
+/** Loads every font the cover's text uses, so canvas measures and draws with the real face. */
+export async function ensureFonts(item, quoteOn = true) {
+  if (typeof document === "undefined" || !document.fonts?.load) return;
+  const boxes = textBoxes(item, quoteOn);
+  await Promise.all(boxes.map((b) => document.fonts.load(fontString(b, 40), b.quote).catch(() => null)));
+}
+
+/**
+ * Draws the cover into ctx at width x height: the photo (src rect optional, for the 9:16 story frame),
+ * Image contrast, face mosaic, then the text. Returns { effectsSkipped } when the photo's pixels
+ * couldn't be read (a photo from another site), so the screen can say so.
+ */
+export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(item.showQuote), src = null } = {}) {
+  let effectsSkipped = false;
+  ctx.save();
+  ctx.clearRect(0, 0, width, height);
+  if (img) {
+    if (src) ctx.drawImage(img, src.x, src.y, src.w, src.h, 0, 0, width, height);
+    else ctx.drawImage(img, 0, 0, width, height);
+  }
+  const edit = item.imageEdit || {};
+  if (img && edit.contrast && edit.contrast !== "normal") {
+    try {
+      const data = ctx.getImageData(0, 0, width, height);
+      const p = data.data;
+      for (let i = 0; i < p.length; i += 4) {
+        const [r, g, b] = contrastPixel(p[i], p[i + 1], p[i + 2], edit.contrast);
+        p[i] = r; p[i + 1] = g; p[i + 2] = b;
+      }
+      ctx.putImageData(data, 0, 0);
+    } catch { effectsSkipped = true; }
+  }
+  if (img) {
+    const block = Math.max(4, Math.round(Math.min(width, height) / 48));
+    for (const r of mosaicRects(edit.mosaics, width, height)) {
+      const tw = Math.max(1, Math.ceil(r.w / block)), th = Math.max(1, Math.ceil(r.h / block));
+      const tiny = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(tw, th) : Object.assign(document.createElement("canvas"), { width: tw, height: th });
+      const t = tiny.getContext("2d");
+      t.drawImage(ctx.canvas, r.x, r.y, r.w, r.h, 0, 0, tw, th);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(tiny, 0, 0, tw, th, r.x, r.y, r.w, r.h);
+      ctx.imageSmoothingEnabled = true;
+    }
+  }
+  for (const box of textBoxes(item, quoteOn)) {
+    const L = coverLayout(box, width, height, (px) => { ctx.font = fontString(box, px); return (t) => ctx.measureText(t).width; });
+    ctx.font = fontString(box, L.fontPx);
+    ctx.fillStyle = box.textColor || "#FFFFFF";
+    ctx.globalAlpha = L.alpha;
+    ctx.textBaseline = "middle";
+    for (const row of L.rows) {
+      if (row.words) {
+        ctx.textAlign = "left";
+        for (const w of row.words) ctx.fillText(w.text, w.x, row.y);
+      } else {
+        ctx.textAlign = L.align;
+        ctx.fillText(row.text, row.x, row.y);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  return { effectsSkipped };
+}
+
+/** Where each text box sits on a width x height cover, for tapping the text to edit it. */
+export function textHitBoxes(item, width, height, measureCtx, quoteOn = Boolean(item.showQuote)) {
+  return textBoxes(item, quoteOn).map((box) => {
+    const L = coverLayout(box, width, height, (px) => { measureCtx.font = fontString(box, px); return (t) => measureCtx.measureText(t).width; });
+    const left = L.rows.length ? Math.min(...L.rows.map((r) => r.left)) : L.boxLeft;
+    const right = L.rows.length ? Math.max(...L.rows.map((r) => r.left + r.width)) : L.boxLeft + L.boxW;
+    return { index: box.main ? -1 : box.extraIndex, left, right, top: L.top, bottom: L.top + L.rows.length * L.lineHeight };
+  });
 }
 
 /** The cover as a JPEG Blob, longest side at most maxLong. quoteOn follows the deck: the toggle, and quotes unlocked. */
@@ -69,20 +320,7 @@ export async function renderCover(item, { maxLong = 2160, quoteOn = Boolean(item
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, 0, 0, w, h);
-  if (quoteOn && String(item.quote || "").trim()) {
-    if (document.fonts?.ready) await document.fonts.ready;
-    const family = FONT_CSS[item.textFont] || FONT_CSS.tiktok;
-    const fontAt = (px) => `${item.fontWeight || 500} ${px}px ${family}`;
-    const L = coverLayout(item, w, h, (px) => { ctx.font = fontAt(px); return (t) => ctx.measureText(t).width; });
-    ctx.font = fontAt(L.fontPx);
-    ctx.fillStyle = item.textColor || "#FFFFFF";
-    ctx.globalAlpha = L.alpha;
-    ctx.textAlign = L.align;
-    ctx.textBaseline = "middle";
-    L.lines.forEach((line, i) => ctx.fillText(line, L.x, L.top + (i + 0.5) * L.lineHeight));
-    ctx.globalAlpha = 1;
-  }
+  await ensureFonts(item, quoteOn);
+  drawCover(canvas.getContext("2d"), item, img, w, h, { quoteOn });
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't make the cover image."))), "image/jpeg", 0.92));
 }

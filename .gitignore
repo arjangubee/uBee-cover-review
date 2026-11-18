@@ -17,3 +17,4 @@ data/trending.json
 data/last-update.json
 data/backups/
 data/renders/
+public/brand/*.png

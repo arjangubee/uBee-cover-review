@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import ApprovedGrid from "./ApprovedGrid.jsx";
+import { badgeFor } from "./pollenView.js";
+import { FONT_CSS, PREVIEW_WIDTH, previewFontPx } from "./renderCover.js";
+import ScheduleSheet from "./ScheduleSheet.jsx";
 import UpdateBanner from "./UpdateBanner.jsx";
 
 async function api(path, options) {
@@ -7,15 +11,6 @@ async function api(path, options) {
   return res.json();
 }
 const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
-
-const FONT_CSS = {
-  tiktok: "'TikTok Sans', system-ui, sans-serif",
-  avenir: "Avenir, 'Segoe UI', system-ui, sans-serif",
-  serif: "Georgia, 'Times New Roman', serif",
-  condensed: "'Arial Narrow', 'Helvetica Neue Condensed', sans-serif",
-  papyrus: "Papyrus, fantasy",
-  papyrus_condensed: "Papyrus, fantasy",
-};
 
 export default function App() {
   const [status, setStatus] = useState(null);
@@ -33,22 +28,47 @@ export default function App() {
   const [quotesStatus, setQuotesStatus] = useState(null);
   const [quizQuotes, setQuizQuotes] = useState([]);
   const [ownQuotes, setOwnQuotes] = useState("");
+  const [pollen, setPollen] = useState(null);
+  const [pollenCode, setPollenCode] = useState("");
+  const [pollenNote, setPollenNote] = useState("");
+  const [focusId, setFocusId] = useState(null); // an approved cover opened from the grid
+  const [sheet, setSheet] = useState(null); // { items, stop } while the Schedule sheet is open
   const startX = useRef(null);
+  // The deck's photo width: quote text scales with it, the same way the posted cover does.
+  const photoRef = useRef(null);
+  const [photoW, setPhotoW] = useState(PREVIEW_WIDTH);
+  useEffect(() => {
+    const el = photoRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(([entry]) => { if (entry.contentRect.width) setPhotoW(entry.contentRect.width); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
 
   const load = useCallback(async () => {
-    const [s, q, qs, quiz] = await Promise.all([
+    const [s, q, qs, quiz, pc] = await Promise.all([
       api("/api/setup/status"), api(`/api/items?status=${tab}`),
-      api("/api/quotes/status"), api("/api/quiz/quotes"),
+      api("/api/quotes/status"), api("/api/quiz/quotes"), api("/api/pollen/channels").catch(() => null),
     ]);
     setStatus(s);
     setItems(q.items);
     setQuotesStatus(qs);
     setQuizQuotes(quiz.quotes);
+    setPollen(pc);
   }, [tab]);
 
   useEffect(() => { load().catch(() => {}); }, [load]);
+  useEffect(() => { setFocusId(null); }, [tab]);
+  // While a cover waits for Pollen, keep the Approved grid's badges fresh.
+  const pollenPending = tab === "approved" && items.some((i) => ["waiting", "leased"].includes(i.pollen?.status));
+  useEffect(() => {
+    if (!pollenPending || sheet) return undefined;
+    const t = setInterval(() => load().catch(() => {}), 15000);
+    return () => clearInterval(t);
+  }, [pollenPending, sheet, load]);
   useEffect(() => { api("/api/palette").then((p) => { setPalette(p.palette); setFonts(p.fonts); }).catch(() => {}); }, []);
-  const current = items[0];
+  const gridMode = tab === "approved" && !focusId;
+  const current = tab === "approved" ? items.find((i) => i.id === focusId) : items[0];
 
   useEffect(() => { setNote(current?.note || ""); setRating(current?.rating || 8); setDragX(0); }, [current?.id]);
 
@@ -67,7 +87,17 @@ export default function App() {
   async function decide(decision) {
     if (!current) return;
     await post(`/api/items/${current.id}/decide`, { decision, rating, note });
+    if (tab === "approved") setFocusId(null);
     await load();
+  }
+
+  async function connectPollen() {
+    setPollenNote("");
+    try {
+      await post("/api/connectors/pollen", { code: pollenCode.trim() });
+      setPollenCode("");
+      await load();
+    } catch (e) { setPollenNote(e.message); }
   }
 
   async function editCurrent(patch) {
@@ -123,7 +153,7 @@ export default function App() {
 
   useEffect(() => {
     function onKey(e) {
-      if (!current || showEditor) return;
+      if (!current || showEditor || sheet) return;
       if (e.key === "ArrowRight") decide("approved");
       if (e.key === "ArrowLeft") decide("rejected");
     }
@@ -158,7 +188,7 @@ export default function App() {
   const activeSlides = (current?.slides || []).filter((s) => !s.deletedAt).sort((a, b) => a.position - b.position);
   const overlayStyle = current ? {
     color: current.textColor, fontFamily: FONT_CSS[current.textFont] || FONT_CSS.tiktok,
-    fontSize: `${Math.max(14, current.fontSize * 0.55)}px`, fontWeight: current.fontWeight,
+    fontSize: `${previewFontPx(current) * (photoW / PREVIEW_WIDTH)}px`, fontWeight: current.fontWeight,
     opacity: current.opacity / 100, textAlign: current.textAlign,
     left: `${current.horizontalPosition}%`, top: `${current.verticalPosition}%`,
   } : {};
@@ -188,6 +218,18 @@ export default function App() {
           <button onClick={sortDump}>I am done dumping - sort my DUMP</button>
           <button className="ghost" onClick={grantCaptionConsent}>Consent: learn my voice from my Instagram captions</button>
         </div>
+        {pollen?.connected ? (
+          <p className="hint">Pollen is connected{pollen.creator?.display_name ? ` for ${pollen.creator.display_name}` : ""}. In Approved, tap Select to schedule covers.</p>
+        ) : (
+          <div>
+            <label>uBee client? Connect Pollen <span className="hint">(paste the code uBee gave you)</span></label>
+            <div className="row">
+              <input type="password" autoComplete="off" value={pollenCode} onChange={(e) => setPollenCode(e.target.value)} placeholder="Pollen code" />
+              <button className="ghost" onClick={connectPollen} disabled={!pollenCode.trim()}>Connect</button>
+            </div>
+            {(pollenNote || pollen?.message) && <p className="problem">{pollenNote || pollen.message}</p>}
+          </div>
+        )}
         {status?.voiceProfile && (
           <p className="hint">Voice profile live: {status.voiceProfile.sampleCount} captions, about {status.voiceProfile.avgWords} words each{status.voiceProfile.mostlyLowercase ? ", mostly lowercase" : ""}. Signature words: {status.voiceProfile.signatureWords.slice(0, 6).join(", ")}</p>
         )}
@@ -230,10 +272,22 @@ export default function App() {
           </label>
         </div>
 
-        {!current && <p className="empty">Nothing in {tab} right now. Add photos above, or sort your DUMP, and review starts here. No connectors needed.</p>}
+        {!items.length && <p className="empty">Nothing in {tab} right now. Add photos above, or sort your DUMP, and review starts here. No connectors needed.</p>}
+
+        {gridMode && items.length > 0 && (
+          <ApprovedGrid items={items} pollenOn={Boolean(pollen?.connected)} onOpen={(item) => setFocusId(item.id)}
+            onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} />
+        )}
 
         {current && (
           <div className="review">
+            {tab === "approved" && (
+              <div className="row spread">
+                <button className="ghost" onClick={() => setFocusId(null)}>Back to grid</button>
+                {badgeFor(current.pollen) && <span className={`state ${badgeFor(current.pollen).tone}`} title={badgeFor(current.pollen).why}>{badgeFor(current.pollen).text}</span>}
+              </div>
+            )}
+            {tab === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}
             <div className="row spread">
               <span className="hint">{storyView ? "Story view, 9:16" : "Review deck"}</span>
               <button className="ghost" onClick={() => setStoryView(!storyView)}>{storyView ? "Back to deck" : "Story view"}</button>
@@ -246,6 +300,7 @@ export default function App() {
               </div>
             ) : (
               <div
+                ref={photoRef}
                 className="photo"
                 style={{ transform: `translateX(${dragX}px) rotate(${dragX / 24}deg)` }}
                 onPointerDown={(e) => { startX.current = e.clientX; }}
@@ -413,6 +468,12 @@ export default function App() {
       <footer>
         <img src="/brand/ubee-wordmark-chartreuse.png" alt="ubee" className="wordmark" />
       </footer>
+
+      {sheet && (
+        <ScheduleSheet items={sheet.items} quotesUnlocked={Boolean(quotesStatus?.unlocked)} api={api} post={post}
+          onClose={() => { setSheet(null); load().catch(() => {}); }}
+          onDone={() => { sheet.stop(); setSheet(null); load().catch(() => {}); }} />
+      )}
     </div>
   );
 }

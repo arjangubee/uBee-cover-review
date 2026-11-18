@@ -35,9 +35,15 @@ export function defaultRestart() {
   setTimeout(() => process.exit(0), 300); // the new copy retries the port until this one lets go
 }
 
-export function createUpdater({ root, dataDir, branch = "main", remote = "origin", commands = DEFAULT_COMMANDS, restart = defaultRestart } = {}) {
+export function createUpdater({ root, dataDir, branch = "main", remote = null, commands = DEFAULT_COMMANDS, restart = defaultRestart } = {}) {
   const git = (...args) => run("git", args, root, 2 * 60 * 1000);
-  const remoteRef = `refs/remotes/${remote}/${branch}`;
+  // Updates come from uBee's repo. A copy cloned from a creator's own fork names uBee's repo "upstream",
+  // so that one wins when it exists; otherwise "origin" is uBee's repo.
+  async function source() {
+    if (remote) return remote;
+    const r = await git("remote");
+    return r.ok && r.out.split("\n").map((x) => x.trim()).includes("upstream") ? "upstream" : "origin";
+  }
   const state = { git: null, current: null, latest: null, available: false, whatsNew: [], checkedAt: null, state: "idle", error: null, savedPatch: null };
   let timer = null;
   let checking = null;
@@ -80,7 +86,8 @@ export function createUpdater({ root, dataDir, branch = "main", remote = "origin
       Object.assign(state, { available: false, latest: null, whatsNew: [] });
       return status();
     }
-    const remoteHead = await git("ls-remote", remote, `refs/heads/${branch}`);
+    const src = await source();
+    const remoteHead = await git("ls-remote", src, `refs/heads/${branch}`);
     const sha = remoteHead.ok ? remoteHead.out.split(/\s+/)[0] : "";
     if (!sha) {
       if (state.state !== "updating") state.error = "Couldn't reach GitHub to check for updates. It tries again in 2 minutes.";
@@ -94,7 +101,7 @@ export function createUpdater({ root, dataDir, branch = "main", remote = "origin
     }
     // Only fetch when there is something new, so the 2-minute check stays tiny.
     const have = await git("cat-file", "-e", `${sha}^{commit}`);
-    if (!have.ok) await git("fetch", "--quiet", remote, `+refs/heads/${branch}:${remoteRef}`);
+    if (!have.ok) await git("fetch", "--quiet", src, `+refs/heads/${branch}:refs/remotes/${src}/${branch}`);
     const log = await git("log", "--format=%s", `HEAD..${sha}`);
     state.available = true;
     state.latest = { commit: sha.slice(0, 7) };
@@ -144,7 +151,9 @@ export function createUpdater({ root, dataDir, branch = "main", remote = "origin
       stashed = true;
     }
 
-    const fetched = await git("fetch", "--quiet", remote, `+refs/heads/${branch}:${remoteRef}`);
+    const src = await source();
+    const remoteRef = `refs/remotes/${src}/${branch}`;
+    const fetched = await git("fetch", "--quiet", src, `+refs/heads/${branch}:${remoteRef}`);
     const merged = fetched.ok ? await git("merge", "--ff-only", "--quiet", remoteRef) : fetched;
     if (!merged.ok) {
       if (stashed) await git("stash", "pop", "--quiet");

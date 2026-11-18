@@ -118,6 +118,22 @@ try {
     assert(typeof last.at === "string", "lastUpdate.at expected");
   });
 
+  await check("a copy cloned from a creator's fork still updates from uBee's repo", async () => {
+    // A Muse that forks the repo usually sets origin = her fork and upstream = uBee's repo.
+    const fork = join(tmp, "fork.git");
+    const forkCopy = join(tmp, "fork-copy");
+    git(tmp, "clone", "-q", "--bare", origin, fork);
+    git(tmp, "clone", "-q", fork, forkCopy);
+    git(forkCopy, "remote", "add", "upstream", origin);
+    const head = publish("server/a.js", "export const a = 3;\n", "Ship from uBee's repo");
+    const u = updaterFor(forkCopy);
+    const s = await u.check();
+    assert(s.available === true && s.whatsNew.includes("Ship from uBee's repo"), `the fork copy should see uBee's new commit: ${JSON.stringify(s.whatsNew)}`);
+    const r = await u.apply();
+    assert(r.ok, `apply failed: ${r.error}`);
+    assert(git(forkCopy, "rev-parse", "HEAD") === head, "the fork copy should land on uBee's commit");
+  });
+
   await check("a copy without git says so and refuses to update", async () => {
     mkdirSync(join(plain, "data"), { recursive: true });
     writeFileSync(join(plain, "package.json"), JSON.stringify({ name: "x", version: "1.1.0" }));

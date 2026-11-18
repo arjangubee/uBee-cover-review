@@ -1,0 +1,353 @@
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { generateCaption, loadQuotes } from "./services.js";
+import { DATA_DIR, LIBRARY_DIR, store } from "./store.js";
+
+// Full Cover Review feature set, ported from the Muse original.
+// The original server/src/actions.ts (5,020 lines) maps onto these endpoints.
+// Hatch-only parts are replaced as documented per section.
+
+// The 11-color palette, Arjang's finalized names and hex values. No other colors.
+export const PALETTE = [
+  { name: "Cream", hex: "#FAFFB4" },
+  { name: "Lemon Lime", hex: "#D7E310" },
+  { name: "White", hex: "#FFFFFF" },
+  { name: "Spotify Green", hex: "#1ED760" },
+  { name: "Yellow", hex: "#FBFA38" },
+  { name: "Icy Aqua", hex: "#B8FFFF" },
+  { name: "Pure Red", hex: "#FB0909" },
+  { name: "Black", hex: "#000000" },
+  { name: "Cherry Blossom", hex: "#FFB8CF" },
+  { name: "Baby Blue Ice", hex: "#92AFFF" },
+  { name: "Hot Fuchsia", hex: "#FE0956" },
+];
+export const FONTS = ["tiktok", "avenir", "serif", "condensed", "papyrus", "papyrus_condensed"];
+
+export function styleDefaults() {
+  return {
+    textColor: "#FFFFFF", textFont: "tiktok", textAlign: "center",
+    fontSize: 58, fontWeight: 500, opacity: 100,
+    horizontalPosition: 50, verticalPosition: 50, lineCount: 0,
+    barColor: "#000000", textNegative: false,
+  };
+}
+
+function mustItem(req, res) {
+  const item = store.getItem(req.params.id);
+  if (!item) res.status(404).json({ error: "item not found" });
+  return item;
+}
+
+function loadSongPool() {
+  const p = join(DATA_DIR, "song-pool.json");
+  if (!existsSync(p)) return [];
+  try { return JSON.parse(readFileSync(p, "utf8")); } catch { return []; }
+}
+
+// Compose verification gate, same three beacons as the original:
+// QUOTE_IN_STOCK, SONG_IN_POOL, STEPS_VERIFIED.
+export function verifyItem(item) {
+  const quotes = loadQuotes().map((q) => q.text.toLowerCase());
+  const quoteInStock = Boolean(item.quote) && quotes.includes(item.quote.trim().toLowerCase());
+  const pool = loadSongPool().map((s) => `${s.artist} - ${s.title}`.toLowerCase());
+  const spotify = (store.settings.spotifyLibrary || []).map((s) => `${s.artist} - ${s.title}`.toLowerCase());
+  const songInPool = Boolean(item.song) && (pool.includes(item.song.trim().toLowerCase()) || spotify.includes(item.song.trim().toLowerCase()) || item.songSource === "trending");
+  const beacons = { QUOTE_IN_STOCK: quoteInStock, SONG_IN_POOL: songInPool, STEPS_VERIFIED: quoteInStock && songInPool && Boolean(item.imageUrl) };
+  item.beacons = beacons;
+  item.composeAttestedAt = beacons.STEPS_VERIFIED ? Date.now() : null;
+  return beacons;
+}
+
+// ---------- Quotes: toggle, connect, and the quote quiz ----------
+// Quote over image is a toggle, OFF by default. It unlocks only when the
+// creator connects their own quotes, or takes the quote quiz and steals
+// generalized quotes from the uBee pack for themselves. The quiz pool is
+// data/quiz-quotes.json: the default pack with every Arjang-specific quote
+// filtered out (name, rugs, modeling, agency story, return arc). Generalized
+// only, so what a creator steals reads as theirs, never as Arjang's story.
+const CREATOR_QUOTES_PATH = join(DATA_DIR, "quotes.json");
+function creatorQuotes() {
+  if (!existsSync(CREATOR_QUOTES_PATH)) return [];
+  try { const raw = JSON.parse(readFileSync(CREATOR_QUOTES_PATH, "utf8")); return raw.map((q) => (typeof q === "string" ? q : q.text)).filter(Boolean); } catch { return []; }
+}
+function saveCreatorQuotes(texts) {
+  writeFileSync(CREATOR_QUOTES_PATH, JSON.stringify(texts.map((text) => ({ text, source: store.settings.quotesSource })), null, 1));
+}
+function quizPool() {
+  try { return JSON.parse(readFileSync(join(DATA_DIR, "quiz-quotes.json"), "utf8")); } catch { return []; }
+}
+export function quotesStatus() {
+  const kept = creatorQuotes();
+  return {
+    unlocked: store.settings.quotesUnlocked || kept.length > 0,
+    source: store.settings.quotesSource,
+    creatorQuoteCount: kept.length,
+    quizPoolSize: quizPool().length,
+    quizRemaining: quizPool().filter((q) => !store.settings.quizDecisions[q.text]).length,
+  };
+}
+
+export function registerFull(app, upload) {
+  app.get("/api/quotes/status", (_req, res) => res.json(quotesStatus()));
+
+  // Connect your own quotes: unlocks the overlay toggle.
+  app.post("/api/quotes/connect", (req, res) => {
+    const texts = (Array.isArray(req.body.quotes) ? req.body.quotes : []).map(String).map((s) => s.trim()).filter(Boolean);
+    if (!texts.length) return res.status(400).json({ error: "quotes array is empty" });
+    store.settings.quotesSource = "connected";
+    saveCreatorQuotes([...new Set([...creatorQuotes(), ...texts])]);
+    store.settings.quotesUnlocked = true;
+    store.saveSettings();
+    res.json({ ok: true, ...quotesStatus() });
+  });
+
+  // The quote quiz: rate generalized quotes, steal the ones that sound like you.
+  app.get("/api/quiz/quotes", (_req, res) => {
+    const decided = store.settings.quizDecisions || {};
+    res.json({ quotes: quizPool().filter((q) => !decided[q.text]), total: quizPool().length });
+  });
+  app.post("/api/quiz/decide", (req, res) => {
+    const text = String(req.body.text || "");
+    const keep = Boolean(req.body.keep);
+    if (!quizPool().some((q) => q.text === text)) return res.status(400).json({ error: "quote is not in the generalized quiz pool" });
+    store.settings.quizDecisions[text] = keep ? "kept" : "skipped";
+    if (keep) {
+      store.settings.quotesSource = store.settings.quotesSource === "connected" ? "connected" : "quiz";
+      saveCreatorQuotes([...new Set([...creatorQuotes(), text])]);
+      store.settings.quotesUnlocked = true;
+    }
+    store.saveSettings();
+    res.json({ ok: true, ...quotesStatus() });
+  });
+
+  // The toggle itself. Turning it ON while locked is refused, with the reason.
+  app.post("/api/items/:id/quote-toggle", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const want = Boolean(req.body.showQuote);
+    if (want && !quotesStatus().unlocked) {
+      return res.status(403).json({ error: "Quote overlay is locked. Connect your quotes, or take the quote quiz and steal quotes that sound like you first." });
+    }
+    item.showQuote = want;
+    store.saveDb();
+    res.json({ item });
+  });
+
+  // ---------- Workspace: own Drive by default, uBee shared Drive for clients ----------
+  app.post("/api/workspace/configure", (req, res) => {
+    const mode = req.body.mode === "ubee_shared" ? "ubee_shared" : "own_drive";
+    store.settings.workspace = { mode, clientName: req.body.clientName ? String(req.body.clientName) : null };
+    store.saveSettings();
+    res.json({ ok: true, workspace: store.settings.workspace });
+  });
+  app.get("/api/workspace", (_req, res) => res.json({ workspace: store.settings.workspace }));
+
+  app.get("/api/palette", (_req, res) => res.json({ palette: PALETTE, fonts: FONTS }));
+
+  // Style editor: updatecoverstyle + updatebarcolor in the original.
+  app.post("/api/items/:id/style", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const b = req.body || {};
+    if (b.textColor && PALETTE.some((c) => c.hex === b.textColor)) item.textColor = b.textColor;
+    if (b.textFont && FONTS.includes(b.textFont)) item.textFont = b.textFont;
+    if (["left", "center", "right"].includes(b.textAlign)) item.textAlign = b.textAlign;
+    for (const k of ["fontSize", "fontWeight", "opacity", "horizontalPosition", "verticalPosition", "lineCount"]) {
+      if (b[k] != null && Number.isFinite(Number(b[k]))) item[k] = Number(b[k]);
+    }
+    if (["#FFFFFF", "#000000"].includes(b.barColor)) item.barColor = b.barColor;
+    if (b.textNegative != null) item.textNegative = Boolean(b.textNegative);
+    store.saveDb();
+    res.json({ item });
+  });
+
+  // Per-part ratings: ratecover in the original (quality / song / quote separately).
+  app.post("/api/items/:id/rate", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    for (const k of ["qualityRating", "songRating", "quoteRating"]) {
+      if (req.body[k] != null) item[k] = Math.max(1, Math.min(10, Number(req.body[k])));
+    }
+    item.ratingUpdatedAt = Date.now();
+    store.saveDb();
+    res.json({ item });
+  });
+
+  // Swap photo: keep quote, song and styling, change only the image.
+  // Original: swapcoverphoto + usesearchedphoto.
+  app.post("/api/items/:id/swap-photo", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    if (!req.body.imageUrl) return res.status(400).json({ error: "imageUrl is required" });
+    item.originalImageUrl = item.originalImageUrl || item.imageUrl;
+    item.imageUrl = String(req.body.imageUrl);
+    if (req.body.title) item.title = String(req.body.title);
+    store.saveDb();
+    res.json({ item });
+  });
+  app.post("/api/items/:id/restore-original", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    if (item.originalImageUrl) item.imageUrl = item.originalImageUrl;
+    store.saveDb();
+    res.json({ item });
+  });
+
+  // Save image edit notes/adjustments: saveimageedit in the original.
+  app.post("/api/items/:id/image-edit", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    item.imageEdit = { ...(item.imageEdit || {}), ...(req.body || {}), savedAt: Date.now() };
+    store.saveDb();
+    res.json({ item });
+  });
+
+  // Remix: duplicate as a new revision in the queue. Original: remixcover.
+  app.post("/api/items/:id/remix", (req, res) => {
+    const src = mustItem(req, res); if (!src) return;
+    const { id, status, decidedAt, ...rest } = src;
+    const copy = store.addItem({ ...rest, status: "queue", parentId: src.id, revision: (src.revision || 1) + 1, title: `${src.title} (remix)` });
+    res.json({ item: copy });
+  });
+
+  // Reject and revise: sends the cover back as a fresh queue revision with a note.
+  app.post("/api/items/:id/reject-revise", (req, res) => {
+    const src = mustItem(req, res); if (!src) return;
+    src.status = "rejected"; src.decidedAt = Date.now(); store.saveDb();
+    const { id, status, decidedAt, ...rest } = src;
+    const copy = store.addItem({ ...rest, status: "queue", parentId: src.id, revision: (src.revision || 1) + 1, note: String(req.body?.note || src.note || "") });
+    res.json({ item: copy });
+  });
+
+  // Carousel slides: addcarouselslide, removecarouselslide (soft delete),
+  // restorecarouselslide, setcarouselorder in the original.
+  app.post("/api/items/:id/slides", upload.single("slide"), (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    item.slides = item.slides || [];
+    const slide = req.file
+      ? { mediaUrl: `/uploads/${req.file.filename}`, mediaType: req.file.mimetype.startsWith("video") ? "video" : "image", title: req.file.originalname }
+      : { mediaUrl: String(req.body?.mediaUrl || ""), mediaType: "image", title: String(req.body?.title || "slide") };
+    if (!slide.mediaUrl) return res.status(400).json({ error: "slide file or mediaUrl is required" });
+    slide.position = item.slides.filter((s) => !s.deletedAt).length;
+    slide.deletedAt = null;
+    item.slides.push(slide);
+    store.saveDb();
+    res.json({ item });
+  });
+  app.post("/api/items/:id/slides/:index/remove", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const slide = (item.slides || [])[Number(req.params.index)];
+    if (!slide) return res.status(404).json({ error: "slide not found" });
+    slide.deletedAt = Date.now();
+    store.saveDb();
+    res.json({ item });
+  });
+  app.post("/api/items/:id/slides/:index/restore", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const slide = (item.slides || [])[Number(req.params.index)];
+    if (!slide) return res.status(404).json({ error: "slide not found" });
+    slide.deletedAt = null;
+    store.saveDb();
+    res.json({ item });
+  });
+  app.post("/api/items/:id/slides/order", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const order = Array.isArray(req.body.order) ? req.body.order.map(Number) : [];
+    const active = (item.slides || []).filter((s) => !s.deletedAt);
+    order.forEach((from, to) => { if (active[from]) active[from].position = to; });
+    store.saveDb();
+    res.json({ item });
+  });
+
+  // Story framing: savestoryframing in the original. 9:16 lives only in Story view.
+  app.post("/api/items/:id/story-framing", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    item.storyPanX = Number(req.body.storyPanX ?? item.storyPanX ?? 50);
+    item.storyPanY = Number(req.body.storyPanY ?? item.storyPanY ?? 50);
+    store.saveDb();
+    res.json({ item });
+  });
+
+  // Caption: generateinstagramcaption in the original.
+  app.post("/api/items/:id/caption", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    item.caption = generateCaption(item, store.settings.voiceProfile);
+    store.saveDb();
+    res.json({ item });
+  });
+
+  // Verification: verifycover + attestcomposesteps in the original.
+  app.post("/api/items/:id/verify", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const beacons = verifyItem(item);
+    store.saveDb();
+    res.json({ item, beacons });
+  });
+
+  // Drive enqueue: enqueuefromdrive + enqueuebatch in the original.
+  // Portable replacement: the creator's Muse mirrors Drive files in, or posts
+  // drive ids with public image URLs. Textless covers never enter the queue:
+  // a stock quote is assigned on the way in, per the original queue rule.
+  app.post("/api/items/enqueue", (req, res) => {
+    const entries = Array.isArray(req.body.items) ? req.body.items : [];
+    const quotes = loadQuotes();
+    const created = [];
+    for (const e of entries) {
+      if (!e.imageUrl) continue;
+      if (e.imageQualityStatus === "quarantined") {
+        created.push(store.addItem({ title: e.title || e.driveId || "drive photo", imageUrl: e.imageUrl, source: "drive", driveId: e.driveId || null, imageQualityStatus: "quarantined", status: "rejected" }));
+        continue;
+      }
+      const item = store.addItem({ title: e.title || e.driveId || "drive photo", imageUrl: e.imageUrl, source: "drive", driveId: e.driveId || null, imageQualityStatus: "passed", ...styleDefaults() });
+      item.quote = e.quote || quotes[item.id % Math.max(quotes.length, 1)]?.text || "";
+      item.song = e.song || "";
+      item.caption = generateCaption(item, store.settings.voiceProfile);
+      created.push(item);
+    }
+    store.saveDb();
+    res.json({ ok: true, created });
+  });
+
+  // Photo search across the sorted library and the queue: searchphotos in the original.
+  app.get("/api/photos/search", (req, res) => {
+    const q = String(req.query.q || "").toLowerCase();
+    const results = [];
+    try {
+      const imagesDir = join(LIBRARY_DIR, "Images");
+      if (existsSync(imagesDir)) for (const name of readdirSync(imagesDir)) {
+        if (!q || name.toLowerCase().includes(q)) results.push({ title: name, imageUrl: `/api/library/Images/${encodeURIComponent(name)}`, source: "library" });
+      }
+    } catch { /* library empty */ }
+    for (const item of store.db.items) {
+      if (!q || item.title.toLowerCase().includes(q)) results.push({ title: item.title, imageUrl: item.imageUrl, source: "queue", itemId: item.id });
+    }
+    res.json({ results: results.slice(0, 100) });
+  });
+
+  // Quality feedback + cleanup: listqualityfeedback + cleanuptextlessqueue.
+  app.get("/api/quality/feedback", (_req, res) => {
+    res.json({ items: store.db.items.filter((i) => i.imageQualityStatus === "quarantined" || (i.qualityRating != null && i.qualityRating <= 4)) });
+  });
+  app.post("/api/quality/cleanup-textless", (_req, res) => {
+    let fixed = 0;
+    const quotes = loadQuotes();
+    for (const item of store.db.items) {
+      if (item.status === "queue" && !item.quote) { item.quote = quotes[item.id % Math.max(quotes.length, 1)]?.text || ""; fixed++; }
+    }
+    store.saveDb();
+    res.json({ ok: true, fixed, rule: "Textless covers never sit in the queue. Each one got a stock quote, matching the original app rule." });
+  });
+
+  // Embedded text detection is a vision job. In Muse that was an app action;
+  // portably, the creator's Muse looks at the photo and records the result here.
+  app.post("/api/items/:id/embedded-text", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    item.embeddedText = { hasText: Boolean(req.body.hasText), text: String(req.body.text || ""), checkedAt: Date.now(), checkedBy: "claude-vision" };
+    store.saveDb();
+    res.json({ item });
+  });
+
+  // Image repair flow: completeimagerepair in the original.
+  app.post("/api/items/:id/repair", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    item.repairStatus = String(req.body.status || "ready");
+    if (req.body.imageUrl) item.imageUrl = String(req.body.imageUrl);
+    if (item.repairStatus === "ready") item.imageQualityStatus = "passed";
+    store.saveDb();
+    res.json({ item });
+  });
+}

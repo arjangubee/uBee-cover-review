@@ -1,0 +1,21 @@
+{
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1"
+  },
+  "description": "uBee Cover Review, portable edition. Swipe to approve creator photos, with optional Drive, Spotify and Instagram connectors set up by the user's Muse.",
+  "engines": {
+    "node": ">=20"
+  },
+  "name": "ubee-cover-review",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix client run build",
+    "dev": "node server/index.js",
+    "setup": "npm install && npm --prefix client install && node scripts/restore-brand.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "start": "node server/index.js"
+  },
+  "type": "module",
+  "version": "1.1.0"
+}

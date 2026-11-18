@@ -1,0 +1,12 @@
+node_modules/
+client/node_modules/
+client/dist/
+.env
+data/db.json
+data/settings.json
+data/drive-plan.json
+data/library/
+data/uploads/
+data/dump/
+*.log
+.DS_Store

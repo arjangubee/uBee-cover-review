@@ -1,0 +1,21 @@
+{
+ "songs": [
+  {
+   "artist": "Sabrina Carpenter",
+   "note": "seed example, replace on first refresh",
+   "title": "Espresso"
+  },
+  {
+   "artist": "Billie Eilish",
+   "note": "seed example, replace on first refresh",
+   "title": "Birds of a Feather"
+  },
+  {
+   "artist": "Kendrick Lamar",
+   "note": "seed example, replace on first refresh",
+   "title": "Not Like Us"
+  }
+ ],
+ "source": "seed fallback. The user's Muse refreshes this file through its Instagram connector (see SETUP_FOR_MUSE.md, Trending refresh) and via POST /api/trending/refresh.",
+ "updated_at": null
+}

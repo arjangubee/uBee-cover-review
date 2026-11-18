@@ -14,7 +14,7 @@ Hard rules:
 - uBee branding stays. Bee mark, wordmark, chartreuse #C5FD29, and the line "made for creators, by creators" stay in the app.
 - Approving never deletes anything. Every decision and note is saved in data/db.json.
 - Quote over image is a toggle, off by default. It stays locked until the creator connects their own quotes or steals quotes in the quote quiz. The quiz pool is generalized only, never Arjang specific.
-- uBee clients (Damiana first) save into the uBee shared Drive, in Creators / their name, in the friendly client folder structure. Everyone else saves into their own Drive. Check GET /api/workspace before creating any folders.
+- uBee clients save into the uBee shared Drive, in Creators / their name, in the friendly client folder structure. Everyone else saves into their own Drive. Check GET /api/workspace before creating any folders.
 - Write like a person in outward copy. Short, plain, human. No em-dashes.
 
 ## Debugging protocol: you are also the repair crew

@@ -60,7 +60,7 @@ Voice profile, consent required:
 3. Pull their recent captions through your Instagram connector and send them with `POST /api/voice/samples` as samples, with source set to instagram.
 4. Tell them their voice profile is live and captions will now draft in their voice. They can paste extra writing samples the same way with source set to manual.
 
-## 5b. uBee clients save in the uBee shared Drive (Damiana first)
+## 5b. uBee clients save in the uBee shared Drive (client mode)
 
 Most creators save in their own Drive. A uBee client is different:
 

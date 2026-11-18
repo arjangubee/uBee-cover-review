@@ -34,7 +34,7 @@ const defaultSettings = {
   quotesUnlocked: false, // quote overlay stays locked until quotes connect or the quiz is taken
   quotesSource: "locked", // locked | connected | quiz
   quizDecisions: {}, // quiz quote text -> "kept" | "skipped"
-  workspace: { mode: "own_drive", clientName: null }, // ubee_shared for uBee clients, Damiana first
+  workspace: { mode: "own_drive", clientName: null }, // ubee_shared for uBee clients
 };
 
 export const store = {

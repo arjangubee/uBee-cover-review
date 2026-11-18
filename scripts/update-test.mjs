@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createUpdater } from "../server/update.js";
+import { DEFAULT_COMMANDS, createUpdater } from "../server/update.js";
 
 const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t", GIT_TERMINAL_PROMPT: "0" };
 const git = (cwd, ...args) => execFileSync("git", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] }).toString().trim();
@@ -152,5 +152,11 @@ try {
 } finally {
   rmSync(tmp, { recursive: true, force: true });
 }
+await check("the update installs the client's build tools even where npm skips dev packages (NODE_ENV=production)", async () => {
+  const client = DEFAULT_COMMANDS.find(([, args]) => args.includes("--prefix") && args.includes("client") && args.includes("install"));
+  assert(client && client[1].includes("--include=dev"), `client install: ${JSON.stringify(client)}`);
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert(/npm --prefix client install --include=dev/.test(pkg.scripts.setup), `setup script: ${pkg.scripts.setup}`);
+});
 console.log(failed ? "UPDATE TEST FAILED" : "UPDATE TEST OK");
 process.exitCode = failed ? 1 : 0;

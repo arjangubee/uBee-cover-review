@@ -1,5 +1,6 @@
 import express from "express";
 import multer from "multer";
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,7 @@ import { DATA_DIR, LIBRARY_DIR, UPLOAD_DIR, store } from "./store.js";
 import { createUpdater } from "./update.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const BOOT = randomUUID(); // changes on every start, so the page can tell the new version is up
 const updater = createUpdater({ root: ROOT, dataDir: DATA_DIR });
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -33,7 +35,7 @@ function saveGrievances(list) { writeFileSync(GRIEVANCE_PATH, JSON.stringify(lis
 app.get("/api/health", (_req, res) => {
   const v = updater.versionInfo();
   res.json({
-    ok: true, app: "ubee-cover-review", version: v.version, commit: v.commit,
+    ok: true, app: "ubee-cover-review", version: v.version, commit: v.commit, boot: BOOT,
     items: { total: store.db.items.length, queue: store.db.items.filter((i) => i.status === "queue").length },
     connectors: store.settings.connectors, workspace: store.settings.workspace,
     openGrievances: readGrievances().filter((g) => g.status === "open").length,

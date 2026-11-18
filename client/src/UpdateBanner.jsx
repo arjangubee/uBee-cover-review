@@ -15,7 +15,7 @@ export default function UpdateBanner() {
   const [u, setU] = useState(null);
   const [phase, setPhase] = useState("idle"); // idle | updating | restarting
   const [error, setError] = useState(null);
-  const fromCommit = useRef(null);
+  const fromBoot = useRef(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -42,8 +42,12 @@ export default function UpdateBanner() {
           if (s.state === "restarting") setPhase("restarting");
           return;
         }
-        const h = await (await fetch("/api/health")).json();
-        if (h.commit && h.commit !== fromCommit.current) window.location.reload();
+        // Reload only once a NEW server process answers (the old one can still answer for a moment).
+        const h = await (await fetch("/api/health", { cache: "no-store" })).json();
+        if (h.boot && h.boot !== fromBoot.current) {
+          const page = await fetch("/", { cache: "no-store" });
+          if (page.ok) window.location.reload();
+        }
       } catch {
         if (phase === "updating") setPhase("restarting"); // the old version just shut down
       }
@@ -53,7 +57,8 @@ export default function UpdateBanner() {
 
   async function updateNow() {
     setError(null);
-    fromCommit.current = u?.current?.commit || null;
+    try { fromBoot.current = (await (await fetch("/api/health", { cache: "no-store" })).json()).boot || null; }
+    catch { fromBoot.current = null; }
     setPhase("updating");
     try {
       const r = await (await fetch("/api/update/apply", { method: "POST" })).json();
@@ -64,7 +69,8 @@ export default function UpdateBanner() {
   }
 
   const last = u?.lastUpdate;
-  if (phase === "idle" && last && !seen(last.at) && u?.current?.commit === last.to) {
+  // A newer version always wins over the "Updated" note.
+  if (phase === "idle" && !u?.available && !error && last && !seen(last.at) && u?.current?.commit === last.to) {
     return (
       <div className="updateNote">
         <span>

@@ -139,7 +139,7 @@ export default function CoverEditor({
       <span className="fieldLabel">Font weight</span>
       <div className="segmented" role="group" aria-label="Font weight">
         {WEIGHTS.map(([w, name]) => (
-          <button type="button" key={w} className={Number(box.fontWeight) === w ? "on" : ""} aria-pressed={Number(box.fontWeight) === w} onClick={() => setBox({ fontWeight: w })}>{name}</button>
+          <button type="button" key={w} className={Number(box.fontWeight) === w ? "on" : ""} style={{ fontWeight: w }} aria-pressed={Number(box.fontWeight) === w} onClick={() => setBox({ fontWeight: w })}>{name}</button>
         ))}
       </div>
 

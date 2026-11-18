@@ -13,12 +13,15 @@ export default function InfoSheet({ status, pollen, quotesStatus, quizQuotes, li
   const [receipt, setReceipt] = useState(null);
   const [grievanceError, setGrievanceError] = useState(null);
   const closeRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  // Focus lands on Close once, when the sheet opens; the app updating behind it never moves her focus.
   useEffect(() => {
     closeRef.current?.focus();
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e) => { if (e.key === "Escape") onCloseRef.current(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   async function connect() {
     setPollenNote("");

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, post, upload } from "./api.js";
 import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, ImageInfo, NoteComposer, Ratings, Steppers, StoryControls, TitleRow, WhyMatches } from "./CoverDetails.jsx";
 import CoverEditor from "./CoverEditor.jsx";
+import { imageUrlFor, loadImage } from "./CoverCanvas.jsx";
 import CoverStage from "./CoverStage.jsx";
 import { CoverHeader, ModeSwitch, SongRow } from "./CoverTop.jsx";
 import Icon from "./icons.jsx";
@@ -46,6 +47,11 @@ export default function App() {
   const [quizQuotes, setQuizQuotes] = useState([]);
   const [pollen, setPollen] = useState(null);
   const [toast, setToast] = useState(null);
+  const [burst, setBurst] = useState(0); // the heart that pops on the cover when she likes it
+  const [drawnId, setDrawnId] = useState(null); // the cover whose photo is on screen: only that one can be decided
+  const draftBase = useRef(null); // the cover as it was when the editor opened; Save compares against it
+  const pending = useRef({}); // typed but not yet saved: { [itemId]: { note, caption, song } }
+  const stepping = useRef(false);
   const [, setHistoryTick] = useState(0);
   const history = useRef(createHistory(50));
   const pendingId = useRef(null);
@@ -96,6 +102,11 @@ export default function App() {
   const activeSlides = useMemo(() => (shown?.slides || []).map((s, at) => ({ ...s, at }))
     .filter((s) => !s.deletedAt).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)), [shown]);
   useEffect(() => { setSlide(0); setPickMode(false); }, [current?.id]);
+  // The editor belongs to one cover: if that cover leaves the screen, the editor closes with it.
+  useEffect(() => { if (draft && current?.id !== draft.id) closeEditor(); }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The next cover's photo starts loading now, so moving on is instant.
+  useEffect(() => { const next = items[index + 1]; if (next) loadImage(imageUrlFor(next)).catch(() => {}); }, [items, index]);
+  const coverReady = Boolean(current) && drawnId === current.id;
   useEffect(() => { if (slide > activeSlides.length) setSlide(activeSlides.length); }, [activeSlides.length, slide]);
 
   const patchItem = (item) => setItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
@@ -124,13 +135,44 @@ export default function App() {
     bumpHistory();
   }
   async function step(direction) {
+    if (draft || stepping.current) return; // the editor's draft is its own undo: Cancel
     const entry = direction === "undo" ? history.current.undo() : history.current.redo();
     bumpHistory();
     if (!entry) return;
+    stepping.current = true;
     try {
       await applyChange(entry.itemId, direction === "undo" ? entry.before : entry.after);
       say(`${direction === "undo" ? "Undid" : "Redid"} ${entry.label.toLowerCase()}.`);
-    } catch (e) { say(e.message); }
+    } catch (e) {
+      // It didn't happen, so it stays where it was in the history.
+      if (direction === "undo") history.current.redo(); else history.current.undo();
+      bumpHistory();
+      say(`Couldn't ${direction} that: ${e.message}`);
+    } finally { stepping.current = false; }
+  }
+
+  // ---------- Typed but not saved: kept per cover, saved before she moves on or decides ----------
+  function setPending(itemId, key, value) {
+    const p = { ...(pending.current[itemId] || {}) };
+    if (value == null) delete p[key]; else p[key] = value;
+    pending.current[itemId] = p;
+  }
+  function pendingEditFor(item) {
+    const p = item && pending.current[item.id];
+    if (!p || !Object.keys(p).length) return null;
+    const saved = { note: item.note || "", caption: item.caption || "", song: item.song || "" };
+    const typed = { note: (p.note ?? saved.note).trim(), caption: p.caption ?? saved.caption, song: (p.song ?? saved.song).trim() };
+    return changedFields(saved, typed, ["note", "caption", "song"]);
+  }
+  async function flushPending(item = current) {
+    const pe = pendingEditFor(item);
+    if (item) delete pending.current[item.id];
+    if (pe) await record("Edit", item.id, { edit: pe.before }, { edit: pe.after });
+  }
+  async function goTo(next) {
+    if (next < 0 || next >= items.length || next === index) return;
+    await attempt(() => flushPending());
+    setIndex(next);
   }
   async function attempt(fn) {
     try { await fn(); } catch (e) { say(e.message); }
@@ -140,9 +182,17 @@ export default function App() {
   async function decide(decision) {
     if (!current || busy) return;
     if (current.status === decision) { say(decision === "approved" ? "Already approved." : "Already passed."); return; }
+    if (!coverReady) return;
     setBusy(true);
     await attempt(async () => {
-      await record(decision === "approved" ? "Like" : "Pass", current.id, { status: current.status }, { status: decision });
+      if (decision === "approved" && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        setBurst((n) => n + 1);
+        await new Promise((r) => setTimeout(r, 380)); // the heart lands on this cover before the next one slides in
+      }
+      const pe = pendingEditFor(current); // a note she typed but didn't post goes with the decision
+      delete pending.current[current.id];
+      await record(decision === "approved" ? "Like" : "Pass", current.id,
+        { status: current.status, ...(pe ? { edit: pe.before } : {}) }, { status: decision, ...(pe ? { edit: pe.after } : {}) });
       say(decision === "approved" ? "Approved. Undo is up top." : "Passed. Undo is up top.");
     });
     setBusy(false);
@@ -172,10 +222,11 @@ export default function App() {
     await record("Randomize", current.id, { style: pickStyle(current, Object.keys(patch)) }, { style: patch });
   });
   const postNote = (note) => attempt(async () => {
+    setPending(current.id, "note", null);
     await record("Note", current.id, { edit: { note: current.note || "" } }, { edit: { note } });
     say("Note saved for the next revision.");
   });
-  const saveCaption = (caption) => attempt(() => record("Caption", current.id, { edit: { caption: current.caption || "" } }, { edit: { caption } }));
+  const saveCaption = (caption) => attempt(() => { setPending(current.id, "caption", null); return record("Caption", current.id, { edit: { caption: current.caption || "" } }, { edit: { caption } }); });
   async function regenerate(kind) {
     const before = kind === "caption" ? { caption: current.caption || "" } : { song: current.song || "", songPreviewUrl: current.songPreviewUrl || "" };
     await attempt(async () => {
@@ -186,7 +237,7 @@ export default function App() {
       bumpHistory();
     });
   }
-  const setSong = (song) => attempt(() => record("Song", current.id, { edit: { song: current.song || "", songPreviewUrl: current.songPreviewUrl || "" } }, { edit: { song } }));
+  const setSong = (song) => attempt(() => { setPending(current.id, "song", null); return record("Song", current.id, { edit: { song: current.song || "", songPreviewUrl: current.songPreviewUrl || "" } }, { edit: { song } }); });
   const rate = (key, stars) => attempt(() => record("Rating", current.id, { rate: { [key]: current[key] ?? null } }, { rate: { [key]: valueForStars(stars) } }));
   const recheck = () => attempt(async () => {
     const { item } = await post(`/api/items/${current.id}/verify`);
@@ -223,10 +274,12 @@ export default function App() {
     if (!current) return;
     setStory(false);
     setSlide(0);
+    draftBase.current = JSON.parse(JSON.stringify(current));
     setDraft(JSON.parse(JSON.stringify({ ...current, ...effectiveStyle(current), imageEdit: { contrast: "normal", mosaics: [], ...(current.imageEdit || {}) } })));
     setActiveBox(box);
   }
   function closeEditor() {
+    draftBase.current = null;
     setDraft(null);
     setActiveBox(-1);
     setPickMode(false);
@@ -255,21 +308,23 @@ export default function App() {
     say("Drag the box over a face. Drag its corner to resize it.");
   }
   async function saveDraft() {
-    if (!draft || !current) return;
-    const style = changedFields(effectiveStyle(current), effectiveStyle(draft), [...STYLE_KEYS, "extraTexts"]);
-    const edit = changedFields({ quote: current.quote || "", note: current.note || "" }, { quote: draft.quote || "", note: draft.note || "" }, ["quote", "note"]);
-    const imageEdit = changedFields({ contrast: current.imageEdit?.contrast || "normal", mosaics: current.imageEdit?.mosaics || [] },
+    const base = draftBase.current;
+    if (!draft || !base || base.id !== draft.id) { closeEditor(); return; }
+    // Always the cover the editor opened on, compared with how it was when it opened.
+    const style = changedFields(effectiveStyle(base), effectiveStyle(draft), [...STYLE_KEYS, "extraTexts"]);
+    const edit = changedFields({ quote: base.quote || "", note: base.note || "" }, { quote: draft.quote || "", note: draft.note || "" }, ["quote", "note"]);
+    const imageEdit = changedFields({ contrast: base.imageEdit?.contrast || "normal", mosaics: base.imageEdit?.mosaics || [] },
       { contrast: draft.imageEdit?.contrast || "normal", mosaics: draft.imageEdit?.mosaics || [] }, ["contrast", "mosaics"]);
-    const flip = Boolean(current.showQuote) !== Boolean(draft.showQuote);
+    const flip = Boolean(base.showQuote) !== Boolean(draft.showQuote);
     if (!style && !edit && !imageEdit && !flip) { closeEditor(); return; }
     const before = {}, after = {};
     if (style) { before.style = style.before; after.style = style.after; }
     if (edit) { before.edit = edit.before; after.edit = edit.after; }
     if (imageEdit) { before.imageEdit = imageEdit.before; after.imageEdit = imageEdit.after; }
-    if (flip) { before.showQuote = Boolean(current.showQuote); after.showQuote = Boolean(draft.showQuote); }
+    if (flip) { before.showQuote = Boolean(base.showQuote); after.showQuote = Boolean(draft.showQuote); }
     setSaving(true);
     try {
-      await record("Edit", current.id, before, after);
+      await record("Edit", draft.id, before, after);
       closeEditor();
       say("Saved. It posts exactly like this.");
       if (style?.after.textColor || style?.after.extraTexts) api("/api/palette").then((p) => setPalette({ palette: p.palette, fonts: p.fonts, customColors: p.customColors || [] })).catch(() => {});
@@ -292,7 +347,7 @@ export default function App() {
     await attempt(async () => {
       const r = await api("/api/items/upload", { method: "POST", body: form });
       say(`${r.created.length} photo${r.created.length === 1 ? "" : "s"} added to your queue.`);
-      if (list !== "queue") setList("queue"); else await load();
+      if (list !== "queue") { closeEditor(); setList("queue"); } else await load();
     });
   }
   function openFromLibrary(item) {
@@ -306,14 +361,18 @@ export default function App() {
     setIndex(0);
     setList(next);
   }
+  async function showLibrary() {
+    await attempt(() => flushPending());
+    setView("library");
+  }
 
   useEffect(() => {
     function onKey(e) {
       if (draft || infoOpen || sheet || view !== "cover") return;
       if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); step(e.shiftKey ? "redo" : "undo"); return; }
-      if (e.key === "ArrowRight") { e.preventDefault(); if (e.shiftKey) setSlide((s) => Math.min(activeSlides.length, s + 1)); else setIndex((i) => Math.min(items.length - 1, i + 1)); }
-      if (e.key === "ArrowLeft") { e.preventDefault(); if (e.shiftKey) setSlide((s) => Math.max(0, s - 1)); else setIndex((i) => Math.max(0, i - 1)); }
+      if (e.key === "ArrowRight") { e.preventDefault(); if (e.shiftKey) setSlide((s) => Math.min(activeSlides.length, s + 1)); else goTo(index + 1); }
+      if (e.key === "ArrowLeft") { e.preventDefault(); if (e.shiftKey) setSlide((s) => Math.max(0, s - 1)); else goTo(index - 1); }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -330,8 +389,8 @@ export default function App() {
       ) : (
         <main className="review">
           <CoverHeader list={list} count={counts?.[list] ?? items.length} position={index + 1} total={items.length}
-            canUndo={history.current.canUndo()} canRedo={history.current.canRedo()}
-            onBack={() => { closeEditor(); setView("library"); }} onInfo={() => setInfoOpen(true)} onUndo={() => step("undo")} onRedo={() => step("redo")} />
+            canUndo={history.current.canUndo()} canRedo={history.current.canRedo()} locked={Boolean(draft)}
+            onBack={showLibrary} onInfo={() => setInfoOpen(true)} onUndo={() => step("undo")} onRedo={() => step("redo")} />
           {!current ? (
             <div className="emptyCover">
               <p className="emptyTitle">{list === "queue" ? "Your queue is clear." : list === "approved" ? "No approved covers yet." : "Nothing passed yet."}</p>
@@ -345,27 +404,27 @@ export default function App() {
           ) : (
             <>
               {!draft && <ModeSwitch story={story} setStory={setStory} />}
-              {!draft && <SongRow item={current} onShuffle={() => regenerate("song")} onSetSong={setSong} />}
+              {!draft && <SongRow item={current} onShuffle={() => regenerate("song")} onSetSong={setSong} onDraft={(v) => setPending(current.id, "song", v)} />}
               <CoverStage item={shown} quoteOn={quoteOn} slides={activeSlides} slide={slide} setSlide={setSlide} story={story && !draft}
                 editing={Boolean(draft)} activeBox={activeBox} onStartEdit={(box) => startEdit(box)} onSelectBox={setActiveBox} onMoveBox={moveBox}
                 pickMode={pickMode} onPick={onPick} onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={Boolean(draft) && draft.extraTexts.length < MAX_BOXES}
-                onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} />
+                onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} burst={burst} onDrawn={setDrawnId} />
               {draft ? (
                 <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
                   palette={palette.palette} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
                   pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox} onCancel={closeEditor} onSave={saveDraft} saving={saving} copyText={copyText} />
               ) : (
                 <>
-                  <ActionRow item={current} busy={busy} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={remix} onDownload={download}
+                  <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={remix} onDownload={download}
                     onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)} />
                   {story && <StoryControls item={current} onPan={pan} onPanDone={panDone} />}
                   <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={addSlide} onRemoveSlide={removeSlide}
-                    canPrevPost={index > 0} canNextPost={index < items.length - 1} onPrevPost={() => setIndex((i) => i - 1)} onNextPost={() => setIndex((i) => i + 1)} />
+                    canPrevPost={index > 0} canNextPost={index < items.length - 1} onPrevPost={() => goTo(index - 1)} onNextPost={() => goTo(index + 1)} />
                   <button type="button" className="outlineBtn wide" onClick={randomize}><Icon name="sparkle" size={20} /> Randomize layout</button>
-                  <NoteComposer item={current} onPost={postNote} inputRef={noteRef} />
+                  <NoteComposer item={current} onPost={postNote} onDraft={(v) => setPending(current.id, "note", v)} inputRef={noteRef} />
                   <TitleRow item={current} />
                   {list === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}
-                  <CaptionRow item={current} onSave={saveCaption} onRedo={() => regenerate("caption")} />
+                  <CaptionRow item={current} onSave={saveCaption} onRedo={() => regenerate("caption")} onDraft={(v) => setPending(current.id, "caption", v)} />
                   <ComposeCheck item={current} onRecheck={recheck} busy={busy} />
                   <WhyMatches why={current.why} />
                   <ImageInfo item={current} onSwap={swapPhoto} onRestore={restorePhoto} searchPhotos={searchPhotos} />

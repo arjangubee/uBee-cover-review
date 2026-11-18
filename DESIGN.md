@@ -81,7 +81,7 @@ components:
     textColor: "{colors.text}"
     rounded: "{rounded.pill}"
     height: "36px"
-    padding: "0 10px 0 9px"
+    padding: "0 9px 0 8px"
   mode-switch:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.muted}"
@@ -217,7 +217,7 @@ A near monochrome dark interface where every saturated color carries a platform 
 - **Title** (700, 19 px): The compose check heading and sheet headings. Check names sit one step below at 18 px.
 - **Body Large** (400, 17 px, 1.35): Inputs, the note row, the song owner (700) and primary buttons (700).
 - **Body** (400, 16 px, 1.4): Captions, quotes, reading text and outline buttons (600).
-- **Meta** (400, 14 px, 1.4): Hints, the cover count, check details and tags.
+- **Meta** (400, 14 px, 1.4): Hints, check details and tags. The cover count in the header sits one step smaller, at 13 px.
 - **Label** (700, 13 px, 0.08em, uppercase): Step labels such as Slides and Posts. Verdict chips and YES answers use the same size heavier (800) with slightly tighter tracking (0.04em to 0.06em).
 
 ### Named Rules
@@ -231,7 +231,7 @@ One centered column, at most 560 px wide, with a 16 px gutter. The cover stage b
 
 The editor docks its Cancel and Save bar to the bottom of the screen above the host app's tab bar (92 px on touch screens). Toasts float above that bar.
 
-Below 420 px the bee leaves the header so every target keeps 44 px, and the font and align controls stack. Below 390 px the queue pill drops its words and keeps the dot and count. Grids go from three to four columns at 520 px. Sheets rise from the bottom on a phone and center at 700 px and up.
+The header fits a 375 px phone with the bee and every 44 px target: the queue pill tucks 4 px under the back button's empty edge (both open all covers), undo and redo overlap their boxes by 10 px, and the cover count may run 6 px into the info button's empty edge while letting taps through to it. Below 420 px the font and align controls stack. Below 390 px the queue pill drops its words and keeps the dot and count. Grids go from three to four columns at 520 px. Sheets rise from the bottom on a phone and center at 700 px and up.
 
 ### Named Rules
 **The Cover Is The Screen Rule.** The cover takes the full width at 4:5 and nothing covers it except the slide counter and, while editing, its own tools.
@@ -270,7 +270,7 @@ Icons are authored on a 24 px grid with a 1.75 stroke, round caps and round join
 - **Press:** Icon buttons scale to 0.94 on press; hover adds a faint dark fill only on hover capable screens.
 
 ### Chips
-- **Queue pill:** Surface Gray pill with a status dot (green queue, chartreuse approved, red passed) and the count.
+- **Queue pill:** Surface Gray pill with a status dot (green queue, chartreuse approved, red passed) and the count, 14 px semibold. While the editor is open it locks like back and info: text and dot turn Off Gray.
 - **Tags:** Surface Gray pills with Secondary Text.
 - **Verdict:** Small uppercase pill, tinted by result: green on deep green for PASS, soft red on deep red for FAIL, muted on gray when idle.
 
@@ -286,12 +286,12 @@ Icons are authored on a 24 px grid with a 1.75 stroke, round caps and round join
 - **Switches:** 54 by 32 px, Strong Hairline off, Check Green on, with a sliding white knob.
 
 ### Navigation
-- **Header:** Sticky 56 px row on 94% black with blur and a hairline under it. All icon buttons 44 px. The cover count is muted, right aligned and truncates.
+- **Header:** Sticky 56 px row on 94% black with blur and a hairline under it. All icon buttons 44 px, the bee a 26 px mark at the right end. The cover count is muted, 13 px and right aligned; when the row is tight it drops the word Cover ("12 of 172").
 - **Mode switch:** Two or three equal segmented pills. Unselected is Surface Gray with muted text; selected is black with a white 1 px outline and white text.
 - **Steppers:** A Surface Gray capsule of 44 px buttons split by Raised Gray lines; the remove button turns red.
 
 ### Action Row
-The signature row under the cover: like, repost, download, dislike, comment, edit, in that order, as 28 px line icons with no labels on screen and full labels for screen readers. Like fills Heart Red when the cover is approved.
+The signature row under the cover: like, repost, download, dislike, comment, edit, in that order, as 28 px line icons in 44 px targets set side by side with no gap, so the row stays a tight cluster at the left like Instagram's. No labels on screen, full labels for screen readers. Like fills Heart Red when the cover is approved.
 
 ### Cover Stage
 The 4:5 canvas drawn by the posting renderer, with a dark translucent 1/N counter pill in the top right. While editing, two glass tool buttons (New text box, Face mosaic) sit on the bottom of the cover, and dragging moves the text directly.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BUILT_VERSION, RELEASE_URL, releaseBanner } from "./release.js";
 
 const SEEN_KEY = "cover-review-update-seen";
 
@@ -10,19 +11,31 @@ function markSeen(at) {
 }
 
 // The big UPDATE NOW banner. The server checks GitHub every 2 minutes; this asks the
-// server every minute and whenever the window gets focus.
+// server every minute and whenever the window gets focus. A copy that can't update itself
+// (a hosted Muse space) checks uBee's release note instead, and UPDATE NOW hands her one line
+// to send her Muse, who rebuilds it.
 export default function UpdateBanner() {
   const [u, setU] = useState(null);
+  const [hosted, setHosted] = useState(null); // { version, whatsNew, ask } for a copy without git
+  const [asked, setAsked] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [phase, setPhase] = useState("idle"); // idle | updating | restarting
   const [error, setError] = useState(null);
   const fromBoot = useRef(null);
   const clickedAt = useRef(0);
 
   const refresh = useCallback(async () => {
+    let s = null;
     try {
       const r = await fetch("/api/update");
-      if (r.ok) setU(await r.json());
-    } catch { /* the app is restarting or offline */ }
+      if (r.ok) s = await r.json();
+    } catch { /* the app is restarting, offline, or has no server updater */ }
+    if (s?.git) { setU(s); setHosted(null); return; }
+    setU(s);
+    try {
+      const r = await fetch(RELEASE_URL, { cache: "no-store" });
+      setHosted(r.ok ? releaseBanner(await r.json(), BUILT_VERSION) : null);
+    } catch { /* GitHub unreachable: try again next time */ }
   }, []);
 
   useEffect(() => {
@@ -90,6 +103,32 @@ export default function UpdateBanner() {
       <div className="updateBanner busy" role="status">
         <strong>{phase === "updating" ? "Updating..." : "Almost done, restarting the app..."}</strong>
         <span>Keep this page open. It reloads by itself in about a minute.</span>
+      </div>
+    );
+  }
+
+  if (hosted && !u?.available && !error) {
+    async function copyAsk() {
+      try { await navigator.clipboard.writeText(hosted.ask); setCopied(true); } catch { setCopied(false); }
+    }
+    return (
+      <div className="updateBanner" role="alert">
+        <strong>New version ready</strong>
+        {!asked ? (
+          <>
+            <ul>
+              {hosted.whatsNew.slice(0, 3).map((line) => <li key={line}>{line}</li>)}
+              {hosted.whatsNew.length > 3 && <li>and {hosted.whatsNew.length - 3} more</li>}
+            </ul>
+            <button className="updateNow" onClick={() => setAsked(true)}>UPDATE NOW</button>
+          </>
+        ) : (
+          <>
+            <span>Your Muse updates this copy. Send your Muse this:</span>
+            <div className="askLine">{hosted.ask}</div>
+            <button className="updateNow" onClick={copyAsk}>{copied ? "COPIED" : "COPY IT"}</button>
+          </>
+        )}
       </div>
     );
   }

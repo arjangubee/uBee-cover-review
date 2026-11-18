@@ -1,0 +1,9 @@
+{
+  "version": "1.3.0",
+  "date": "2026-11-18",
+  "whatsNew": [
+    "uBee clients can schedule approved covers with Pollen",
+    "Approved is a grid with Select, like the Photos app",
+    "The review deck shows the quote exactly as it posts"
+  ]
+}

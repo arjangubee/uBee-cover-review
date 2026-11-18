@@ -40,13 +40,16 @@ You may edit any file in this repo to fix a grievance. You may not delete the cr
 - If you fixed code for her and the new version changes the same lines, the new version wins. Your fix is saved as data/backups/<time>/local-changes.patch and stays in `git stash list`. Re-apply what is still needed and word it so it can go upstream.
 - Start the app with `npm start`. It restarts itself after an update.
 - A copy that wasn't installed with `git clone` can't update itself. Reinstall it with `git clone`, then move data/ across.
+- Hosted copies (a Muse space, or any copy built from the files): the app can't update itself there. It reads release.json from uBee's repo and shows UPDATE NOW; tapping it gives her one line to send you: "Update my Cover Review to version X". When she sends it: back up her data, pull uBee's main into your workspace clone (`git pull --ff-only upstream main`), rebuild the space from it, check her data is all still there, and tell her it's done.
 - Working from her own fork: name uBee's repo `upstream` (`git remote add upstream https://github.com/arjangubee/uBee-cover-review.git`). Updates come from `upstream` whenever it exists.
 - Keep the running copy on `main`, and keep her fork's `main` identical to uBee's. Build fixes on a branch, push the branch to her fork, and tell uBee which branch to pick up. Fixes reach every creator through uBee's review, then come back to her with UPDATE NOW. A fix merged into her fork's `main` blocks her updates.
 
 ## Before any push (every AI, every time, no exceptions)
 
+- Every release bumps `version` in package.json and release.json together, with 1 to 3 plain lines of what's new in release.json. Hosted copies only hear about a release through release.json.
+
 1. Pull first: `git pull --rebase origin main`. Someone else may have pushed since you last pulled. Never push an older copy over a newer one.
-2. Run `npm test`. It must end with UPDATE TEST OK and SMOKE OK.
+2. Run `npm test`. It must end with UPDATE TEST OK, RENDER TEST OK and SMOKE OK.
 3. Never force-push main.
 4. Push to the dev repo first. A second AI reviews it there. Only then push worldwide.
 5. A worldwide push reaches every creator: their app shows UPDATE NOW within 2 minutes. Only ship what you'd be happy for every creator to install tonight.

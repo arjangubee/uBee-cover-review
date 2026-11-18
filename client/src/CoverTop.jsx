@@ -14,7 +14,7 @@ export function CoverHeader({ list, count, position, total, canUndo, canRedo, on
       <button type="button" className={`queuePill ${list}`} onClick={onBack} aria-label={`${count} ${LIST_WORDS[list]}. Show all covers`}>
         <span className="pillFace">
           <span className="dot" aria-hidden="true" />
-          <span>{count} {LIST_WORDS[list]}</span>
+          <span>{count}<span className="pillWords"> {LIST_WORDS[list]}</span></span>
         </span>
       </button>
       <button type="button" className="iconBtn info" onClick={onInfo} aria-label="Setup and help"><Icon name="info" /></button>

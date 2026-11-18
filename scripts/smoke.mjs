@@ -108,10 +108,10 @@ try {
     const on = await (await fetch(`${base}/api/items/${id}/quote-toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ showQuote: true }) })).json();
     assert(on.item.showQuote === true, "toggle should save once unlocked");
   });
-  await check("ubee client workspace plan (Damiana)", async () => {
-    await fetch(`${base}/api/workspace/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "ubee_shared", clientName: "Damiana" }) });
+  await check("ubee client workspace plan", async () => {
+    await fetch(`${base}/api/workspace/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "ubee_shared", clientName: "Test Creator" }) });
     const plan = await (await fetch(`${base}/api/drive/plan`)).json();
-    assert(plan.mode === "ubee_shared" && plan.root.includes("Damiana"), "plan should point at her creator folder");
+    assert(plan.mode === "ubee_shared" && plan.root.includes("Test Creator"), "plan should point at her creator folder");
     assert(plan.folders.includes("Approved - Her Picks") && plan.folders.includes("DUMP"), "client folders should be friendly and complete");
     await fetch(`${base}/api/workspace/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "own_drive" }) });
   });

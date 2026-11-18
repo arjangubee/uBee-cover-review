@@ -49,7 +49,7 @@ export const CONNECTORS = [
 export const DRIVE_ROOT_NAME = "uBee Cover Review";
 export const DRIVE_FOLDERS = ["DUMP", ...BUCKETS, "Approved", "Rejected"];
 
-// uBee client workspace (Damiana first): a client does not get folders in
+// uBee client workspace: a client does not get folders in
 // their own Drive. Their Muse creates a working space inside the uBee
 // shared Drive, in that creator's designated folder, organized for the
 // creator to browse pleasantly: friendly names, a Start Here folder, and

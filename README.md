@@ -70,7 +70,7 @@ Yes, that works, and it is by design. This repo is plain code with a debugging p
 
 ## uBee clients
 
-Normal creators save in their own Drive. uBee clients save inside the uBee shared Drive, in their own designated creator folder, organized for them to browse: "Start Here", "New To Review", "Approved - Her Picks", "Posted", and the usual buckets. Damiana, the first uBee creator, is the model for this. Her Muse sets her workspace to client mode and the folder plan changes itself.
+Normal creators save in their own Drive. uBee clients save inside the uBee shared Drive, in their own designated creator folder, organized for them to browse: "Start Here", "New To Review", "Approved - Her Picks", "Posted", and the usual buckets. The first uBee creator is the model for this. Her Muse sets her workspace to client mode and the folder plan changes itself.
 
 ## Any AI assistant
 
@@ -104,6 +104,6 @@ The lean swipe flow is the default. The full Cover Review editor is one tap away
 - Server: Express in server/, zero native dependencies. State lives in data/db.json and data/settings.json, photos in data/uploads, sorted buckets in data/library. That keeps a clone running in seconds on any laptop. For a bigger deployment, the store in server/store.js is the one file to swap for SQLite or Postgres.
 - Connectors: server/connectors.js is the registry your Muse reads. Each connector lists what it is for, what it needs, and the exact steps Muse walks you through.
 
-## For Damiana, first creator
+## For the first creator
 
 This portable build exists so the first uBee creator gets the swipe app Arjang promised her: an app you can swipe on, where approving is a swipe and a note, never deleting a photo to say yes.

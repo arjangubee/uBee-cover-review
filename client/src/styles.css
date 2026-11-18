@@ -28,23 +28,25 @@ img { max-width: 100%; }
 .receipt { color: var(--accent); font-size: 14px; line-height: 1.45; margin: 10px 0 0; }
 
 /* ---------- Header row ---------- */
-.topbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 2px; height: 56px; margin: 0 -16px; padding: 0 8px;
+.topbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 0; height: 56px; margin: 0 -16px; padding: 0 6px;
   background: rgba(0, 0, 0, 0.94); border-bottom: 1px solid var(--line); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
 .iconBtn { flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 12px; background: transparent; color: var(--text); }
-.iconBtn.small { width: 36px; }
-.topbar .iconBtn.info { width: 40px; }
+.iconBtn.small { width: 34px; }
+.topbar > .iconBtn:first-child { width: 40px; }
+.topbar .iconBtn.info { width: 38px; }
 @media (hover: hover) { .iconBtn:hover:not(:disabled) { background: #141414; } }
 .iconBtn:active:not(:disabled) { transform: scale(0.94); }
 .iconBtn:disabled { color: var(--off); }
 .queuePill { flex: none; display: inline-flex; align-items: center; height: 44px; padding: 0 2px; border: 0; background: transparent; color: var(--text); font-size: 15px; font-weight: 600; white-space: nowrap; }
-.queuePill .pillFace { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px; border-radius: 999px; background: var(--surface); }
+.queuePill .pillFace { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 11px; border-radius: 999px; background: var(--surface); }
 .queuePill:active .pillFace { background: var(--surface-2); }
 .queuePill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
 .queuePill.approved .dot { background: var(--accent); }
 .queuePill.rejected .dot { background: var(--red); }
 .coverCount { flex: 1; min-width: 0; text-align: right; padding-right: 2px; color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 @media (max-width: 419px) { .coverCount .word { display: none; } }
-.topbar .bee { flex: none; width: 34px; height: 34px; margin-left: 2px; object-fit: contain; }
+.topbar .bee { flex: none; width: 30px; height: 30px; margin-left: 4px; object-fit: contain; }
+@media (max-width: 374px) { .queuePill .pillWords { display: none; } }
 
 /* ---------- Review deck | Story view, and the song row ---------- */
 .modeSwitch { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 4px; }

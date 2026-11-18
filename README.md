@@ -76,6 +76,18 @@ Yes, that works, and it is by design. This repo is plain code with a debugging p
 
 Normal creators save in their own Drive. uBee clients save inside the uBee shared Drive, in their own designated creator folder, organized for them to browse: "Start Here", "New To Review", "Approved - Her Picks", "Posted", and the usual buckets. The first uBee creator is the model for this. Her Muse sets her workspace to client mode and the folder plan changes itself.
 
+### Schedule with Pollen
+
+uBee clients can send approved covers straight to Pollen, uBee's publisher. Paste the Pollen code from uBee into Setup (or have your Muse do it), then in Approved tap Select, pick covers and tap Schedule with Pollen.
+
+- Your channels are listed with every photo channel on. Substack starts off. Switch off anything you don't want.
+- Each cover is drawn exactly as the review deck shows it, quote and all, and that picture is what posts.
+- Pollen books each cover on the first day with no photo post, starting a week out. One photo post a day, never two. Reels don't count.
+- Each cover shows its booked day ("Booked Tue Nov 24"). If uBee's computer is asleep, your covers wait safely and book as soon as it wakes up.
+- Captions with emoji, dashes used as a pause, or a few banned words get flagged before anything is sent, with what to fix.
+
+The code stays in data/settings.json on your computer and never goes into a commit, a grievance or a chat. Without a code, none of this shows.
+
 ## Any AI assistant
 
 Muse native first, since that is where it was built. It also works with any agent that can read files and run commands: AGENTS.md carries the protocol, and adapters/LLM_SETUP_PROMPT.md has a copy paste prompt for any other LLM, plus pointer files for Claude, Gemini and Copilot. Wider bridging to other agents comes later, like a game porting to new consoles after launch.

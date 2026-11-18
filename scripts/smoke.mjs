@@ -1,9 +1,11 @@
 // Smoke test: boots the API on a test port and walks the photos-only flow.
 // Run with the server stopped: node scripts/smoke.mjs
 import { execFileSync, spawn } from "node:child_process";
+import http from "node:http";
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { captionProblems } from "../server/captionRules.js";
 
 // Smoke runs in a throwaway data folder, so it never touches a creator's real photos,
 // decisions, workspace or settings.
@@ -13,9 +15,61 @@ for (const f of ["default-quotes.json", "quiz-quotes.json", "trending-instagram.
 const repoDataBefore = execFileSync("git", ["status", "--porcelain", "--", "data"], { cwd: join(REPO_DATA, "..") }).toString();
 const seedBefore = readFileSync(join(DATA, "trending-instagram.json"), "utf8");
 
+// A fake Bee Hive: the same four actions the real one answers, plus the signed upload URL and a
+// remote photo for the same-origin image route. It records everything so checks can count calls.
+const TINY_JPEG = Buffer.from("/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYwLjMxLjEwMgD/2wBDAAgKCgsKCw0NDQ0NDRAPEBAQEBAQEBAQEBASEhIVFRUSEhIQEBISFBQVFRcXFxUVFRUXFxkZGR4eHBwjIyQrKzP/xAClAAADAQEBAQAAAAAAAAAAAAAHBQQGAwIAAQADAQEBAAAAAAAAAAAAAAAHBQQDBgIQAAADBgAKBAwHAQAAAAAAAAIBAwAREgUTBDRBgYKyMjFCISKxwkMURQaTwcMzgweEVFEV0VLSFlXTo2IRAAIBAgMCCAwHAQEAAAAAAAECAxEEBRIAMSETs0FCMgYzInSysXKChIFxNTRRIxQHwbQ2Q3NiYf/AABEIADIAKAMBIgACEQADEQD/2gAMAwEAAhEDEQA/ABcI7xW5USQ4whjN8BBAEgkYhCGNwQhL6iMixNqLeZz5G6CEKrhkA1SFBbmCmYT544TTgdvPc/htZdbiAP7khBWGp3QYUHmESwERENQITLegxFzflI3NogKJFYFZU3LcVu6RHHTr1KcW2Onu+sdxhZRjOKPiMlZYVZQxyJIeF4NZVViwzEdwdE91QadLTy/wuF7leFfMYHmaNmHOSQAIlQ2VmoCKNXduU6ynjJMppdCtg3qsZgIYk+REihUg4hEkEiERuLi89jJ5YrfCEoG3PjDGPgmQQhARmYhCHyhIvqZkTPpwIwHKU0zBbKpqKjIhieVvUVAJM1BCI9UnGKInkW0m4y0dQpsioYLpZRRFSBMTiuSSWENWmIJFrBeYYSiMuISZxY39xa4TGkJMaLWiIzKihrkqXyKQgXeZD3x7+XU8MXB3qlXYMOcNzAmGuXMO9Xm9H2cmm6EwnyMKAVHOAapctsYKZvFUqQmCD/qJz+G1u/3aefN2/lLD8WqAJMpaVnSct67ucRx0u8VacW2Olu+sdxhZdAl/CXHlLn9DQrilzIXLSLHR2AzEfcA/sGa4TutyUzD/AKOk97gti1w8hgFy0rNJIwSpDuxLK5FvLVwd7FiG37xrGX2EqZuiTUpa5Zehpr7CVM3RJqUtcsvQ057JPM/TTfHvn/WJuMGpZl2Wd1WgQ3snna+ZdlndVoEN7J526Ky+ST0vHOoYu3Ht8XTdPULL0t0bmnqFl6W6N5O0+/SG47eX/R/GOvru0XVXGIIHkbnG8JbpFjNn1v4vzVVUIQ2zzN7iqoliM8ajemLssw1LP0BNwN7iE1vEMqxmiNtDc0D6MNdh11UWF/hXBd78ZcTcJn35fuQ9CmWnTO2vJoHT+TzCXd37yhSqVIOdMT4YH6gxOc8trJLOyuFo6YInQv5gltf9TJjH7x/BnxXoGwUk7f2fWYs9WLKLEerdreyl1kk4aoQgJ3bmRBQMrHYPrt1hh8Sz4pHA1QrZt46W6Itygjb/AOa928gmiiQRBt3kb3HURLGZY1Go/bs3+W/1R/sYpyzA0s/TEzJs5LONXcVfcxG0fX3aFGL4zc2uKX8CJCVhuriJSwYsQkrKK0cCtBvoBoMMXZZhqWfoCYRMXZZhqWfoCYMYr2XoSeQaMP5h/P8AV3wibjLXWW94/gz4r0DYKSdv7PrNvfeP4M+K9A2Cknb+z6zHrqT/AA2w9Y/ey6zwn45D6fENovSzA0s/TEzJlsswNLP0xMybKbtZPOby6A3WD45ivh93x76//9k=", "base64");
+const CH_IG = "11111111-1111-4111-8111-111111111111";
+const CH_SUBSTACK = "22222222-2222-4222-8222-222222222222";
+const hive = { code: "smoke-pollen-code-0123456789-abcdefghijklmnop", revoked: false, dropSubmitOnce: false,
+  uploads: {}, requests: [], submits: 0 };
+const hiveServer = http.createServer(async (req, res) => {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  const raw = Buffer.concat(chunks);
+  const send = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+  const url = new URL(req.url, "http://hive");
+  if (req.method === "GET" && url.pathname === "/photo.jpg") { res.writeHead(200, { "Content-Type": "image/jpeg" }); return res.end(TINY_JPEG); }
+  if (req.method === "PUT" && url.pathname.startsWith("/upload/")) {
+    if (url.searchParams.get("token") !== "t0k") return send(400, { error: "no token" });
+    hive.uploads[decodeURIComponent(url.pathname.slice(8))] = raw;
+    return send(200, { Key: url.pathname.slice(8) });
+  }
+  if (hive.revoked || req.headers.authorization !== `Bearer ${hive.code}`) return send(401, { error: "That Pollen code doesn't work anymore. Ask uBee for a new one." });
+  const body = JSON.parse(raw.toString() || "{}");
+  if (body.action === "hello") {
+    return send(200, { ok: true, creator: { id: "cr-1", display_name: "Test Creator" }, channels: [
+      { id: CH_IG, platform: "instagram", handle: "@smoke_ig", photo: true, ready: true, default_on: true },
+      { id: CH_SUBSTACK, platform: "substack", handle: "smoke", photo: true, ready: true, default_on: false }] });
+  }
+  if (body.action === "upload_url") {
+    if (!/^[A-Za-z0-9_-]{8,80}$/.test(body.client_key || "")) return send(400, { error: "bad client_key" });
+    return send(200, { ok: true, path: `cr-1/${body.client_key}.jpg`, signed_url: `${hiveBase}/upload/cr-1/${body.client_key}.jpg?token=t0k`, token: "t0k" });
+  }
+  if (body.action === "submit") {
+    hive.submits += 1;
+    if (!hive.uploads[body.image_path]) return send(400, { error: "the image must be uploaded first" });
+    let r = hive.requests.find((x) => x.client_key === body.client_key);
+    if (!r) {
+      r = { id: `${String(hive.requests.length + 1).padStart(8, "0")}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, client_key: body.client_key, caption: body.caption,
+        channel_ids: body.channel_ids, width: body.width, height: body.height, has_slides: body.has_slides, status: "waiting", booked_day: null, posts: [], error: null };
+      hive.requests.push(r);
+    }
+    if (hive.dropSubmitOnce) { hive.dropSubmitOnce = false; return req.socket.destroy(); }
+    return send(200, { ok: true, request: { id: r.id, status: r.status } });
+  }
+  if (body.action === "status") {
+    return send(200, { ok: true, requests: hive.requests.filter((r) => (body.ids || []).includes(r.id))
+      .map(({ id, status, booked_day, posts, error }) => ({ id, status, booked_day, posts, error, updated_at: new Date().toISOString() })) });
+  }
+  return send(400, { error: "unknown action" });
+});
+await new Promise((r) => hiveServer.listen(0, "127.0.0.1", r));
+const hiveBase = `http://127.0.0.1:${hiveServer.address().port}`;
+
 const PORT = 4199;
 const base = `http://localhost:${PORT}`;
-const server = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(PORT), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: DATA }, stdio: "pipe" });
+const server = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(PORT), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: DATA,
+  COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_POLLEN_SYNC_MS: "3600000" }, stdio: "pipe" });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function check(name, fn) {
@@ -36,10 +90,10 @@ try {
     const q = await (await fetch(`${base}/api/quotes`)).json();
     assert(q.quotes.length > 300, `expected 300+ default quotes, got ${q.quotes.length}`);
   });
-  await check("connectors registry lists drive, spotify, instagram with Muse steps", async () => {
+  await check("connectors registry lists drive, spotify, instagram, pollen with Muse steps", async () => {
     const c = await (await fetch(`${base}/api/connectors`)).json();
     const ids = c.connectors.map((x) => x.id).sort().join(",");
-    assert(ids === "google_drive,instagram,spotify", `unexpected connectors: ${ids}`);
+    assert(ids === "google_drive,instagram,pollen,spotify", `unexpected connectors: ${ids}`);
     assert(c.connectors.every((x) => x.claudeSteps.length >= 3), "each connector needs Muse steps");
   });
   await check("drive plan has DUMP and every bucket", async () => {
@@ -150,6 +204,117 @@ try {
     const resolved = await (await fetch(`${base}/api/grievances/${g.grievance.id}/resolve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resolution: "smoke resolved" }) })).json();
     assert(resolved.grievance.status === "resolved", "grievance should resolve");
   });
+  const post = (path, body) => fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const approvedItem = async (name, caption) => {
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII=", "base64");
+    const form = new FormData();
+    form.append("photos", new Blob([png], { type: "image/png" }), name);
+    const item = (await (await fetch(`${base}/api/items/upload`, { method: "POST", body: form })).json()).created[0];
+    await post(`/api/items/${item.id}/decide`, { decision: "approved" });
+    if (caption != null) await post(`/api/items/${item.id}/edit`, { caption });
+    return item;
+  };
+  const render = async (id) => {
+    const form = new FormData();
+    form.append("image", new Blob([TINY_JPEG], { type: "image/jpeg" }), "cover.jpg");
+    return (await fetch(`${base}/api/items/${id}/render`, { method: "POST", body: form })).json();
+  };
+  const pollenOf = async (id) => (await (await fetch(`${base}/api/items?status=approved`)).json()).items.find((i) => i.id === id)?.pollen;
+
+  await check("caption rules match Pollen's: emoji, dash pivots, antithesis, banned words, length", async () => {
+    assert(captionProblems("golden hour again").length === 0, "a plain caption should pass");
+    assert(captionProblems("a well-known spot, 10-15 minutes away").length === 0, "hyphens inside words are fine");
+    assert(captionProblems("golden hour \u2728").some((p) => /emoji/i.test(p)), "emoji should be flagged");
+    assert(captionProblems("golden hour - soft energy today").some((p) => /dash/i.test(p)), "a dash pivot should be flagged");
+    assert(captionProblems("golden hour \u2014 again").some((p) => /dash/i.test(p)), "an em dash should be flagged");
+    assert(captionProblems("it's not a phase, it's a lifestyle").some((p) => /rewrite/i.test(p)), "antithesis should be flagged");
+    assert(captionProblems("good vibes only").some((p) => p.includes("vibes")), "banned words should be flagged");
+    assert(captionProblems("x".repeat(2201)).some((p) => p.includes("2,200")), "over 2,200 characters should be flagged");
+  });
+  await check("uBee clients get captions without emoji or a dash tail", async () => {
+    await post("/api/voice/samples", { source: "instagram", samples: ["sunset glow \u2728\u2728", "beach glow \u2728", "glow up \u2728"] });
+    const own = await approvedItem("own-voice.png");
+    assert(/\u2728/.test(own.caption) && own.caption.includes(" - "), `the creator's own style should still apply outside uBee: ${own.caption}`);
+    await post("/api/workspace/configure", { mode: "ubee_shared", clientName: "Test Creator" });
+    const client = await approvedItem("client-voice.png");
+    assert(client.caption && captionProblems(client.caption).length === 0, `uBee client caption breaks Pollen's rules: ${client.caption}`);
+    await post("/api/workspace/configure", { mode: "own_drive" });
+  });
+  await check("pollen: a wrong code is refused with a plain reason and nothing is saved", async () => {
+    const r = await post("/api/connectors/pollen", { code: "not-the-right-code-not-the-right-code-0000" });
+    const body = await r.json();
+    assert(r.status === 401 && /pollen code/i.test(body.error || ""), `expected a plain refusal, got ${r.status} ${JSON.stringify(body)}`);
+    const ch = await (await fetch(`${base}/api/pollen/channels`)).json();
+    assert(ch.connected === false, "a refused code must not connect");
+  });
+  await check("pollen: connect lists her channels and the code never comes back out", async () => {
+    const r = await (await post("/api/connectors/pollen", { code: hive.code })).json();
+    assert(r.ok && r.creator.display_name === "Test Creator" && r.channels.length === 2, `connect failed: ${JSON.stringify(r)}`);
+    const ch = await (await fetch(`${base}/api/pollen/channels`)).json();
+    assert(ch.connected === true && ch.channels.find((c) => c.id === CH_SUBSTACK).default_on === false, "channels should keep the on/off defaults");
+    for (const path of ["/api/health", "/api/pollen/channels", "/api/setup/status", "/api/connectors", "/api/items?status=approved"]) {
+      const text = await (await fetch(`${base}${path}`)).text();
+      assert(!text.includes(hive.code), `${path} leaked the Pollen code`);
+    }
+  });
+  let first;
+  await check("pollen: schedule sends good covers and refuses a caption Pollen would reject, before any upload", async () => {
+    first = await approvedItem("cover-a.png", "golden hour again");
+    const bad = await approvedItem("cover-b.png", "golden hour \u2728");
+    const rendered = await render(first.id);
+    assert(rendered.ok && rendered.render.width === 40 && rendered.render.height === 50, `render should save with its real size: ${JSON.stringify(rendered)}`);
+    await render(bad.id);
+    const out = await (await post("/api/pollen/schedule", { itemIds: [first.id, bad.id], channelIds: [CH_IG] })).json();
+    const a = out.results.find((x) => x.itemId === first.id), b = out.results.find((x) => x.itemId === bad.id);
+    assert(a.status === "waiting", `good cover should be waiting: ${JSON.stringify(a)}`);
+    assert(b.status === "refused" && /emoji/i.test(b.error), `emoji caption should be refused with the reason: ${JSON.stringify(b)}`);
+    assert(Object.keys(hive.uploads).length === 1 && hive.requests.length === 1, "only the good cover should reach the Bee Hive");
+    const req = hive.requests[0];
+    assert(req.caption === "golden hour again" && req.width === 40 && req.height === 50 && req.channel_ids.join() === CH_IG, `request body wrong: ${JSON.stringify(req)}`);
+    assert(!(await pollenOf(bad.id)), "a refused cover keeps no Pollen state, so it can be fixed and sent");
+  });
+  await check("pollen: scheduling the same cover again never sends it twice", async () => {
+    const before = hive.submits;
+    const out = await (await post("/api/pollen/schedule", { itemIds: [first.id], channelIds: [CH_IG] })).json();
+    assert(out.results[0].status === "waiting", `already scheduled cover should report its status: ${JSON.stringify(out.results[0])}`);
+    assert(hive.submits === before && hive.requests.length === 1, "no second submit for a cover that is already waiting");
+  });
+  await check("pollen: a lost answer is retried with the same key and lands once", async () => {
+    const c = await approvedItem("cover-c.png", "second light");
+    await render(c.id);
+    hive.dropSubmitOnce = true;
+    const out1 = await (await post("/api/pollen/schedule", { itemIds: [c.id], channelIds: [CH_IG] })).json();
+    assert(out1.results[0].status === "not_sent" && out1.results[0].error, `a lost answer should say not sent: ${JSON.stringify(out1.results[0])}`);
+    const key = (await pollenOf(c.id)).clientKey;
+    const out2 = await (await post("/api/pollen/schedule", { itemIds: [c.id], channelIds: [CH_IG] })).json();
+    assert(out2.results[0].status === "waiting", `retry should land: ${JSON.stringify(out2.results[0])}`);
+    assert(hive.requests.filter((r) => r.client_key === key).length === 1 && hive.requests.length === 2, "the retry must reuse the key, one request");
+  });
+  await check("pollen: a cover needs its render before it can go", async () => {
+    const d = await approvedItem("cover-d.png", "no render yet");
+    const out = await (await post("/api/pollen/schedule", { itemIds: [d.id], channelIds: [CH_IG] })).json();
+    assert(out.results[0].status === "refused" && /render/i.test(out.results[0].error), `expected a render refusal: ${JSON.stringify(out.results[0])}`);
+  });
+  await check("pollen: status sync fills in the booked day", async () => {
+    Object.assign(hive.requests[0], { status: "booked", booked_day: "2026-11-25" });
+    await post("/api/pollen/sync", {});
+    const p = await pollenOf(first.id);
+    assert(p.status === "booked" && p.bookedDay === "2026-11-25", `expected booked 2026-11-25, got ${JSON.stringify(p)}`);
+  });
+  await check("pollen: the image route serves local and remote photos from this app's own address", async () => {
+    const local = await fetch(`${base}/api/items/${first.id}/image`);
+    assert(local.ok && local.headers.get("content-type").startsWith("image/png"), `local photo: ${local.status} ${local.headers.get("content-type")}`);
+    const enq = await (await post("/api/items/enqueue", { items: [{ imageUrl: `${hiveBase}/photo.jpg`, driveId: "drive-remote", title: "remote" }] })).json();
+    const remote = await fetch(`${base}/api/items/${enq.created[0].id}/image`);
+    const bytes = Buffer.from(await remote.arrayBuffer());
+    assert(remote.ok && bytes.equals(TINY_JPEG) && remote.headers.get("content-type") === "image/jpeg", "remote photo should come through this app");
+  });
+  await check("pollen: a revoked code says so", async () => {
+    hive.revoked = true;
+    const ch = await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
+    assert(ch.connected === false && ch.revoked === true && /doesn't work anymore/.test(ch.message), `expected the revoked message: ${JSON.stringify(ch)}`);
+    hive.revoked = false;
+  });
   await check("smoke never touched the repo's own data folder", async () => {
     const now = execFileSync("git", ["status", "--porcelain", "--", "data"], { cwd: join(REPO_DATA, "..") }).toString();
     assert(now === repoDataBefore, `repo data changed during smoke:\n${now}`);
@@ -158,6 +323,7 @@ try {
   });
 } finally {
   server.kill();
+  hiveServer.close();
   rmSync(DATA, { recursive: true, force: true });
 }
 console.log(process.exitCode ? "SMOKE FAILED" : "SMOKE OK");

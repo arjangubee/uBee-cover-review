@@ -1,10 +1,11 @@
 // Smoke test: boots the API on a test port and walks the photos-only flow.
 // Run with the server stopped: node scripts/smoke.mjs
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 const PORT = 4199;
 const base = `http://localhost:${PORT}`;
-const server = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(PORT) }, stdio: "pipe" });
+const server = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(PORT), COVER_REVIEW_NO_UPDATE_LOOP: "1" }, stdio: "pipe" });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function check(name, fn) {
@@ -114,6 +115,17 @@ try {
     assert(plan.mode === "ubee_shared" && plan.root.includes("Test Creator"), "plan should point at her creator folder");
     assert(plan.folders.includes("Approved - Her Picks") && plan.folders.includes("DUMP"), "client folders should be friendly and complete");
     await fetch(`${base}/api/workspace/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "own_drive" }) });
+  });
+  await check("update status reports the version and the update state", async () => {
+    const u = await (await fetch(`${base}/api/update`)).json();
+    assert(typeof u.current?.version === "string" && u.current.version.length > 0, "current version missing");
+    assert(["idle", "checking", "updating", "restarting", "failed"].includes(u.state), `unexpected state ${u.state}`);
+    assert(typeof u.available === "boolean" && Array.isArray(u.whatsNew), "available and whatsNew expected");
+  });
+  await check("health reports the real version from package.json", async () => {
+    const h = await (await fetch(`${base}/api/health`)).json();
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    assert(h.version === pkg.version, `health says ${h.version}, package.json says ${pkg.version}`);
   });
   await check("health and grievance loop", async () => {
     const health = await (await fetch(`${base}/api/health`)).json();

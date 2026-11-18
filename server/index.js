@@ -1,12 +1,16 @@
 import express from "express";
 import multer from "multer";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { extname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CONNECTORS, createDriveFolders, drivePlan, sortLocalDump, spotifyAuthUrl } from "./connectors.js";
 import { buildVoiceProfile, generateCaption, loadQuotes, loadTrending, saveTrending, suggestQuote, suggestSong } from "./services.js";
 import { registerFull } from "./full.js";
 import { DATA_DIR, LIBRARY_DIR, UPLOAD_DIR, store } from "./store.js";
+import { createUpdater } from "./update.js";
 
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const updater = createUpdater({ root: ROOT, dataDir: DATA_DIR });
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
@@ -27,8 +31,9 @@ const GRIEVANCE_PATH = join(DATA_DIR, "grievances.json");
 function readGrievances() { try { return JSON.parse(readFileSync(GRIEVANCE_PATH, "utf8")); } catch { return []; } }
 function saveGrievances(list) { writeFileSync(GRIEVANCE_PATH, JSON.stringify(list, null, 1)); }
 app.get("/api/health", (_req, res) => {
+  const v = updater.versionInfo();
   res.json({
-    ok: true, app: "ubee-cover-review", version: "1.1.0",
+    ok: true, app: "ubee-cover-review", version: v.version, commit: v.commit,
     items: { total: store.db.items.length, queue: store.db.items.filter((i) => i.status === "queue").length },
     connectors: store.settings.connectors, workspace: store.settings.workspace,
     openGrievances: readGrievances().filter((g) => g.status === "open").length,
@@ -170,12 +175,31 @@ app.get("/api/voice/profile", (_req, res) => res.json({ voiceProfile: store.sett
 // ---------- Full feature set (editor, slides, story, ratings, verification) ----------
 registerFull(app, upload);
 
+// ---------- Updates: check on start and every 2 minutes, UPDATE NOW applies ----------
+app.get("/api/update", (_req, res) => res.json(updater.status()));
+app.post("/api/update/check", async (_req, res) => res.json(await updater.check()));
+app.post("/api/update/apply", (_req, res) => {
+  const s = updater.status();
+  if (s.state === "updating" || s.state === "restarting") return res.json({ ok: true, state: s.state });
+  updater.apply().catch((e) => console.error("update failed:", e));
+  res.json({ ok: true, state: "updating" });
+});
+if (process.env.COVER_REVIEW_NO_UPDATE_LOOP !== "1") updater.start();
+
 // ---------- Static: uploads, library, brand, built client ----------
 app.use("/uploads", express.static(UPLOAD_DIR));
 app.use("/api/library", express.static(LIBRARY_DIR));
-app.use("/brand", express.static(join(DATA_DIR, "..", "public", "brand")));
-const clientDist = join(DATA_DIR, "..", "client", "dist");
+app.use("/brand", express.static(join(ROOT, "public", "brand")));
+const clientDist = join(ROOT, "client", "dist");
 if (existsSync(clientDist)) app.use(express.static(clientDist));
 
+// After an update the new copy starts while the old one is still letting go of the port.
 const port = Number(process.env.PORT || 4173);
-app.listen(port, () => console.log(`uBee Cover Review running at http://localhost:${port}`));
+function listen(attempt = 0) {
+  const server = app.listen(port, () => console.log(`uBee Cover Review running at http://localhost:${port}`));
+  server.on("error", (e) => {
+    if (e.code === "EADDRINUSE" && attempt < 40) setTimeout(() => listen(attempt + 1), 500);
+    else throw e;
+  });
+}
+listen();

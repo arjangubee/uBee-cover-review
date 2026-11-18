@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import UpdateBanner from "./UpdateBanner.jsx";
 
 async function api(path, options) {
   const res = await fetch(path, options);
@@ -164,6 +165,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <UpdateBanner />
       <header>
         <img src="/brand/ubee-bee-chartreuse.png" alt="uBee bee" className="bee" />
         <div>

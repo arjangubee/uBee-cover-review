@@ -28,8 +28,62 @@ export function styleDefaults() {
     textColor: "#FFFFFF", textFont: "tiktok", textAlign: "center",
     fontSize: 58, fontWeight: 500, opacity: 100,
     horizontalPosition: 50, verticalPosition: 50, lineCount: 0,
+    textWidth: 84, textHeight: 100, extraTexts: [],
     barColor: "#000000", textNegative: false,
   };
+}
+
+// ---------- v1.4 (Quill look): text box fields, her custom colors, image edits, why it matches ----------
+const HEX = /^#[0-9A-Fa-f]{6}$/;
+export const ALIGNS = ["left", "center", "right", "justify"];
+export const CONTRASTS = ["normal", "high", "bw"];
+const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v)));
+const isNum = (v) => v != null && v !== "" && Number.isFinite(Number(v));
+// Ranges for the number fields a text box carries. Old fields keep their old (open) handling.
+const BOX_RANGES = { lineCount: [0, 4], textWidth: [20, 100], textHeight: [60, 200] };
+const BOX_NUMBERS = ["fontSize", "fontWeight", "opacity", "horizontalPosition", "verticalPosition", "lineCount", "textWidth", "textHeight"];
+
+function setNumbers(target, src) {
+  for (const k of BOX_NUMBERS) {
+    if (!isNum(src[k])) continue;
+    target[k] = BOX_RANGES[k] ? clampNum(src[k], ...BOX_RANGES[k]) : Number(src[k]);
+    if (k === "lineCount") target[k] = Math.round(target[k]);
+  }
+}
+
+/** A custom color she used goes to the front of her custom colors, newest first, at most 24. */
+function rememberCustomColor(hex) {
+  if (PALETTE.some((c) => c.hex.toUpperCase() === hex)) return;
+  const list = (store.settings.customColors || []).filter((c) => c !== hex);
+  store.settings.customColors = [hex, ...list].slice(0, 24);
+  store.saveSettings();
+}
+
+/** Her extra text boxes, cleaned: at most 5, text up to 300 characters, only known style fields. */
+export function cleanTextBoxes(list) {
+  return (Array.isArray(list) ? list : []).slice(0, 5).filter((b) => b && typeof b === "object").map((b) => {
+    const box = { ...styleDefaults(), quote: String(b.quote ?? "").slice(0, 300) };
+    delete box.extraTexts; delete box.barColor; delete box.textNegative;
+    if (typeof b.textColor === "string" && HEX.test(b.textColor)) box.textColor = b.textColor.toUpperCase();
+    if (FONTS.includes(b.textFont)) box.textFont = b.textFont;
+    if (ALIGNS.includes(b.textAlign)) box.textAlign = b.textAlign;
+    setNumbers(box, b);
+    return box;
+  });
+}
+
+/** "Why it matches", as her Muse records it. Null when there is no text. */
+export function cleanWhy(w) {
+  const text = String(w?.text ?? "").trim().slice(0, 1200);
+  if (!text) return null;
+  const tags = (Array.isArray(w.tags) ? w.tags : []).map((t) => String(t).trim().slice(0, 40)).filter(Boolean).slice(0, 8);
+  return { text, tags, audience: String(w.audience ?? "").trim().slice(0, 200), source: String(w.source ?? "").trim().slice(0, 200), recordedAt: Date.now() };
+}
+
+function cleanMosaics(list) {
+  return (Array.isArray(list) ? list : []).filter((r) => r && ["x", "y", "w", "h"].every((k) => isNum(r[k])))
+    .map((r) => ({ x: clampNum(r.x, 0, 100), y: clampNum(r.y, 0, 100), w: clampNum(r.w, 0, 100), h: clampNum(r.h, 0, 100) }))
+    .filter((r) => r.w > 0 && r.h > 0).slice(0, 12);
 }
 
 // ---------- Drive import progress + in-flight guard ----------
@@ -170,18 +224,21 @@ export function registerFull(app, upload) {
   });
   app.get("/api/workspace", (_req, res) => res.json({ workspace: store.settings.workspace }));
 
-  app.get("/api/palette", (_req, res) => res.json({ palette: PALETTE, fonts: FONTS }));
+  app.get("/api/palette", (_req, res) => res.json({ palette: PALETTE, fonts: FONTS, customColors: store.settings.customColors || [] }));
 
   // Style editor: updatecoverstyle + updatebarcolor in the original.
   app.post("/api/items/:id/style", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
     const b = req.body || {};
-    if (b.textColor && PALETTE.some((c) => c.hex === b.textColor)) item.textColor = b.textColor;
-    if (b.textFont && FONTS.includes(b.textFont)) item.textFont = b.textFont;
-    if (["left", "center", "right"].includes(b.textAlign)) item.textAlign = b.textAlign;
-    for (const k of ["fontSize", "fontWeight", "opacity", "horizontalPosition", "verticalPosition", "lineCount"]) {
-      if (b[k] != null && Number.isFinite(Number(b[k]))) item[k] = Number(b[k]);
+    // The 11 palette colors come first; since v1.4 any #RRGGBB works and joins her custom colors.
+    if (typeof b.textColor === "string" && HEX.test(b.textColor)) {
+      item.textColor = b.textColor.toUpperCase();
+      rememberCustomColor(item.textColor);
     }
+    if (b.textFont && FONTS.includes(b.textFont)) item.textFont = b.textFont;
+    if (ALIGNS.includes(b.textAlign)) item.textAlign = b.textAlign;
+    setNumbers(item, b);
+    if (b.extraTexts !== undefined) item.extraTexts = cleanTextBoxes(b.extraTexts);
     if (["#FFFFFF", "#000000"].includes(b.barColor)) item.barColor = b.barColor;
     if (b.textNegative != null) item.textNegative = Boolean(b.textNegative);
     store.saveDb();
@@ -192,7 +249,8 @@ export function registerFull(app, upload) {
   app.post("/api/items/:id/rate", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
     for (const k of ["qualityRating", "songRating", "quoteRating"]) {
-      if (req.body[k] != null) item[k] = Math.max(1, Math.min(10, Number(req.body[k])));
+      if (req.body[k] === null) item[k] = null; // v1.4: undo can take back a first rating
+      else if (req.body[k] != null) item[k] = Math.max(1, Math.min(10, Number(req.body[k])));
     }
     item.ratingUpdatedAt = Date.now();
     store.saveDb();
@@ -220,7 +278,12 @@ export function registerFull(app, upload) {
   // Save image edit notes/adjustments: saveimageedit in the original.
   app.post("/api/items/:id/image-edit", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
-    item.imageEdit = { ...(item.imageEdit || {}), ...(req.body || {}), savedAt: Date.now() };
+    const body = { ...(req.body || {}) };
+    const prev = item.imageEdit || {};
+    // v1.4: Image contrast and Face mosaic live here too, kept clean; other notes merge as before.
+    if ("contrast" in body) body.contrast = CONTRASTS.includes(body.contrast) ? body.contrast : (prev.contrast || "normal");
+    if ("mosaics" in body) body.mosaics = cleanMosaics(body.mosaics);
+    item.imageEdit = { ...prev, ...body, savedAt: Date.now() };
     store.saveDb();
     res.json({ item });
   });
@@ -299,6 +362,16 @@ export function registerFull(app, upload) {
     res.json({ item });
   });
 
+  // Why it matches: her Muse records why the photo, quote and song belong together. v1.4.
+  app.post("/api/items/:id/why", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const why = cleanWhy(req.body);
+    if (!why) return res.status(400).json({ error: "Say why it matches, in a sentence or two." });
+    item.why = why;
+    store.saveDb();
+    res.json({ item });
+  });
+
   // Verification: verifycover + attestcomposesteps in the original.
   app.post("/api/items/:id/verify", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
@@ -335,6 +408,7 @@ export function registerFull(app, upload) {
       const item = store.addItem({ title: e.title || e.driveId || "drive photo", imageUrl: e.imageUrl, source: "drive", driveId: e.driveId || null, imageQualityStatus: "passed", ...styleDefaults() });
       item.quote = e.quote || quotes[item.id % Math.max(quotes.length, 1)]?.text || "";
       item.song = e.song || "";
+      if (e.why) item.why = cleanWhy(e.why);
       item.caption = generateCaption(item, store.settings.voiceProfile);
       created.push(item);
     }

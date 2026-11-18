@@ -1,494 +1,409 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import ApprovedGrid from "./ApprovedGrid.jsx";
-import { badgeFor } from "./pollenView.js";
-import { FONT_CSS, PREVIEW_WIDTH, previewFontPx } from "./renderCover.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, post, upload } from "./api.js";
+import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, ImageInfo, NoteComposer, Ratings, Steppers, StoryControls, TitleRow, WhyMatches } from "./CoverDetails.jsx";
+import CoverEditor from "./CoverEditor.jsx";
+import CoverStage from "./CoverStage.jsx";
+import { CoverHeader, ModeSwitch, SongRow } from "./CoverTop.jsx";
+import Icon from "./icons.jsx";
+import InfoSheet from "./InfoSheet.jsx";
+import LibraryView from "./LibraryView.jsx";
+import { STYLE_DEFAULTS, renderCover, withDefaults } from "./renderCover.js";
+import { changedFields, displayTitle, randomLayout, valueForStars } from "./reviewMath.js";
 import ScheduleSheet from "./ScheduleSheet.jsx";
+import { createHistory } from "./undo.js";
 import UpdateBanner from "./UpdateBanner.jsx";
 
-async function api(path, options) {
-  const res = await fetch(path, options);
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
-  return res.json();
+const STYLE_KEYS = Object.keys(STYLE_DEFAULTS);
+const MAX_BOXES = 5;
+
+/** A cover's style with every default filled in, so an edit compares what she actually sees. */
+function effectiveStyle(item) {
+  const s = withDefaults(item);
+  const out = {};
+  for (const k of STYLE_KEYS) out[k] = s[k];
+  out.extraTexts = Array.isArray(item.extraTexts) ? item.extraTexts : [];
+  return out;
 }
-const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+const pickStyle = (item, keys) => Object.fromEntries(keys.map((k) => [k, effectiveStyle(item)[k]]));
 
 export default function App() {
   const [status, setStatus] = useState(null);
+  const [list, setList] = useState("queue");
   const [items, setItems] = useState([]);
-  const [tab, setTab] = useState("queue");
-  const [note, setNote] = useState("");
-  const [rating, setRating] = useState(8);
-  const [dragX, setDragX] = useState(0);
-  const [palette, setPalette] = useState([]);
-  const [fonts, setFonts] = useState([]);
-  const [showEditor, setShowEditor] = useState(false);
-  const [storyView, setStoryView] = useState(false);
-  const [search, setSearch] = useState("");
-  const [searchResults, setSearchResults] = useState([]);
+  const [index, setIndex] = useState(0);
+  const [view, setView] = useState("cover");
+  const [story, setStory] = useState(false);
+  const [slide, setSlide] = useState(0);
+  const [draft, setDraft] = useState(null);
+  const [activeBox, setActiveBox] = useState(-1);
+  const [pickMode, setPickMode] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [sheet, setSheet] = useState(null); // { items, stop } while the Schedule sheet is open
+  const [palette, setPalette] = useState({ palette: [], fonts: [], customColors: [] });
   const [quotesStatus, setQuotesStatus] = useState(null);
   const [quizQuotes, setQuizQuotes] = useState([]);
-  const [grievanceReceipt, setGrievanceReceipt] = useState(null);
-  const [grievanceError, setGrievanceError] = useState(null);
-  const [ownQuotes, setOwnQuotes] = useState("");
   const [pollen, setPollen] = useState(null);
-  const [pollenCode, setPollenCode] = useState("");
-  const [pollenNote, setPollenNote] = useState("");
-  const [focusId, setFocusId] = useState(null); // an approved cover opened from the grid
-  const [sheet, setSheet] = useState(null); // { items, stop } while the Schedule sheet is open
-  const startX = useRef(null);
-  // The deck's photo width: quote text scales with it, the same way the posted cover does.
-  const photoRef = useRef(null);
-  const [photoW, setPhotoW] = useState(PREVIEW_WIDTH);
+  const [toast, setToast] = useState(null);
+  const [, setHistoryTick] = useState(0);
+  const history = useRef(createHistory(50));
+  const pendingId = useRef(null);
+  const noteRef = useRef(null);
+
+  const say = useCallback((text) => setToast({ text, at: Date.now() }), []);
   useEffect(() => {
-    const el = photoRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return undefined;
-    const ro = new ResizeObserver(([entry]) => { if (entry.contentRect.width) setPhotoW(entry.contentRect.width); });
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(null), 2800);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const load = useCallback(async () => {
-    const [s, q, qs, quiz, pc] = await Promise.all([
-      api("/api/setup/status"), api(`/api/items?status=${tab}`),
-      api("/api/quotes/status"), api("/api/quiz/quotes"), api("/api/pollen/channels").catch(() => null),
+    const [s, q, qs, quiz, pc, pal] = await Promise.all([
+      api("/api/setup/status"), api(`/api/items?status=${list}`), api("/api/quotes/status"), api("/api/quiz/quotes"),
+      api("/api/pollen/channels").catch(() => null), api("/api/palette").catch(() => null),
     ]);
     setStatus(s);
     setItems(q.items);
     setQuotesStatus(qs);
     setQuizQuotes(quiz.quotes);
     setPollen(pc);
-  }, [tab]);
+    if (pal) setPalette({ palette: pal.palette, fonts: pal.fonts, customColors: pal.customColors || [] });
+  }, [list]);
+  useEffect(() => { load().catch((e) => say(e.message)); }, [load, say]);
 
-  useEffect(() => { load().catch(() => {}); }, [load]);
-  useEffect(() => { setFocusId(null); }, [tab]);
+  // Keep her place: a cover opened from the grid, or the same spot after a cover leaves the list.
+  useEffect(() => {
+    if (pendingId.current != null) {
+      const at = items.findIndex((i) => i.id === pendingId.current);
+      pendingId.current = null;
+      if (at >= 0) { setIndex(at); return; }
+    }
+    setIndex((i) => Math.min(i, Math.max(0, items.length - 1)));
+  }, [items]);
+
   // While a cover waits for Pollen, keep the Approved grid's badges fresh.
-  const pollenPending = tab === "approved" && items.some((i) => ["waiting", "leased"].includes(i.pollen?.status));
+  const pollenPending = list === "approved" && items.some((i) => ["waiting", "leased"].includes(i.pollen?.status));
   useEffect(() => {
     if (!pollenPending || sheet) return undefined;
     const t = setInterval(() => load().catch(() => {}), 15000);
     return () => clearInterval(t);
   }, [pollenPending, sheet, load]);
-  useEffect(() => { api("/api/palette").then((p) => { setPalette(p.palette); setFonts(p.fonts); }).catch(() => {}); }, []);
-  const gridMode = tab === "approved" && !focusId;
-  const current = tab === "approved" ? items.find((i) => i.id === focusId) : items[0];
 
-  useEffect(() => { setNote(current?.note || ""); setRating(current?.rating || 8); setDragX(0); }, [current?.id]);
+  const current = items[index] || null;
+  const shown = draft && current && draft.id === current.id ? draft : current;
+  const quoteOn = Boolean(shown?.showQuote && quotesStatus?.unlocked);
+  const activeSlides = useMemo(() => (shown?.slides || []).map((s, at) => ({ ...s, at }))
+    .filter((s) => !s.deletedAt).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)), [shown]);
+  useEffect(() => { setSlide(0); setPickMode(false); }, [current?.id]);
+  useEffect(() => { if (slide > activeSlides.length) setSlide(activeSlides.length); }, [activeSlides.length, slide]);
 
-  function patchCurrent(item) { setItems((prev) => prev.map((i) => (i.id === item.id ? item : i))); }
+  const patchItem = (item) => setItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
+  const bumpHistory = () => setHistoryTick((t) => t + 1);
 
-  async function uploadPhotos(e) {
-    const files = [...e.target.files];
-    if (!files.length) return;
+  // Every change goes through here, so undo and redo can play it back the same way.
+  async function applyChange(itemId, ch) {
+    let item = null;
+    if (ch.style) item = (await post(`/api/items/${itemId}/style`, ch.style)).item;
+    if (ch.edit) item = (await post(`/api/items/${itemId}/edit`, ch.edit)).item;
+    if (ch.imageEdit) item = (await post(`/api/items/${itemId}/image-edit`, ch.imageEdit)).item;
+    if (ch.rate) item = (await post(`/api/items/${itemId}/rate`, ch.rate)).item;
+    if (ch.showQuote != null) item = (await post(`/api/items/${itemId}/quote-toggle`, { showQuote: ch.showQuote })).item;
+    if (ch.slide) item = (await post(`/api/items/${itemId}/slides/${ch.slide.at}/${ch.slide.state === "removed" ? "remove" : "restore"}`)).item;
+    if (ch.status) {
+      await post(`/api/items/${itemId}/decide`, { decision: ch.status });
+      if (ch.status === list) pendingId.current = itemId; // it's back in this list: go to it
+      await load();
+      return;
+    }
+    if (item) patchItem(item);
+  }
+  async function record(label, itemId, before, after) {
+    await applyChange(itemId, after);
+    history.current.push({ label, itemId, before, after });
+    bumpHistory();
+  }
+  async function step(direction) {
+    const entry = direction === "undo" ? history.current.undo() : history.current.redo();
+    bumpHistory();
+    if (!entry) return;
+    try {
+      await applyChange(entry.itemId, direction === "undo" ? entry.before : entry.after);
+      say(`${direction === "undo" ? "Undid" : "Redid"} ${entry.label.toLowerCase()}.`);
+    } catch (e) { say(e.message); }
+  }
+  async function attempt(fn) {
+    try { await fn(); } catch (e) { say(e.message); }
+  }
+
+  // ---------- Cover actions ----------
+  async function decide(decision) {
+    if (!current || busy) return;
+    if (current.status === decision) { say(decision === "approved" ? "Already approved." : "Already passed."); return; }
+    setBusy(true);
+    await attempt(async () => {
+      await record(decision === "approved" ? "Like" : "Pass", current.id, { status: current.status }, { status: decision });
+      say(decision === "approved" ? "Approved. Undo is up top." : "Passed. Undo is up top.");
+    });
+    setBusy(false);
+  }
+  const remix = () => attempt(async () => {
+    const { item } = await post(`/api/items/${current.id}/remix`);
+    say(`Remixed. Version ${item.revision} is in your queue.`);
+    if (list === "queue") await load();
+  });
+  const download = () => attempt(async () => {
+    const blob = await renderCover(current, { quoteOn });
+    const name = `${displayTitle(current.title)}-cover.jpg`;
+    const file = new File([blob], name, { type: "image/jpeg" });
+    const touch = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
+    if (touch && navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === "AbortError") return; }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  });
+  const randomize = () => attempt(async () => {
+    const patch = randomLayout(Math.random, palette.palette.length ? palette.palette : [{ hex: "#FFFFFF" }], palette.fonts.length ? palette.fonts : ["tiktok"]);
+    await record("Randomize", current.id, { style: pickStyle(current, Object.keys(patch)) }, { style: patch });
+  });
+  const postNote = (note) => attempt(async () => {
+    await record("Note", current.id, { edit: { note: current.note || "" } }, { edit: { note } });
+    say("Note saved for the next revision.");
+  });
+  const saveCaption = (caption) => attempt(() => record("Caption", current.id, { edit: { caption: current.caption || "" } }, { edit: { caption } }));
+  async function regenerate(kind) {
+    const before = kind === "caption" ? { caption: current.caption || "" } : { song: current.song || "", songPreviewUrl: current.songPreviewUrl || "" };
+    await attempt(async () => {
+      const { item } = await post(`/api/items/${current.id}/edit`, kind === "caption" ? { regenerateCaption: true } : { shuffleSong: true });
+      patchItem(item);
+      const after = kind === "caption" ? { caption: item.caption } : { song: item.song, songPreviewUrl: item.songPreviewUrl || "" };
+      history.current.push({ label: kind === "caption" ? "Caption" : "Song", itemId: item.id, before: { edit: before }, after: { edit: after } });
+      bumpHistory();
+    });
+  }
+  const setSong = (song) => attempt(() => record("Song", current.id, { edit: { song: current.song || "", songPreviewUrl: current.songPreviewUrl || "" } }, { edit: { song } }));
+  const rate = (key, stars) => attempt(() => record("Rating", current.id, { rate: { [key]: current[key] ?? null } }, { rate: { [key]: valueForStars(stars) } }));
+  const recheck = () => attempt(async () => {
+    const { item } = await post(`/api/items/${current.id}/verify`);
+    patchItem(item);
+  });
+  const addSlide = (file) => attempt(async () => {
+    const { item } = await upload(`/api/items/${current.id}/slides`, "slide", file);
+    patchItem(item);
+    const at = item.slides.length - 1;
+    history.current.push({ label: "Add slide", itemId: item.id, before: { slide: { at, state: "removed" } }, after: { slide: { at, state: "active" } } });
+    bumpHistory();
+    setSlide(item.slides.filter((s) => !s.deletedAt).length);
+  });
+  const removeSlide = () => attempt(async () => {
+    const s = activeSlides[slide - 1];
+    if (!s) return;
+    await record("Remove slide", current.id, { slide: { at: s.at, state: "active" } }, { slide: { at: s.at, state: "removed" } });
+    setSlide((n) => Math.max(0, n - 1));
+  });
+  const swapPhoto = (r) => attempt(async () => {
+    const { item } = await post(`/api/items/${current.id}/swap-photo`, { imageUrl: r.imageUrl, title: r.title });
+    patchItem(item);
+    say("Photo swapped. Quote, song and style stayed.");
+  });
+  const restorePhoto = () => attempt(async () => { patchItem((await post(`/api/items/${current.id}/restore-original`)).item); });
+  const searchPhotos = async (q) => (await api(`/api/photos/search?q=${encodeURIComponent(q)}`)).results;
+  const pan = (key, value) => patchItem({ ...current, [key]: value });
+  const panDone = () => attempt(async () => {
+    patchItem((await post(`/api/items/${current.id}/story-framing`, { storyPanX: current.storyPanX, storyPanY: current.storyPanY })).item);
+  });
+
+  // ---------- The editor: a draft of the cover until Save ----------
+  function startEdit(box = -1) {
+    if (!current) return;
+    setStory(false);
+    setSlide(0);
+    setDraft(JSON.parse(JSON.stringify({ ...current, ...effectiveStyle(current), imageEdit: { contrast: "normal", mosaics: [], ...(current.imageEdit || {}) } })));
+    setActiveBox(box);
+  }
+  function closeEditor() {
+    setDraft(null);
+    setActiveBox(-1);
+    setPickMode(false);
+    // Back to the cover she just changed, wherever the editor left the page.
+    requestAnimationFrame(() => document.querySelector(".stage")?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+  }
+  const setDraftItem = (patch) => setDraft((d) => ({ ...d, ...patch }));
+  const setBox = (patch) => setDraft((d) => (activeBox === -1 ? { ...d, ...patch } : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === activeBox ? { ...b, ...patch } : b)) }));
+  const setImageEdit = (patch) => setDraft((d) => ({ ...d, imageEdit: { ...(d.imageEdit || {}), ...patch } }));
+  const moveBox = (box, h, v) => setDraft((d) => (box === -1 ? { ...d, horizontalPosition: h, verticalPosition: v }
+    : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === box ? { ...b, horizontalPosition: h, verticalPosition: v } : b)) }));
+  function newBox() {
+    if (!draft || draft.extraTexts.length >= MAX_BOXES) return;
+    const main = effectiveStyle(draft);
+    const at = draft.extraTexts.length;
+    const box = { ...pickStyle(draft, STYLE_KEYS), quote: "Your text", verticalPosition: main.verticalPosition > 55 ? 22 : 78, lineCount: 0 };
+    setDraft((d) => ({ ...d, extraTexts: [...d.extraTexts, box] }));
+    setActiveBox(at);
+  }
+  function removeBox() {
+    setDraft((d) => ({ ...d, extraTexts: d.extraTexts.filter((_, i) => i !== activeBox) }));
+    setActiveBox(-1);
+  }
+  function addMosaic() {
+    setImageEdit({ mosaics: [...(draft.imageEdit?.mosaics || []), { x: 35, y: 25, w: 30, h: 30 }] });
+    say("Drag the box over a face. Drag its corner to resize it.");
+  }
+  async function saveDraft() {
+    if (!draft || !current) return;
+    const style = changedFields(effectiveStyle(current), effectiveStyle(draft), [...STYLE_KEYS, "extraTexts"]);
+    const edit = changedFields({ quote: current.quote || "", note: current.note || "" }, { quote: draft.quote || "", note: draft.note || "" }, ["quote", "note"]);
+    const imageEdit = changedFields({ contrast: current.imageEdit?.contrast || "normal", mosaics: current.imageEdit?.mosaics || [] },
+      { contrast: draft.imageEdit?.contrast || "normal", mosaics: draft.imageEdit?.mosaics || [] }, ["contrast", "mosaics"]);
+    const flip = Boolean(current.showQuote) !== Boolean(draft.showQuote);
+    if (!style && !edit && !imageEdit && !flip) { closeEditor(); return; }
+    const before = {}, after = {};
+    if (style) { before.style = style.before; after.style = style.after; }
+    if (edit) { before.edit = edit.before; after.edit = edit.after; }
+    if (imageEdit) { before.imageEdit = imageEdit.before; after.imageEdit = imageEdit.after; }
+    if (flip) { before.showQuote = Boolean(current.showQuote); after.showQuote = Boolean(draft.showQuote); }
+    setSaving(true);
+    try {
+      await record("Edit", current.id, before, after);
+      closeEditor();
+      say("Saved. It posts exactly like this.");
+      if (style?.after.textColor || style?.after.extraTexts) api("/api/palette").then((p) => setPalette({ palette: p.palette, fonts: p.fonts, customColors: p.customColors || [] })).catch(() => {});
+    } catch (e) { say(e.message); }
+    setSaving(false);
+  }
+  function onPick(hex) {
+    setPickMode(false);
+    if (hex) setBox({ textColor: hex });
+    else say("Couldn't read that color. Try another spot.");
+  }
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); say("Copied."); } catch { say("Couldn't copy. Select the line and copy it."); }
+  }
+
+  // ---------- Library, info and setup ----------
+  async function uploadPhotos(files) {
     const form = new FormData();
     files.forEach((f) => form.append("photos", f));
-    await api("/api/items/upload", { method: "POST", body: form });
-    setTab("queue");
-    await load();
+    await attempt(async () => {
+      const r = await api("/api/items/upload", { method: "POST", body: form });
+      say(`${r.created.length} photo${r.created.length === 1 ? "" : "s"} added to your queue.`);
+      if (list !== "queue") setList("queue"); else await load();
+    });
   }
-
-  async function decide(decision) {
-    if (!current) return;
-    await post(`/api/items/${current.id}/decide`, { decision, rating, note });
-    if (tab === "approved") setFocusId(null);
-    await load();
+  function openFromLibrary(item) {
+    const at = items.findIndex((i) => i.id === item.id);
+    if (at >= 0) setIndex(at);
+    setView("cover");
   }
-
-  async function connectPollen() {
-    setPollenNote("");
-    try {
-      await post("/api/connectors/pollen", { code: pollenCode.trim() });
-      setPollenCode("");
-      await load();
-    } catch (e) { setPollenNote(e.message); }
-  }
-
-  async function editCurrent(patch) {
-    if (!current) return;
-    const { item } = await post(`/api/items/${current.id}/edit`, patch);
-    patchCurrent(item);
-  }
-
-  async function style(patch) {
-    if (!current) return;
-    const { item } = await post(`/api/items/${current.id}/style`, patch);
-    patchCurrent(item);
-  }
-
-  async function ratePart(key, value) {
-    if (!current) return;
-    const { item } = await post(`/api/items/${current.id}/rate`, { [key]: value });
-    patchCurrent(item);
-  }
-
-  async function verify() {
-    if (!current) return;
-    const { item } = await post(`/api/items/${current.id}/verify`);
-    patchCurrent(item);
-  }
-
-  async function doSearch() {
-    const r = await api(`/api/photos/search?q=${encodeURIComponent(search)}`);
-    setSearchResults(r.results);
-  }
-
-  async function addSlide(e) {
-    const file = e.target.files[0];
-    if (!file || !current) return;
-    const form = new FormData();
-    form.append("slide", file);
-    const { item } = await api(`/api/items/${current.id}/slides`, { method: "POST", body: form });
-    patchCurrent(item);
-  }
-
-  async function sortDump() {
-    const r = await post("/api/dump/sort");
-    alert(r.message);
-    await load();
-  }
-
-  async function grantCaptionConsent() {
-    const handle = prompt("Your Instagram handle, with the @");
-    if (!handle) return;
-    await post("/api/connectors/instagram/consent", { captionConsent: true, handle });
-    await load();
+  function switchList(next) {
+    if (next === list) return;
+    closeEditor();
+    setIndex(0);
+    setList(next);
   }
 
   useEffect(() => {
     function onKey(e) {
-      if (!current || showEditor || sheet) return;
-      if (e.key === "ArrowRight") decide("approved");
-      if (e.key === "ArrowLeft") decide("rejected");
+      if (draft || infoOpen || sheet || view !== "cover") return;
+      if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); step(e.shiftKey ? "redo" : "undo"); return; }
+      if (e.key === "ArrowRight") { e.preventDefault(); if (e.shiftKey) setSlide((s) => Math.min(activeSlides.length, s + 1)); else setIndex((i) => Math.min(items.length - 1, i + 1)); }
+      if (e.key === "ArrowLeft") { e.preventDefault(); if (e.shiftKey) setSlide((s) => Math.max(0, s - 1)); else setIndex((i) => Math.max(0, i - 1)); }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  async function quizDecide(keep) {
-    const q = quizQuotes[0];
-    if (!q) return;
-    await post("/api/quiz/decide", { text: q.text, keep });
-    await load();
-  }
-
-  async function connectOwnQuotes() {
-    const texts = ownQuotes.split("\n").map((s) => s.trim()).filter(Boolean);
-    if (!texts.length) return;
-    await post("/api/quotes/connect", { quotes: texts });
-    setOwnQuotes("");
-    await load();
-  }
-
-  async function toggleQuote() {
-    if (!current) return;
-    try {
-      const { item } = await post(`/api/items/${current.id}/quote-toggle`, { showQuote: !current.showQuote });
-      patchCurrent(item);
-    } catch (e) { alert(e.message); }
-  }
-
-  const quoteVisible = Boolean(current?.showQuote && quotesStatus?.unlocked);
-  const activeSlides = (current?.slides || []).filter((s) => !s.deletedAt).sort((a, b) => a.position - b.position);
-  const overlayStyle = current ? {
-    color: current.textColor, fontFamily: FONT_CSS[current.textFont] || FONT_CSS.tiktok,
-    fontSize: `${previewFontPx(current) * (photoW / PREVIEW_WIDTH)}px`, fontWeight: current.fontWeight,
-    opacity: current.opacity / 100, textAlign: current.textAlign,
-    left: `${current.horizontalPosition}%`, top: `${current.verticalPosition}%`,
-  } : {};
-
+  const counts = status?.counts;
   return (
-    <div className="app">
+    <div className={draft ? "app editing" : "app"}>
       <UpdateBanner />
-      <header>
-        <img src="/brand/ubee-bee-chartreuse.png" alt="uBee bee" className="bee" />
-        <div>
-          <h1>Cover Review</h1>
-          <p className="sub">by uBee - made for creators, by creators</p>
-        </div>
-        <span className="pill">{status ? `${status.photoCount} photos` : "..."}</span>
-      </header>
-
-      <section className="setup card">
-        <h2>Setup</h2>
-        <p>Photos are the only thing this app needs. Everything else helps your Muse work smarter, and none of it blocks review.</p>
-        <ul>
-          <li>Drive: ask your Muse to connect Drive. It creates a folder called "uBee Cover Review" with a "DUMP" folder inside. Throw everything in DUMP, say "done", and your Muse sorts it into Images, Videos, Quotes, Music, Voice Profile and Captions.</li>
-          <li>Spotify: connect it for songs from your own library. No Spotify, no problem, songs default to what is trending on Instagram.</li>
-          <li>Instagram: with your consent, your Muse learns your voice from your previous captions and keeps trending songs fresh.</li>
-          <li>Quotes: the uBee default quote pack is loaded already. Your Muse can swap in your own list any time.</li>
-        </ul>
-        <div className="row">
-          <button onClick={sortDump}>I am done dumping - sort my DUMP</button>
-          <button className="ghost" onClick={grantCaptionConsent}>Consent: learn my voice from my Instagram captions</button>
-        </div>
-        {pollen?.connected ? (
-          <p className="hint">Pollen is connected{pollen.creator?.display_name ? ` for ${pollen.creator.display_name}` : ""}. In Approved, tap Select to schedule covers.</p>
-        ) : (
-          <div>
-            <label>uBee client? Connect Pollen <span className="hint">(paste the code uBee gave you)</span></label>
-            <div className="row">
-              <input type="password" autoComplete="off" value={pollenCode} onChange={(e) => setPollenCode(e.target.value)} placeholder="Pollen code" />
-              <button className="ghost" onClick={connectPollen} disabled={!pollenCode.trim()}>Connect</button>
+      {view === "library" ? (
+        <LibraryView list={list} setList={switchList} items={items} counts={counts} pollenOn={Boolean(pollen?.connected)} canClose
+          onOpen={openFromLibrary} onUpload={uploadPhotos} onClose={() => setView("cover")}
+          onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} />
+      ) : (
+        <main className="review">
+          <CoverHeader list={list} count={counts?.[list] ?? items.length} position={index + 1} total={items.length}
+            canUndo={history.current.canUndo()} canRedo={history.current.canRedo()}
+            onBack={() => { closeEditor(); setView("library"); }} onInfo={() => setInfoOpen(true)} onUndo={() => step("undo")} onRedo={() => step("redo")} />
+          {!current ? (
+            <div className="emptyCover">
+              <p className="emptyTitle">{list === "queue" ? "Your queue is clear." : list === "approved" ? "No approved covers yet." : "Nothing passed yet."}</p>
+              <p className="hint">Add photos, or ask your Muse to bring in your Drive photos. No connectors needed.</p>
+              <label className="primaryBtn asLabel">
+                <Icon name="photoAdd" size={20} /> Add photos
+                <input type="file" accept="image/*" multiple hidden onChange={(e) => { const files = [...e.target.files]; e.target.value = ""; if (files.length) uploadPhotos(files); }} />
+              </label>
+              <button type="button" className="secondaryBtn" onClick={() => setView("library")}>See all covers</button>
             </div>
-            {(pollenNote || pollen?.message) && <p className="problem">{pollenNote || pollen.message}</p>}
-          </div>
-        )}
-        {status?.voiceProfile && (
-          <p className="hint">Voice profile live: {status.voiceProfile.sampleCount} captions, about {status.voiceProfile.avgWords} words each{status.voiceProfile.mostlyLowercase ? ", mostly lowercase" : ""}. Signature words: {status.voiceProfile.signatureWords.slice(0, 6).join(", ")}</p>
-        )}
-      </section>
+          ) : (
+            <>
+              {!draft && <ModeSwitch story={story} setStory={setStory} />}
+              {!draft && <SongRow item={current} onShuffle={() => regenerate("song")} onSetSong={setSong} />}
+              <CoverStage item={shown} quoteOn={quoteOn} slides={activeSlides} slide={slide} setSlide={setSlide} story={story && !draft}
+                editing={Boolean(draft)} activeBox={activeBox} onStartEdit={(box) => startEdit(box)} onSelectBox={setActiveBox} onMoveBox={moveBox}
+                pickMode={pickMode} onPick={onPick} onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={Boolean(draft) && draft.extraTexts.length < MAX_BOXES}
+                onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} />
+              {draft ? (
+                <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
+                  palette={palette.palette} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
+                  pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox} onCancel={closeEditor} onSave={saveDraft} saving={saving} copyText={copyText} />
+              ) : (
+                <>
+                  <ActionRow item={current} busy={busy} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={remix} onDownload={download}
+                    onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)} />
+                  {story && <StoryControls item={current} onPan={pan} onPanDone={panDone} />}
+                  <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={addSlide} onRemoveSlide={removeSlide}
+                    canPrevPost={index > 0} canNextPost={index < items.length - 1} onPrevPost={() => setIndex((i) => i - 1)} onNextPost={() => setIndex((i) => i + 1)} />
+                  <button type="button" className="outlineBtn wide" onClick={randomize}><Icon name="sparkle" size={20} /> Randomize layout</button>
+                  <NoteComposer item={current} onPost={postNote} inputRef={noteRef} />
+                  <TitleRow item={current} />
+                  {list === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}
+                  <CaptionRow item={current} onSave={saveCaption} onRedo={() => regenerate("caption")} />
+                  <ComposeCheck item={current} onRecheck={recheck} busy={busy} />
+                  <WhyMatches why={current.why} />
+                  <ImageInfo item={current} onSwap={swapPhoto} onRestore={restorePhoto} searchPhotos={searchPhotos} />
+                  <Ratings item={current} onRate={rate} />
+                </>
+              )}
+            </>
+          )}
+          <BrandFoot />
+        </main>
+      )}
 
-      <section className="card">
-        <h2>Quote quiz</h2>
-        {quotesStatus?.unlocked ? (
-          <p>Your quotes are on. You have {quotesStatus.creatorQuoteCount} of your own, from {quotesStatus.source === "quiz" ? "the quiz" : "your list"}. Keep stealing more below, they join your list.</p>
-        ) : (
-          <p>Quote over image stays off until the quotes are yours. Rate these generalized quotes from the uBee pack, steal the ones that sound like you, and they become your list. Nothing Arjang specific is in here, that all got sorted out.</p>
-        )}
-        {quizQuotes[0] ? (
-          <div>
-            <p className="quizQuote">"{quizQuotes[0].text}"</p>
-            <div className="row">
-              <button className="reject" onClick={() => quizDecide(false)}>Not me</button>
-              <button className="approve" onClick={() => quizDecide(true)}>Steal it</button>
-              <span className="hint">{quotesStatus ? `${quotesStatus.quizRemaining} left` : ""}</span>
-            </div>
-          </div>
-        ) : <p className="hint">Quiz done. Every generalized quote has a verdict from you.</p>}
-        <label>Or connect your own quote list <span className="hint">(one quote per line)</span></label>
-        <div className="row">
-          <input value={ownQuotes} onChange={(e) => setOwnQuotes(e.target.value)} placeholder="Paste a quote, connect, repeat - or ask your Muse to load your whole list" />
-          <button className="ghost" onClick={connectOwnQuotes}>Connect</button>
-        </div>
-      </section>
-
-      <section className="card">
-        <div className="row spread">
-          <div className="tabs">
-            {["queue", "approved", "rejected"].map((t) => (
-              <button key={t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>{t}</button>
-            ))}
-          </div>
-          <label className="upload">
-            Add photos
-            <input type="file" accept="image/*" multiple hidden onChange={uploadPhotos} />
-          </label>
-        </div>
-
-        {!items.length && <p className="empty">Nothing in {tab} right now. Add photos above, or sort your DUMP, and review starts here. No connectors needed.</p>}
-
-        {gridMode && items.length > 0 && (
-          <ApprovedGrid items={items} pollenOn={Boolean(pollen?.connected)} onOpen={(item) => setFocusId(item.id)}
-            onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} />
-        )}
-
-        {current && (
-          <div className="review">
-            {tab === "approved" && (
-              <div className="row spread">
-                <button className="ghost" onClick={() => setFocusId(null)}>Back to grid</button>
-                {badgeFor(current.pollen) && <span className={`state ${badgeFor(current.pollen).tone}`} title={badgeFor(current.pollen).why}>{badgeFor(current.pollen).text}</span>}
-              </div>
-            )}
-            {tab === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}
-            <div className="row spread">
-              <span className="hint">{storyView ? "Story view, 9:16" : "Review deck"}</span>
-              <button className="ghost" onClick={() => setStoryView(!storyView)}>{storyView ? "Back to deck" : "Story view"}</button>
-            </div>
-
-            {storyView ? (
-              <div className="storyFrame">
-                <img src={current.imageUrl} alt={current.title} style={{ transform: `translate(${(current.storyPanX - 50) / 2}%, ${(current.storyPanY - 50) / 2}%) scale(1.35)` }} />
-                {quoteVisible && <div className="overlayText" style={overlayStyle}>{current.quote}</div>}
-              </div>
-            ) : (
-              <div
-                ref={photoRef}
-                className="photo"
-                style={{ transform: `translateX(${dragX}px) rotate(${dragX / 24}deg)` }}
-                onPointerDown={(e) => { startX.current = e.clientX; }}
-                onPointerMove={(e) => { if (startX.current != null) setDragX(e.clientX - startX.current); }}
-                onPointerUp={() => {
-                  if (dragX > 90) decide("approved");
-                  else if (dragX < -90) decide("rejected");
-                  startX.current = null; setDragX(0);
-                }}
-              >
-                <img src={current.imageUrl} alt={current.title} draggable={false} />
-                {quoteVisible && <div className="overlayText" style={overlayStyle}>{current.quote}</div>}
-              </div>
-            )}
-            <p className="title">{current.title}{current.driveId ? ` - Drive ${current.driveId}` : ""}{current.imageQualityStatus === "quarantined" ? " - quality quarantined" : ""}</p>
-
-            {storyView && (
-              <div>
-                <label>Story pan X: {current.storyPanX}</label>
-                <input type="range" min="0" max="100" value={current.storyPanX} onChange={(e) => patchCurrent({ ...current, storyPanX: Number(e.target.value) })} onPointerUp={(e) => post(`/api/items/${current.id}/story-framing`, { storyPanX: Number(e.target.value), storyPanY: current.storyPanY }).then(({ item }) => patchCurrent(item))} />
-                <label>Story pan Y: {current.storyPanY}</label>
-                <input type="range" min="0" max="100" value={current.storyPanY} onChange={(e) => patchCurrent({ ...current, storyPanY: Number(e.target.value) })} onPointerUp={(e) => post(`/api/items/${current.id}/story-framing`, { storyPanX: current.storyPanX, storyPanY: Number(e.target.value) }).then(({ item }) => patchCurrent(item))} />
-              </div>
-            )}
-
-            <label>Quote <span className="hint">(uBee default pack)</span></label>
-            <div className="row">
-              <input value={current.quote} onChange={(e) => editCurrent({ quote: e.target.value })} />
-              <button className="ghost" onClick={() => editCurrent({ shuffleQuote: true })}>Shuffle</button>
-            </div>
-            <div className="row">
-              <button className={quoteVisible ? "tab active" : "tab"} onClick={toggleQuote} disabled={!quotesStatus?.unlocked && !current.showQuote}>
-                Quote over image: {current.showQuote ? "on" : "off"}
-              </button>
-              {!quotesStatus?.unlocked && <span className="hint">Locked. Connect your quotes or take the quote quiz below to turn quotes on.</span>}
-            </div>
-            <label>Song {current.songSource && <span className="hint">({current.songSource})</span>}</label>
-            <div className="row">
-              <input value={current.song} onChange={(e) => editCurrent({ song: e.target.value })} placeholder="Connect Spotify, or trending on Instagram fills this in" />
-              <button className="ghost" onClick={() => editCurrent({ shuffleSong: true })}>Shuffle</button>
-            </div>
-            <label>Caption <span className="hint">(drafted from your voice profile)</span></label>
-            <div className="row">
-              <input value={current.caption} onChange={(e) => editCurrent({ caption: e.target.value })} />
-              <button className="ghost" onClick={() => editCurrent({ regenerateCaption: true })}>Redo</button>
-            </div>
-
-            <button className="ghost wide" onClick={() => setShowEditor(!showEditor)}>{showEditor ? "Close editor" : "Open editor: text, slides, ratings"}</button>
-
-            {showEditor && (
-              <div className="editor">
-                <label>Text color <span className="hint">(the 11 color palette, nothing else)</span></label>
-                <div className="swatches">
-                  {palette.map((c) => (
-                    <button key={c.hex} title={`${c.name} ${c.hex}`} className={current.textColor === c.hex ? "swatch active" : "swatch"} style={{ background: c.hex }} onClick={() => style({ textColor: c.hex })} />
-                  ))}
-                </div>
-                <label>Font</label>
-                <div className="row wrap">
-                  {fonts.map((f) => (
-                    <button key={f} className={current.textFont === f ? "tab active" : "tab"} onClick={() => style({ textFont: f })}>{f}</button>
-                  ))}
-                </div>
-                <label>Weight</label>
-                <div className="row">
-                  {[400, 500, 700].map((w) => (
-                    <button key={w} className={current.fontWeight === w ? "tab active" : "tab"} onClick={() => style({ fontWeight: w })}>{w === 400 ? "Regular" : w === 500 ? "Medium" : "Bold"}</button>
-                  ))}
-                  {["left", "center", "right"].map((a) => (
-                    <button key={a} className={current.textAlign === a ? "tab active" : "tab"} onClick={() => style({ textAlign: a })}>{a}</button>
-                  ))}
-                </div>
-                <label>Size: {current.fontSize}</label>
-                <input type="range" min="24" max="110" value={current.fontSize} onChange={(e) => style({ fontSize: Number(e.target.value) })} />
-                <label>Opacity: {current.opacity}%</label>
-                <input type="range" min="20" max="100" value={current.opacity} onChange={(e) => style({ opacity: Number(e.target.value) })} />
-                <label>Horizontal: {current.horizontalPosition}%</label>
-                <input type="range" min="0" max="100" value={current.horizontalPosition} onChange={(e) => style({ horizontalPosition: Number(e.target.value) })} />
-                <label>Vertical: {current.verticalPosition}%</label>
-                <input type="range" min="0" max="100" value={current.verticalPosition} onChange={(e) => style({ verticalPosition: Number(e.target.value) })} />
-                <label>Bar color</label>
-                <div className="row">
-                  {["#000000", "#FFFFFF"].map((b) => (
-                    <button key={b} className={current.barColor === b ? "tab active" : "tab"} onClick={() => style({ barColor: b })}>{b === "#000000" ? "Black bars" : "White bars"}</button>
-                  ))}
-                  <button className="tab" onClick={() => style({ textNegative: !current.textNegative })}>Negative: {current.textNegative ? "on" : "off"}</button>
-                </div>
-
-                <label>Rate the parts</label>
-                {[["qualityRating", "Photo quality"], ["songRating", "Song"], ["quoteRating", "Quote"]].map(([key, label]) => (
-                  <div key={key} className="row">
-                    <span className="rateLabel">{label}: {current[key] || "-"}</span>
-                    <input type="range" min="1" max="10" value={current[key] || 5} onChange={(e) => ratePart(key, Number(e.target.value))} />
-                  </div>
-                ))}
-
-                <label>Carousel slides <span className="hint">(first slide sets the ratio, slides after the cover close the story)</span></label>
-                <div className="slides">
-                  {activeSlides.map((s, i) => (
-                    <div key={i} className="slideThumb">
-                      <img src={s.mediaUrl} alt={s.title} />
-                      <button className="ghost mini" onClick={async () => { const all = current.slides; const idx = all.indexOf(s); const { item } = await post(`/api/items/${current.id}/slides/${idx}/remove`); patchCurrent(item); }}>Remove</button>
-                    </div>
-                  ))}
-                  <label className="upload mini">
-                    + Add slide
-                    <input type="file" accept="image/*,video/*" hidden onChange={addSlide} />
-                  </label>
-                </div>
-
-                <label>Swap this photo <span className="hint">(quote, song and styling stay)</span></label>
-                <div className="row">
-                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search your photos by name" />
-                  <button className="ghost" onClick={doSearch}>Search</button>
-                </div>
-                <div className="slides">
-                  {searchResults.map((r, i) => (
-                    <div key={i} className="slideThumb">
-                      <img src={r.imageUrl} alt={r.title} />
-                      <button className="ghost mini" onClick={async () => { const { item } = await post(`/api/items/${current.id}/swap-photo`, { imageUrl: r.imageUrl, title: r.title }); patchCurrent(item); }}>Use this</button>
-                    </div>
-                  ))}
-                </div>
-                <div className="row wrap">
-                  <button className="ghost" onClick={async () => { const { item } = await post(`/api/items/${current.id}/restore-original`); patchCurrent(item); }}>Restore original photo</button>
-                  <button className="ghost" onClick={async () => { await post(`/api/items/${current.id}/remix`); setTab("queue"); await load(); }}>Remix this cover</button>
-                  <button className="ghost" onClick={verify}>Verify compose steps</button>
-                </div>
-                {current.beacons && (
-                  <p className="hint">QUOTE_IN_STOCK: {current.beacons.QUOTE_IN_STOCK ? "YES" : "NO"} - SONG_IN_POOL: {current.beacons.SONG_IN_POOL ? "YES" : "NO"} - STEPS_VERIFIED: {current.beacons.STEPS_VERIFIED ? "YES" : "NO"}</p>
-                )}
-              </div>
-            )}
-
-            <label>Your note <span className="hint">(anything at all - body notes, crop notes, reshoot notes)</span></label>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Say it how you would say it" />
-            <label>Rating: {rating} / 10</label>
-            <input type="range" min="1" max="10" value={rating} onChange={(e) => setRating(Number(e.target.value))} />
-            <div className="actions">
-              <button className="reject" onClick={() => decide("rejected")}>Pass</button>
-              <button className="ghost" onClick={() => setItems((p) => [...p.slice(1), p[0]])}>Skip</button>
-              <button className="approve" onClick={() => decide("approved")}>Approve</button>
-            </div>
-            <p className="hint">Swipe the photo or use the buttons. In the deck, arrow keys work too. Approving never deletes anything, your choice and your note are saved.</p>
-          </div>
-        )}
-      </section>
-
-      <section className="card">
-        <h2>Something wrong?</h2>
-        <p>Tell your AI here. It reads this, finds the problem, fixes it, and proves the fix. You just point at what hurts, in your own words.</p>
-        <div className="row">
-          <input id="grievanceBox" placeholder="Example: the approve button stopped working on my last photo" />
-          <button onClick={async () => {
-            const el = document.getElementById("grievanceBox");
-            const text = el.value.trim();
-            if (!text) return;
-            try {
-              const r = await post("/api/grievances", { text, context: { tab, currentItemId: current?.id || null, photoCount: status?.photoCount ?? null } });
-              setGrievanceReceipt(r.receipt || { id: r.grievance?.id, receivedAt: r.grievance?.receivedAt });
-              setGrievanceError(null);
-              el.value = "";
-            } catch (e) {
-              // A failed save must say so in this section, never vanish silently.
-              setGrievanceError(e.message);
-              setGrievanceReceipt(null);
-            }
-          }}>Tell my AI</button>
-        </div>
-        {grievanceReceipt && (
-          <p className="receipt">✓ Received {grievanceReceipt.receivedAt ? new Date(grievanceReceipt.receivedAt).toLocaleString() : ""}{grievanceReceipt.id ? ` (#${grievanceReceipt.id})` : ""}. Your AI has it. Now tell your Muse or AI assistant: fix my Cover Review grievance.</p>
-        )}
-        {grievanceError && (
-          <p className="error">That didn't send: {grievanceError}. Try again.</p>
-        )}
-      </section>
-
-      <footer>
-        <img src="/brand/ubee-wordmark-chartreuse.png" alt="ubee" className="wordmark" />
-      </footer>
+      {infoOpen && (
+        <InfoSheet status={status} pollen={pollen} quotesStatus={quotesStatus} quizQuotes={quizQuotes} list={list} currentId={current?.id}
+          onClose={() => setInfoOpen(false)} onUpload={uploadPhotos}
+          onSortDump={() => attempt(async () => { const r = await post("/api/dump/sort"); say(r.message); await load(); })}
+          onConsent={() => attempt(async () => {
+            const handle = window.prompt("Your Instagram handle, with the @");
+            if (!handle) return;
+            await post("/api/connectors/instagram/consent", { captionConsent: true, handle });
+            await load();
+          })}
+          onConnectPollen={async (code) => { await post("/api/connectors/pollen", { code }); await load(); }}
+          onQuizDecide={(text, keep) => attempt(async () => { await post("/api/quiz/decide", { text, keep }); await load(); })}
+          onConnectQuotes={(raw) => attempt(async () => {
+            const quotes = raw.split("\n").map((s) => s.trim()).filter(Boolean);
+            if (quotes.length) { await post("/api/quotes/connect", { quotes }); await load(); say("Your quotes are connected."); }
+          })}
+          onGrievance={(text, context) => post("/api/grievances", { text, context })} />
+      )}
 
       {sheet && (
         <ScheduleSheet items={sheet.items} quotesUnlocked={Boolean(quotesStatus?.unlocked)} api={api} post={post}
           onClose={() => { setSheet(null); load().catch(() => {}); }}
           onDone={() => { sheet.stop(); setSheet(null); load().catch(() => {}); }} />
       )}
+
+      {toast && <div className="toast" role="status" aria-live="polite">{toast.text}</div>}
     </div>
   );
 }

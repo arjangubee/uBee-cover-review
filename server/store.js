@@ -58,12 +58,14 @@ export const store = {
       textColor: "#FFFFFF", textFont: "tiktok", textAlign: "center",
       fontSize: 58, fontWeight: 500, opacity: 100,
       horizontalPosition: 50, verticalPosition: 50, lineCount: 0,
+      textWidth: 84, textHeight: 100, extraTexts: [], // v1.4: wrap box %, line spacing %, her own text boxes
       barColor: "#000000", textNegative: false,
       qualityRating: null, songRating: null, quoteRating: null, ratingUpdatedAt: null,
       slides: [], storyPanX: 50, storyPanY: 50,
       revision: 1, parentId: null, driveId: null,
       imageQualityStatus: "passed", repairStatus: "ready",
       originalImageUrl: null, beacons: null, composeAttestedAt: null, embeddedText: null, imageEdit: null,
+      why: null, songPreviewUrl: "", // v1.4: "why it matches" from her Muse, a song preview when the pool has one
       createdAt: Date.now(),
       decidedAt: null,
       ...partial,

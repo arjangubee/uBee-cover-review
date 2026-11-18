@@ -3,7 +3,7 @@
     "express": "^4.19.2",
     "multer": "^1.4.5-lts.1"
   },
-  "description": "uBee Cover Review, portable edition. Swipe to approve creator photos, with optional Drive, Spotify and Instagram connectors set up by the user's Muse.",
+  "description": "uBee Cover Review, portable edition. Review creator covers the way they post, with optional Drive, Spotify, Instagram and Pollen connectors set up by the user's Muse.",
   "engines": {
     "node": ">=20"
   },
@@ -20,5 +20,5 @@
     "test:render": "node scripts/render-test.mjs"
   },
   "type": "module",
-  "version": "1.3.0"
+  "version": "1.4.0"
 }

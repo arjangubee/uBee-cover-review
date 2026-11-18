@@ -77,6 +77,17 @@ async function check(name, fn) {
   catch (e) { console.error(`FAIL ${name}: ${e.message}`); process.exitCode = 1; }
 }
 const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
+const PNG_1PX = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII=", "base64");
+async function postJson(path, body) {
+  const r = await fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  if (!r.ok) throw new Error(`${path} answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  return r.json();
+}
+async function newItem(name) {
+  const form = new FormData();
+  form.append("photos", new Blob([PNG_1PX], { type: "image/png" }), name);
+  return (await (await fetch(`${base}/api/items/upload`, { method: "POST", body: form })).json()).created[0];
+}
 
 try {
   await wait(900);
@@ -131,8 +142,8 @@ try {
     const item = up.created[0];
     const styled = await (await fetch(`${base}/api/items/${item.id}/style`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ textColor: "#FB0909", textFont: "serif", fontSize: 72, opacity: 90, horizontalPosition: 30, verticalPosition: 40 }) })).json();
     assert(styled.item.textColor === "#FB0909" && styled.item.textFont === "serif", "style should save");
-    const badColor = await (await fetch(`${base}/api/items/${item.id}/style`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ textColor: "#123456" }) })).json();
-    assert(badColor.item.textColor === "#FB0909", "off-palette color must be rejected");
+    const badColor = await (await fetch(`${base}/api/items/${item.id}/style`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ textColor: "red" }) })).json();
+    assert(badColor.item.textColor === "#FB0909", "a color that isn't #RRGGBB must be rejected");
     const rated = await (await fetch(`${base}/api/items/${item.id}/rate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ qualityRating: 8, songRating: 7, quoteRating: 9 }) })).json();
     assert(rated.item.quoteRating === 9, "per-part ratings should save");
     const verified = await (await fetch(`${base}/api/items/${item.id}/verify`, { method: "POST" })).json();
@@ -152,6 +163,66 @@ try {
     assert(search.results.length >= 1, "photo search should find the uploaded photo");
     const cleanup = await (await fetch(`${base}/api/quality/cleanup-textless`, { method: "POST" })).json();
     assert(cleanup.ok === true, "cleanup should run");
+  });
+  await check("v1.4 style: Lines, text width and height, justify, clamped to their ranges", async () => {
+    const item = await newItem("quill-style.png");
+    const st = await postJson(`/api/items/${item.id}/style`, { lineCount: 2, textWidth: 60, textHeight: 120, textAlign: "justify" });
+    assert(st.item.lineCount === 2 && st.item.textWidth === 60 && st.item.textHeight === 120 && st.item.textAlign === "justify", JSON.stringify(st.item).slice(0, 300));
+    const wild = await postJson(`/api/items/${item.id}/style`, { lineCount: 9, textWidth: 500, textHeight: 5, textAlign: "diagonal" });
+    assert(wild.item.lineCount === 4 && wild.item.textWidth === 100 && wild.item.textHeight === 60 && wild.item.textAlign === "justify", `clamps: ${wild.item.lineCount} ${wild.item.textWidth} ${wild.item.textHeight} ${wild.item.textAlign}`);
+    assert(item.textWidth === 84 && item.textHeight === 100 && Array.isArray(item.extraTexts) && item.extraTexts.length === 0, "new covers get the defaults");
+  });
+  await check("v1.4 colors: a custom color saves and joins her custom colors; palette colors don't", async () => {
+    const item = await newItem("quill-color.png");
+    const c = await postJson(`/api/items/${item.id}/style`, { textColor: "#123456" });
+    assert(c.item.textColor === "#123456", "custom color should save");
+    await postJson(`/api/items/${item.id}/style`, { textColor: "#FB0909" });
+    const pal = await (await fetch(`${base}/api/palette`)).json();
+    assert(pal.palette.length === 11 && pal.customColors[0] === "#123456" && !pal.customColors.includes("#FB0909"), JSON.stringify(pal.customColors));
+  });
+  await check("v1.4 extra text boxes save cleaned up, at most 5", async () => {
+    const item = await newItem("quill-boxes.png");
+    const boxes = Array.from({ length: 7 }, (_, i) => ({ quote: `box ${i} ${"x".repeat(i === 0 ? 400 : 0)}`, textColor: "#FB0909", fontSize: 40, horizontalPosition: 20, bogus: "nope" }));
+    const r = await postJson(`/api/items/${item.id}/style`, { extraTexts: boxes });
+    assert(r.item.extraTexts.length === 5, `kept ${r.item.extraTexts.length}`);
+    assert(!("bogus" in r.item.extraTexts[0]) && r.item.extraTexts[0].quote.length <= 300 && r.item.extraTexts[1].textColor === "#FB0909", JSON.stringify(r.item.extraTexts[1]));
+    const cleared = await postJson(`/api/items/${item.id}/style`, { extraTexts: [] });
+    assert(cleared.item.extraTexts.length === 0, "clearing works");
+  });
+  await check("v1.4 image edit: contrast and face mosaic boxes are kept clean, other notes stay", async () => {
+    const item = await newItem("quill-edit.png");
+    const r = await postJson(`/api/items/${item.id}/image-edit`, { contrast: "bw", mosaics: [{ x: 10, y: 10, w: 20, h: 20 }, { x: "a" }], note: "crop tighter" });
+    assert(r.item.imageEdit.contrast === "bw" && r.item.imageEdit.mosaics.length === 1 && r.item.imageEdit.note === "crop tighter", JSON.stringify(r.item.imageEdit));
+    const bad = await postJson(`/api/items/${item.id}/image-edit`, { contrast: "sepia" });
+    assert(bad.item.imageEdit.contrast === "bw", "an unknown contrast keeps the last good one");
+  });
+  await check("v1.4 why it matches: her Muse records it, enqueue can carry it", async () => {
+    const item = await newItem("quill-why.png");
+    const r = await postJson(`/api/items/${item.id}/why`, { text: "The photo is the room itself.", tags: ["intimate", "hook ~0:30", 7], audience: "rug followers", source: "Act 1 #16" });
+    assert(r.item.why.text === "The photo is the room itself." && r.item.why.tags.join("|") === "intimate|hook ~0:30|7" && r.item.why.audience === "rug followers", JSON.stringify(r.item.why));
+    const empty = await fetch(`${base}/api/items/${item.id}/why`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: " " }) });
+    assert(empty.status === 400, `empty why should be refused, got ${empty.status}`);
+    const enq = await postJson(`/api/items/enqueue`, { items: [{ imageUrl: "https://example.com/why.jpg", driveId: "smoke-why-1", title: "why", why: { text: "Because.", tags: ["a"] } }] });
+    assert(enq.created[0].why && enq.created[0].why.text === "Because.", JSON.stringify(enq.created[0].why));
+  });
+  await check("v1.4 setup status counts the queue, approved and rejected", async () => {
+    const s2 = await (await fetch(`${base}/api/setup/status`)).json();
+    const all = await Promise.all(["queue", "approved", "rejected"].map(async (st) => (await (await fetch(`${base}/api/items?status=${st}`)).json()).items.length));
+    assert(s2.counts && s2.counts.queue === all[0] && s2.counts.approved === all[1] && s2.counts.rejected === all[2], JSON.stringify(s2.counts));
+  });
+  await check("v1.4 a song with a preview in the pool brings its preview along", async () => {
+    await postJson(`/api/trending/refresh`, { songs: [{ title: "Preview Song", artist: "Tester", previewUrl: "https://example.com/preview.mp3" }], source: "smoke" });
+    const item = await newItem("quill-song.png");
+    assert(item.song === "Tester - Preview Song" && item.songPreviewUrl === "https://example.com/preview.mp3", `${item.song} ${item.songPreviewUrl}`);
+    const shuffled = await postJson(`/api/items/${item.id}/edit`, { song: "Someone - Else" });
+    assert(shuffled.item.songPreviewUrl === "", "a typed song drops the old preview");
+  });
+  await check("v1.4 a rating can be cleared, so undo can take back a first rating", async () => {
+    const item = await newItem("quill-rate.png");
+    const r = await postJson(`/api/items/${item.id}/rate`, { songRating: 6 });
+    assert(r.item.songRating === 6, "rated");
+    const cleared = await postJson(`/api/items/${item.id}/rate`, { songRating: null });
+    assert(cleared.item.songRating === null, `cleared to ${cleared.item.songRating}`);
   });
   await check("trending refresh saves", async () => {
     const r = await (await fetch(`${base}/api/trending/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ songs: [{ title: "Smoke Song", artist: "Tester" }], source: "smoke" }) })).json();

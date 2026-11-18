@@ -1,12 +1,12 @@
 # uBee Cover Review (portable)
 
-Swipe to approve your photos. Built for uBee creators, made for creators, by creators.
+Review your covers the way they'll post: like to approve, pass to skip, fix the text right on the cover. Built for uBee creators, made for creators, by creators.
 
 This is the portable edition of the Cover Review app that started inside Arjang's Muse. It runs anywhere Node runs, with no Muse-only parts. Clone it, run it, review. Your Muse sets up the rest with you.
 
 ## The short version
 
-- Photos are the only thing it needs. Add photos and start swiping.
+- Photos are the only thing it needs. Add photos and start reviewing.
 - Approve, pass, rate, and leave a note on every photo. Nothing gets deleted when you approve, your choice is saved.
 - Every photo gets a quote from the uBee default pack, a song suggestion, and a caption draft.
 - Songs default to what is trending on Instagram. Connect Spotify and your own library goes first.
@@ -101,27 +101,27 @@ Say either phrase to Quill and it happens, with a reminder of which one you used
 
 Every AI follows the same rule before any push: pull first, run `npm test`, never force-push, dev first, a second AI reviews, then worldwide. A worldwide push shows UPDATE NOW on every creator's copy within 2 minutes. The full rule is in AGENTS.md.
 
-## The full editor
+## The review screen
 
-The lean swipe flow is the default. The full Cover Review editor is one tap away on every cover:
+Since 1.4.0 the cover is the screen, the way Quill's Cover Review looks:
 
-- Live text overlay on the photo, exactly where it will sit
-- Text color from the 11 color palette only: Cream, Lemon Lime, White, Spotify Green, Yellow, Icy Aqua, Pure Red, Black, Cherry Blossom, Baby Blue Ice, Hot Fuchsia
-- Fonts: TikTok, Avenir, Serif, Condensed, Papyrus. Regular, Medium and Bold. Size, opacity, alignment, horizontal and vertical position, black or white bars, negative toggle
-- Rate the parts separately: photo quality, song, quote
-- Carousel slides: add, remove, restore, reorder. First slide sets the ratio for the post
-- Story view: the only 9:16 in the app, with per photo pan framing that saves
-- Swap the photo and keep the quote, song and styling. Restore the original any time
-- Remix a cover into a new revision, or reject and revise with a note
-- Compose verification on every cover: QUOTE_IN_STOCK, SONG_IN_POOL, STEPS_VERIFIED
-- Drive enqueue with the quality gate: blurry or quarantined photos never enter the queue, and no cover ever sits in the queue without a quote
+- Header: back to all covers, the queue count, setup and help, "Cover 1 of 17", undo and redo.
+- The cover as it will post, in a 4:5 frame. The screen and the posted image are drawn by the same code, so what she approves is what posts.
+- Icons under the cover: like (approve), repost (remix into a new version), download, dislike (pass), note, edit.
+- Slides: swipe the cover or use the Slides stepper to move through them, add one with +, remove one with minus. Posts steps between covers.
+- Randomize layout tries a fresh look from her palette and fonts. Undo takes it back.
+- Tap the text (or the pencil) and the editor opens on the cover: text width and height, the quote, Lines 1 to 4, color (the 11 palette colors first, plus custom colors and an eyedropper), font, align (left, center, right, justify), weight, image contrast, size, opacity, position, a note for the next revision, then Cancel or Save. New text box adds her own text; Face mosaic hides a face.
+- Below: her note with Post, the title with the quote and version, the Instagram caption, the Compose check (QUOTE_IN_STOCK, SONG_IN_POOL, STEPS_VERIFIED), Why it matches (once her Muse records it), Image info with photo swap, and star ratings.
+- Story view is the only 9:16 in the app, with pan framing that saves.
+- Setup, the quote quiz, Pollen and "Something wrong?" sit behind the info button.
+- Fonts: TikTok Sans ships with the app (SIL Open Font License), so the text looks the same on every phone.
 
 ## How it is built
 
-- Client: React + Vite in client/, plain CSS, swipe plus buttons plus arrow keys.
+- Client: React + Vite in client/, plain CSS. The cover is a canvas drawn by client/src/renderCover.js, the same code that makes the posted image. Arrow keys move between covers on a computer.
 - Server: Express in server/, zero native dependencies. State lives in data/db.json and data/settings.json, photos in data/uploads, sorted buckets in data/library. That keeps a clone running in seconds on any laptop. For a bigger deployment, the store in server/store.js is the one file to swap for SQLite or Postgres.
 - Connectors: server/connectors.js is the registry your Muse reads. Each connector lists what it is for, what it needs, and the exact steps Muse walks you through.
 
 ## For the first creator
 
-This portable build exists so the first uBee creator gets the swipe app Arjang promised her: an app you can swipe on, where approving is a swipe and a note, never deleting a photo to say yes.
+This portable build exists so the first uBee creator gets the app Arjang promised her: approving is one tap and a note, never deleting a photo to say yes.

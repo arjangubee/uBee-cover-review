@@ -290,6 +290,14 @@ try {
     assert(out2.results[0].status === "waiting", `retry should land: ${JSON.stringify(out2.results[0])}`);
     assert(hive.requests.filter((r) => r.client_key === key).length === 1 && hive.requests.length === 2, "the retry must reuse the key, one request");
   });
+  await check("pollen: two taps at once still send a cover only once", async () => {
+    const e = await approvedItem("cover-e.png", "double tap");
+    await render(e.id);
+    const before = hive.requests.length;
+    const outs = await Promise.all([1, 2].map(() => post("/api/pollen/schedule", { itemIds: [e.id], channelIds: [CH_IG] }).then((r) => r.json())));
+    assert(hive.requests.length === before + 1, `expected one new request, got ${hive.requests.length - before}`);
+    assert(outs.some((o) => o.results[0].status === "waiting"), `one tap should land: ${JSON.stringify(outs)}`);
+  });
   await check("pollen: a cover needs its render before it can go", async () => {
     const d = await approvedItem("cover-d.png", "no render yet");
     const out = await (await post("/api/pollen/schedule", { itemIds: [d.id], channelIds: [CH_IG] })).json();

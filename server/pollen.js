@@ -221,6 +221,7 @@ async function sendImage(item, res) {
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(30000) });
     const type = r.headers.get("content-type") || "";
+    if (Number(r.headers.get("content-length") || 0) > 40 * 1024 * 1024) return res.status(502).json({ error: "that photo is too big" });
     const buf = Buffer.from(await r.arrayBuffer());
     if (!r.ok || !type.startsWith("image/") || buf.length > 40 * 1024 * 1024) return res.status(502).json({ error: "couldn't load the photo" });
     res.type(type).set("Cache-Control", "private, max-age=300").send(buf);

@@ -48,3 +48,11 @@ button.mini, .upload.mini { font-size: 11px; padding: 6px 8px; margin-top: 4px; 
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 footer { text-align: center; margin-top: 24px; opacity: 0.85; }
 .wordmark { height: 22px; object-fit: contain; }
+.updateBanner { position: sticky; top: 0; z-index: 50; margin: -16px -16px 16px; padding: 18px 16px 16px; background: var(--accent); color: #101010; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 6px 24px rgba(197, 253, 41, 0.35); }
+.updateBanner strong { font-size: 20px; }
+.updateBanner span, .updateBanner li { font-size: 14px; line-height: 1.4; color: #101010; }
+.updateBanner ul { margin: 0; padding-left: 18px; }
+.updateBanner.busy { animation: updPulse 1.6s ease-in-out infinite; }
+.updateNow { background: #101010; color: var(--accent); font-size: 26px; font-weight: 900; letter-spacing: 0.04em; padding: 18px 16px; border-radius: 14px; width: 100%; }
+@keyframes updPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.82; } }
+.updateNote { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: var(--card); border: 1px solid var(--accent); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }

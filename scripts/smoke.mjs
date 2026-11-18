@@ -126,6 +126,7 @@ try {
     const h = await (await fetch(`${base}/api/health`)).json();
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
     assert(h.version === pkg.version, `health says ${h.version}, package.json says ${pkg.version}`);
+    assert(typeof h.boot === "string" && h.boot.length >= 8, "health needs a per-start boot id so the page reloads only once the new version answers");
   });
   await check("health and grievance loop", async () => {
     const health = await (await fetch(`${base}/api/health`)).json();

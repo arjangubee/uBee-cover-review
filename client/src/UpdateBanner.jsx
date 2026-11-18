@@ -16,6 +16,7 @@ export default function UpdateBanner() {
   const [phase, setPhase] = useState("idle"); // idle | updating | restarting
   const [error, setError] = useState(null);
   const fromBoot = useRef(null);
+  const clickedAt = useRef(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -31,25 +32,26 @@ export default function UpdateBanner() {
     return () => { clearInterval(t); window.removeEventListener("focus", refresh); };
   }, [refresh]);
 
-  // While updating, follow the server until the new version answers, then reload.
+  // While updating, follow the server until the NEW process answers, then reload. The old
+  // process can still answer for a moment, and the new one starts fresh (state idle), so the
+  // signal is a different boot id, or an idle server whose last update is this one.
   useEffect(() => {
     if (phase === "idle") return undefined;
     const t = setInterval(async () => {
       try {
-        if (phase === "updating") {
-          const s = await (await fetch("/api/update")).json();
-          if (s.state === "failed") { setError(s.error); setPhase("idle"); setU(s); return; }
-          if (s.state === "restarting") setPhase("restarting");
-          return;
-        }
-        // Reload only once a NEW server process answers (the old one can still answer for a moment).
+        const s = await (await fetch("/api/update", { cache: "no-store" })).json();
         const h = await (await fetch("/api/health", { cache: "no-store" })).json();
-        if (h.boot && h.boot !== fromBoot.current) {
+        const newProcess = (fromBoot.current && h.boot && h.boot !== fromBoot.current)
+          || (s.state === "idle" && s.lastUpdate && Date.parse(s.lastUpdate.at) >= clickedAt.current);
+        if (newProcess) {
           const page = await fetch("/", { cache: "no-store" });
           if (page.ok) window.location.reload();
+          return;
         }
+        if (s.state === "failed") { setError(s.error); setPhase("idle"); setU(s); return; }
+        if (s.state === "restarting") setPhase("restarting");
       } catch {
-        if (phase === "updating") setPhase("restarting"); // the old version just shut down
+        setPhase("restarting"); // the old version just shut down; keep waiting for the new one
       }
     }, 1500);
     return () => clearInterval(t);
@@ -57,6 +59,7 @@ export default function UpdateBanner() {
 
   async function updateNow() {
     setError(null);
+    clickedAt.current = Date.now() - 5000; // small allowance for clock drift between page and app
     try { fromBoot.current = (await (await fetch("/api/health", { cache: "no-store" })).json()).boot || null; }
     catch { fromBoot.current = null; }
     setPhase("updating");

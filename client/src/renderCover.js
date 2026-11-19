@@ -115,7 +115,7 @@ export function balanceLines(text, count, measure) {
 
 /**
  * Where a text box goes on a cover of width x height. measureAt(px) returns a function that measures a
- * string at that text size. Rows never cross the photo's edges: when one would, the block slides in.
+ * string at that text size. Like the original, the block fits inside the photo less 2 px and its center is clamped.
  */
 export function coverLayout(box, width, height, measureAt) {
   const s = withDefaults(box);
@@ -137,12 +137,24 @@ export function coverLayout(box, width, height, measureAt) {
   }
   const measure = measureAt(fontPx);
   const lineHeight = (fontPx * clamp(s.textHeight, 60, 200)) / 100;
-  const cx = (width * s.horizontalPosition) / 100;
-  const cy = (height * s.verticalPosition) / 100;
+
+  // Fit and place like the original (SafeQuote fitInsideSafeZone): measured unstretched on the column, the whole
+  // block shrinks (never grows) until the stretched block fits inside the photo less a 2 px inset, its center is
+  // clamped by the stretched half-extents, and only then is it stretched. Runs at 30/30 too, where it shrinks an
+  // oversized block and pulls a center near an edge in. Text width and Text height are the stretch (30 = none).
+  const sx = clamp(Number(s.widthScale) || 30, 10, 50) / 30;
+  const sy = clamp(Number(s.heightScale) || 30, 10, 50) / 30;
+  const inset = (2 * width) / PREVIEW_WIDTH;
+  const naturalW = Math.max(boxW, ...lines.map((l) => measure(l)));
+  const naturalH = lines.length * lineHeight;
+  const fit = lines.length ? Math.min(1, (width - 2 * inset) / (naturalW * sx), (height - 2 * inset) / (naturalH * sy)) : 1;
+  const halfW = (naturalW * fit * sx) / 2, halfH = (naturalH * fit * sy) / 2;
+  const cx = clamp((width * s.horizontalPosition) / 100, inset + halfW, width - inset - halfW);
+  const cy = clamp((height * s.verticalPosition) / 100, inset + halfH, height - inset - halfH);
   const justify = s.textAlign === "justify";
   const align = justify ? "left" : ["left", "right"].includes(s.textAlign) ? s.textAlign : "center";
-  let boxLeft = cx - boxW / 2;
-  const top = cy - (lines.length * lineHeight) / 2;
+  const boxLeft = cx - boxW / 2;
+  const top = cy - naturalH / 2;
 
   // Her line breaks end a paragraph; the last row of a paragraph is never stretched.
   const paraEnds = new Set();
@@ -154,7 +166,7 @@ export function coverLayout(box, width, height, measureAt) {
     }
   } else paraEnds.add(lines.length - 1);
 
-  let rows = lines.map((text, i) => {
+  const rows = lines.map((text, i) => {
     const w = measure(text);
     const y = top + (i + 0.5) * lineHeight;
     if (justify) {
@@ -174,30 +186,17 @@ export function coverLayout(box, width, height, measureAt) {
     return { text, y, x, left, width: w };
   });
 
-  // Text width and Text height stretch the block around its anchor (30 is neutral, like the original).
-  const sx = clamp(Number(s.widthScale) || 30, 10, 50) / 30;
-  const sy = clamp(Number(s.heightScale) || 30, 10, 50) / 30;
-  // Keep every row on the photo: slide the whole block in by what spills over an edge, as drawn (stretched).
-  let shift = 0;
-  if (rows.length) {
-    const minLeft = cx + (Math.min(...rows.map((r) => r.left)) - cx) * sx;
-    const maxRight = cx + (Math.max(...rows.map((r) => r.left + r.width)) - cx) * sx;
-    shift = minLeft < 0 ? -minLeft : maxRight > width ? width - maxRight : 0;
-    if (shift) {
-      boxLeft += shift;
-      rows = rows.map((r) => ({ ...r, x: r.x + shift, left: r.left + shift, words: r.words?.map((wd) => ({ ...wd, x: wd.x + shift })) }));
-    }
-  }
   const x = align === "left" ? boxLeft : align === "right" ? boxLeft + boxW : boxLeft + boxW / 2;
-  const anchorX = cx + shift, anchorY = cy;
+  // drawCover scales the rows by (kx, ky) around the clamped center; the tap box is the same block, as drawn.
+  const kx = fit * sx, ky = fit * sy, anchorX = cx, anchorY = cy;
   const rawLeft = rows.length ? Math.min(...rows.map((r) => r.left)) : boxLeft;
   const rawRight = rows.length ? Math.max(...rows.map((r) => r.left + r.width)) : boxLeft + boxW;
   const bounds = {
-    left: anchorX + (rawLeft - anchorX) * sx, right: anchorX + (rawRight - anchorX) * sx,
-    top: anchorY + (top - anchorY) * sy, bottom: anchorY + (top + rows.length * lineHeight - anchorY) * sy,
+    left: anchorX + (rawLeft - anchorX) * kx, right: anchorX + (rawRight - anchorX) * kx,
+    top: anchorY + (top - anchorY) * ky, bottom: anchorY + (top + naturalH - anchorY) * ky,
   };
   return { fontPx, lines, rows, x, top, lineHeight, align, justify, boxLeft, boxW, alpha: clamp(s.opacity, 0, 100) / 100,
-    color: s.textColor, font: s.textFont, weight: s.fontWeight, sx, sy, anchorX, anchorY, bounds };
+    color: s.textColor, font: s.textFont, weight: s.fontWeight, sx, sy, fit, kx, ky, anchorX, anchorY, bounds };
 }
 
 /** How many rows Lines on Auto draws for this box. The stepper shows it, and its first tap starts from it. */
@@ -312,7 +311,7 @@ export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(ite
     ctx.textBaseline = "middle";
     ctx.save();
     ctx.translate(L.anchorX, L.anchorY);
-    ctx.scale(L.sx, L.sy);
+    ctx.scale(L.kx, L.ky);
     ctx.translate(-L.anchorX, -L.anchorY);
     for (const row of L.rows) {
       if (row.words) {

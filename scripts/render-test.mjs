@@ -44,8 +44,8 @@ check("the quote box is 84% wide and a short quote sits centered on the slider s
   const W = PREVIEW_WIDTH, H = 600;
   const L = coverLayout({ ...base, quote: "a b c d e f g h i j k l m n o p q r s t u v w x y z" }, W, H, atPx);
   assert(L.lines.every((l) => atPx(L.fontPx)(l) <= W * 0.84 + 1e-9), "a line spills out of the 84% box");
-  const S = coverLayout({ ...base, quote: "a b c", horizontalPosition: 30, verticalPosition: 40 }, W, H, atPx);
-  assert(Math.abs(S.x - W * 0.3) < 1e-9, `center x ${S.x}`);
+  const S = coverLayout({ ...base, quote: "a b c", horizontalPosition: 50, verticalPosition: 40 }, W, H, atPx);
+  assert(Math.abs(S.x - W * 0.5) < 1e-9, `center x ${S.x}`);
   assert(Math.abs(S.top + (S.lines.length * S.fontPx) / 2 - H * 0.4) < 1e-9, `box middle ${S.top}`);
 });
 check("left and right alignment hang off the box edges", () => {
@@ -142,11 +142,12 @@ check("at 30 and 30 the text draws exactly as it did before stretch existed", ()
   const plain = fakeCtx(); drawCover(plain, stretchItem({}), null, 1000, 1250, { quoteOn: true });
   assert(plain.drawn.length && plain.drawn.every((d) => d.sx === 1 && d.sy === 1), JSON.stringify(plain.drawn));
 });
-check("Text width 45 draws the block one and a half times as wide around the same anchor", () => {
-  const n = hit(stretchItem({})), w = hit(stretchItem({ widthScale: 45 }));
-  assert(Math.abs((w.right - w.left) - 1.5 * (n.right - n.left)) < 1e-6, `width ${w.right - w.left} vs ${n.right - n.left}`);
-  assert(Math.abs((w.left + w.right) / 2 - (n.left + n.right) / 2) < 1e-6, "the stretched block moved off its anchor");
-  assert(Math.abs((w.bottom - w.top) - (n.bottom - n.top)) < 1e-6, "width stretch changed the height");
+check("Text width 45 makes the letters one and a half times wider than tall, around the same center", () => {
+  const n = hit(stretchItem({ quote: "golden" })), w = hit(stretchItem({ quote: "golden", widthScale: 45 }));
+  const L = coverLayout({ ...base, quote: "golden", widthScale: 45 }, 1000, 1250, atPx);
+  assert(Math.abs(L.kx / L.ky - 1.5) < 1e-9, `stretch ratio ${L.kx / L.ky}`);
+  assert(Math.abs((w.left + w.right) / 2 - (n.left + n.right) / 2) < 1e-6, "the stretched block moved off its center");
+  assert(Math.abs((w.right - w.left) - 1.5 * L.fit * (n.right - n.left)) < 1e-6, `width ${w.right - w.left} vs ${n.right - n.left}`);
 });
 check("stretch stays inside the original's 10 to 50 range", () => {
   const big = coverLayout({ ...base, widthScale: 80, heightScale: 2 }, 1000, 1250, atPx);
@@ -160,14 +161,39 @@ check("Text height 15 draws the block half as tall around the same anchor", () =
 check("the drawn text and the tap box agree when the text is stretched", () => {
   const item = stretchItem({ widthScale: 50, heightScale: 20 }), ctx = fakeCtx();
   drawCover(ctx, item, null, 1000, 1250, { quoteOn: true });
-  const box = hit(item);
+  const box = hit(item), L = coverLayout(item, 1000, 1250, atPx);
   const d = ctx.drawn[0];
-  assert(Math.abs(d.sx - 50 / 30) < 1e-9 && Math.abs(d.sy - 20 / 30) < 1e-9, `scale ${d.sx}, ${d.sy}`);
+  assert(Math.abs(d.sx / d.sy - 50 / 20) < 1e-9, `letters should be 2.5 times wider than tall: ${d.sx}, ${d.sy}`);
   assert(d.y > box.top && d.y < box.bottom, `row at ${d.y} outside the tap box ${box.top}..${box.bottom}`);
+  assert(L.fit < 1, "a column stretched to 50 is wider than the photo, so the whole block shrinks to fit, like the original");
 });
-check("a stretched block that would spill off the photo slides back on", () => {
+// ---------- v1.5.3: the original's fit (SafeQuote fitInsideSafeZone): shrink to fit, clamp the center, then stretch ----------
+const inset = (w) => (2 * w) / PREVIEW_WIDTH; // the original's 2 px, at the preview width
+check("a stretched block is fitted inside the photo less 2 px, and never slides off", () => {
   const b = hit(stretchItem({ quote: "golden hour", horizontalPosition: 92, widthScale: 50 }));
-  assert(b.right <= 1000 + 1e-6 && b.left >= -1e-6, `spills: ${b.left}..${b.right}`);
+  assert(b.left >= inset(1000) - 1e-6 && b.right <= 1000 - inset(1000) + 1e-6, `spills: ${b.left}..${b.right}`);
+});
+check("the 84% column's center stops half a column plus 2 px from either side, at 30 and 30 too", () => {
+  const W = 1000, L = coverLayout({ ...base, quote: "a b c", horizontalPosition: 10 }, W, 1250, atPx);
+  assert(Math.abs(L.anchorX - (inset(W) + W * 0.42)) < 1e-9 && Math.abs(L.boxLeft - inset(W)) < 1e-9, `center ${L.anchorX}, box ${L.boxLeft}`);
+  const R = coverLayout({ ...base, quote: "a b c", horizontalPosition: 95 }, W, 1250, atPx);
+  assert(Math.abs(R.anchorX - (W - inset(W) - W * 0.42)) < 1e-9, `center ${R.anchorX}`);
+  const M = coverLayout({ ...base, quote: "a b c", horizontalPosition: 55 }, W, 1250, atPx);
+  assert(Math.abs(M.anchorX - W * 0.55) < 1e-9, "a center inside the range stays where she put it");
+});
+check("a block near the top or bottom pulls in to sit 2 px inside the photo, at 30 and 30 too", () => {
+  const W = 1000, H = 1250;
+  const B = hit(stretchItem({ quote: "golden hour again and again", verticalPosition: 99 }), W, H);
+  assert(Math.abs(B.bottom - (H - inset(W))) < 1e-6, `bottom ${B.bottom}`);
+  const T = hit(stretchItem({ quote: "golden hour again and again", verticalPosition: 1, heightScale: 50 }), W, H);
+  assert(Math.abs(T.top - inset(W)) < 1e-6, `top ${T.top}`);
+});
+check("a block taller than the photo shrinks until it fits, at 30 and 30 too", () => {
+  const W = 1000, H = 1250, quote = "one two three four five six seven eight nine ten eleven twelve";
+  const L = coverLayout({ ...base, quote, lineCount: 12, fontSize: 200, textHeight: 200 }, W, H, atPx);
+  const b = hit(stretchItem({ quote, lineCount: 12, fontSize: 200, textHeight: 200 }), W, H);
+  assert(L.fit < 1 && b.bottom - b.top <= H - 2 * inset(W) + 1e-6, `fit ${L.fit}, height ${b.bottom - b.top}`);
+  assert(b.top >= inset(W) - 1e-6 && b.bottom <= H - inset(W) + 1e-6, `rows leave the photo: ${b.top}..${b.bottom}`);
 });
 check("Lines on Auto reports the rows it draws, never more than the words, none for an empty quote", () => {
   const box = { ...base, quote: "the light knows my name and it waits for me" };

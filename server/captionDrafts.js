@@ -24,9 +24,10 @@ export function needsDescription(cover, voice) {
  * The prompt a model drafts one caption from. With no voice it is the original's generateInstagramCaption prompt,
  * word for word (Quill #284). With the space's voice it is on topic of the text on the cover, in that voice, with no
  * length rule of its own: the voice decides length, format and tone. When the cover shows no text, the caption is
- * about what the photo shows, from the cover's description (1.9.2, Quill #327). Either way it alludes to something in
- * the photo and leaves the comment call to the switch under the caption (1.10, Arjang #435). A creator's specifics
- * (her spellings, her angle) live in her voice text, in her space's data, never here.
+ * about what the photo shows, from the cover's description (1.9.2, Quill #327). Either way it references something
+ * specific in the photo, invents subtext and opens curiosity loops (1.10.1, Arjang #453), and leaves the comment CTA to
+ * the switch under the caption (1.10, Arjang #435). A creator's specifics (her spellings, her angle) live in her voice
+ * text, in her space's data, never here.
  */
 export function captionPrompt(cover, voice) {
   const v = String(voice ?? "").trim();
@@ -39,7 +40,8 @@ export function captionPrompt(cover, voice) {
   }
   const head = "Write one Instagram caption for this cover in the creator's own voice, described below. "
     + "Write as her, in the first person, so her words and her story stay hers. Follow the voice exactly, the way she writes and spells. "
-    + "Always allude to something in the photo. Leave out any call to comment: the app adds one when she switches it on.";
+    + "Reference something specific in the photo in a way that invents subtext and opens curiosity loops, questions the reader "
+    + "can't answer yet. The more open loops, the better. Leave out any call to comment: the app adds one when she switches it on.";
   const text = overlaidText(cover);
   const photo = `What the photo shows:\n${String(cover.description ?? "").trim()}`;
   if (text) return `${head} Keep it on topic of the text on the cover.\n\nText on the cover:\n${text}\n\n${photo}\n\nHer voice:\n${v}`;
@@ -49,14 +51,14 @@ export function captionPrompt(cover, voice) {
 /**
  * Why a model's draft can't be saved, in plain words. Empty when it's fine. With no voice it must fit the original's
  * output schema: 1 to 80 characters, at most 8 words, no hashtags, no emoji, no not-this-but-that. Every draft also
- * meets Pollen's caption rules, since covers post through Pollen, and carries no comment call: the switch under the
+ * meets Pollen's caption rules, since covers post through Pollen, and carries no comment CTA: the switch under the
  * caption adds that (1.10).
  */
 export function draftProblems(draft, { voice, ctas } = {}) {
   const text = String(draft ?? "").trim();
   if (!text) return ["The draft is empty."];
   const out = [];
-  if (bakedCta(text, ctas)) out.push("Leave the comment call out. The switch under the caption adds it.");
+  if (bakedCta(text, ctas)) out.push("Leave the comment CTA out. The switch under the caption adds it.");
   if (!String(voice ?? "").trim()) {
     if (text.length > 80) out.push(`Make it shorter: ${text.length} characters, the most is 80.`);
     if (text.split(/\s+/).length > 8) out.push("Use 8 words at most.");

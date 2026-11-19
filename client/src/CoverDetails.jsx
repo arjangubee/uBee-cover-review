@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { imageUrlFor, loadImage } from "./CoverCanvas.jsx";
 import Icon from "./icons.jsx";
+import { plainCaption } from "./captionCall.js";
 import { badgeFor } from "./pollenView.js";
 import { displayTitle, parseSong, starsFor } from "./reviewMath.js";
 
@@ -73,19 +74,19 @@ export function TitleRow({ item }) {
   );
 }
 
-// The comment call (1.10, Arjang #435): her ManyChat-style line leads the caption only when the switch is on.
-// Off by default. The switch sits under the label; with more than one call, she picks which under it.
+// The Comment CTA (1.10, Arjang #435; renamed in 1.10.1, Arjang #453): her ManyChat-style line leads the caption only
+// when the switch is on. Off by default. The switch sits under the label; with more than one call, she picks which under it.
 function CommentCall({ item, ctas, onCta }) {
   const on = ctas.find((c) => c.keyword === String(item.cta || "").toUpperCase()) || null;
   return (
     <div className="commentCall">
-      <button type="button" role="switch" aria-checked={Boolean(on)} aria-label="Comment call" className="callSwitch"
+      <button type="button" role="switch" aria-checked={Boolean(on)} aria-label="Comment CTA" className="callSwitch"
         onClick={() => onCta(on ? null : ctas[0].keyword)}>
         <span className="track" aria-hidden="true"><span className="knob" /></span>
-        <span className="callLabel">Comment call</span>
+        <span className="callLabel">Comment CTA</span>
       </button>
       {on && ctas.length > 1 && (
-        <div className="callKeys" role="group" aria-label="Which comment call">
+        <div className="callKeys" role="group" aria-label="Which comment CTA">
           {ctas.map((c) => (
             <button key={c.keyword} type="button" className="callKey" aria-pressed={c.keyword === on.keyword}
               onClick={() => c.keyword !== on.keyword && onCta(c.keyword)}>{c.keyword}</button>
@@ -96,10 +97,13 @@ function CommentCall({ item, ctas, onCta }) {
   );
 }
 
+// What shows is the plain caption: a call written into it is left out (1.10.1, Quill #458), and editing opens that
+// plain text, so a save also takes the old call out of what's stored.
 export function CaptionRow({ item, ctas = [], onCta, onSave, onRedo, onDraft }) {
+  const shown = plainCaption(item.caption, ctas);
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(item.caption || "");
-  useEffect(() => { setText(item.caption || ""); setEditing(false); }, [item.id, item.caption]);
+  const [text, setText] = useState(shown);
+  useEffect(() => { setText(shown); setEditing(false); }, [item.id, shown]);
   const call = ctas.find((c) => c.keyword === String(item.cta || "").toUpperCase()) || null;
   return (
     <div className="captionRow">
@@ -114,12 +118,12 @@ export function CaptionRow({ item, ctas = [], onCta, onSave, onRedo, onDraft }) 
             <textarea className="field" rows={3} value={text} onChange={(e) => { setText(e.target.value); onDraft?.(e.target.value); }} aria-label="Instagram caption" autoFocus />
             <div className="rowEnd">
               <button type="button" className="linkBtn muted" onClick={onRedo}><Icon name="refresh" size={18} /> New caption</button>
-              <button type="button" className="linkBtn muted" onClick={() => { setText(item.caption || ""); setEditing(false); onDraft?.(null); }}>Cancel</button>
+              <button type="button" className="linkBtn muted" onClick={() => { setText(shown); setEditing(false); onDraft?.(null); }}>Cancel</button>
               <button type="submit" className="linkBtn">Save</button>
             </div>
           </form>
         ) : (
-          <button type="button" className="captionText" onClick={() => setEditing(true)} aria-label="Edit the caption">{item.caption || "No caption yet"}</button>
+          <button type="button" className="captionText" onClick={() => setEditing(true)} aria-label="Edit the caption">{shown || "No caption yet"}</button>
         )}
       </div>
     </div>

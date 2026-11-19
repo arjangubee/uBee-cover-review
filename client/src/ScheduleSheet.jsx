@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { postedCaption } from "./captionCall.js";
 import { badgeFor } from "./pollenView.js";
 import { renderCover } from "./renderCover.js";
 
@@ -10,7 +11,7 @@ const WAITING = ["waiting", "leased"];
 
 // The Schedule sheet: her channels with photo channels on, every picked cover drawn exactly as it will
 // post, caption problems before anything is sent, then each cover's booked day as Pollen answers.
-export default function ScheduleSheet({ items, quotesUnlocked, api, post, onClose, onDone }) {
+export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, api, post, onClose, onDone }) {
   const [channels, setChannels] = useState(null);
   const [on, setOn] = useState({});
   const [rows, setRows] = useState(() => items.map((item) => ({ item, thumb: null, problems: [], hasSlides: false, rendered: false, renderError: null, result: null })));
@@ -132,7 +133,7 @@ export default function ScheduleSheet({ items, quotesUnlocked, api, post, onClos
             <div key={r.item.id} className="sheetCover">
               {r.thumb ? <img src={r.thumb} alt="" /> : <span className="ph" />}
               <div className="meta">
-                <span className="cap">{(r.caption ?? r.item.caption) || "No caption"}</span>
+                <span className="cap">{(r.caption ?? postedCaption(r.item, ctas)) || "No caption"}</span>
                 {status(r)}
               </div>
             </div>

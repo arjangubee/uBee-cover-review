@@ -452,7 +452,7 @@ export function registerFull(app, upload) {
     store.saveSettings();
     res.json(voiceState());
   });
-  // The space's comment calls (1.10, Arjang #435): her Muse sets them, they stay in this copy's data. Upstream has
+  // The space's comment CTAs (1.10, Arjang #435): her Muse sets them, they stay in this copy's data. Upstream has
   // none. Each cover's switch under the caption picks one, off by default; an empty list clears them.
   app.get("/api/settings/caption-ctas", (_req, res) => res.json({ ctas: store.settings.captionCtas || [] }));
   app.post("/api/settings/caption-ctas", (req, res) => {

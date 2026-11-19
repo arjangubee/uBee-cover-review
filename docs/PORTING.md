@@ -12,6 +12,53 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.10.1: Comment CTA, and off hides it
+
+Arjang's #453, Quill's #455 and #458. No new fields or settings. Three changes:
+
+1. **The switch is called "Comment CTA".** Its label, its line in the undo history, and every message that names it:
+   "That comment CTA isn't on your list. Ask your Muse to add it.", "Leave the comment CTA out. The switch under the
+   caption adds it." and "Keep it to 6 comment CTAs or fewer."
+2. **Off hides a call written into the caption.** Captions drafted before 1.10 have the call in their text, so off
+   still showed it. Now a call in the caption text is left out wherever the caption shows and out of what posts: one
+   of her saved lines, anywhere, in any case, or a "Comment WORD" sentence at the start (WORD in capitals, up to the
+   first !, . or … that a space or the end follows, or the end of the line). Every other word stays, and the gap
+   closes with the space or line break that was there. Off: the plain caption. On: her line once, then the plain
+   caption, so an old caption that already starts with her line no longer shows it twice. Nothing stored is
+   rewritten: tapping a caption to edit it opens the plain text, so saving takes the old call out of what's stored.
+3. **The voiced prompt takes #453's standard.** It asks the caption to reference something specific in the photo in a
+   way that invents subtext and opens curiosity loops, questions the reader can't answer yet, the more the better.
+   The no-voice prompt stays the original's.
+
+One helper decides what shows and what posts: client/src/captionCall.js (ctaFor, plainCaption, postedCaption). The
+server imports the same file, so the page and Pollen can't drift. Port plainCaption with exactly these rules.
+
+### Actions
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| POST /api/pollen/check | Answers with what posts: the plain caption when off, her line once and then the plain caption when on |
+| POST /api/pollen/schedule | Sends that same caption |
+| POST /api/items/:id/edit | A keyword not on her list answers 400 with "That comment CTA isn't on your list. Ask your Muse to add it." |
+| GET /api/items/:id/caption-prompt | The voiced prompt carries the new standard (above) |
+| POST /api/items/:id/caption-draft | The refusal reads "Leave the comment CTA out. The switch under the caption adds it." |
+| POST /api/settings/caption-ctas | Over six answers "Keep it to 6 comment CTAs or fewer." |
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| captionCall.js | New. ctaFor, plainCaption and postedCaption, shared with the server |
+| CoverDetails.jsx | The switch reads "Comment CTA"; the caption shows plainCaption, and the edit box opens it |
+| App.jsx | The undo history line is "Comment CTA"; her calls go to the Schedule sheet |
+| ScheduleSheet.jsx | Until the Pollen check answers, each cover shows postedCaption |
+
+Checks after the port: the switch reads "Comment CTA" and is off on every cover. A cover whose stored caption starts
+with her line shows the caption without it when off, in the caption row and in the Schedule sheet, and the Pollen
+check answers with that plain caption. On, her line shows once. Tapping the caption opens the plain text. Stored
+captions are unchanged until one is edited or redrafted. The voiced caption-prompt carries the new standard. The
+counts don't change.
+
 ## 1.10.0: the comment call switch
 
 Arjang's #435, Quill's #438. A ManyChat-style comment call ("Comment WORD and I'll send you ...") used to get written

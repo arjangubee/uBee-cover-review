@@ -52,6 +52,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [burst, setBurst] = useState(0); // the heart that pops on the cover when she likes it
   const [drawnId, setDrawnId] = useState(null); // the cover whose photo is on screen: only that one can be decided
+  const [loads, setLoads] = useState(0); // counts finished loads; each one starts the caption fill loop (1.9)
   const draftSaved = useRef(null); // the open draft as it stands on the server; each autosave sends only what changed
   const draftNow = useRef(null);
   const saveChain = useRef(Promise.resolve(true));
@@ -81,8 +82,28 @@ export default function App() {
     setQuizQuotes(quiz.quotes);
     setPollen(pc);
     if (pal) setPalette({ palette: pal.palette, fonts: pal.fonts, customColors: pal.customColors || [] });
+    setLoads((n) => n + 1);
   }, [list]);
   useEffect(() => { load().catch((e) => say(e.message)); }, [load, say]);
+
+  // Captions (1.9), the original's fill loop: every caption a model may draft (blank, or the offline placeholder)
+  // gets a draft before she reaches it, off-screen covers first. The server keeps a typed caption: a draft lands only
+  // while the caption is unchanged. A copy with no model answers no-model once, and the loop rests for the session.
+  const filling = useRef(false);
+  const noModel = useRef(false);
+  async function fillCaptions(onScreenId) {
+    if (filling.current || noModel.current) return;
+    filling.current = true;
+    try {
+      const { ids } = await api("/api/captions/wanted");
+      for (const id of [...ids.filter((i) => i !== onScreenId), ...ids.filter((i) => i === onScreenId)]) {
+        const r = await post(`/api/items/${id}/caption-fill`, {});
+        if (r.reason === "no-model") { noModel.current = true; break; }
+        if (r.drafted && r.item) setItems((prev) => prev.map((i) => (i.id === r.item.id ? { ...i, caption: r.item.caption, captionSource: r.item.captionSource } : i)));
+      }
+    } catch { /* a draft is a nicety: the caption she has stays */ }
+    filling.current = false;
+  }
 
   // Keep her place: a cover opened from the grid, or the same spot after a cover leaves the list.
   useEffect(() => {
@@ -114,6 +135,7 @@ export default function App() {
   // The next cover's photo starts loading now, so moving on is instant.
   useEffect(() => { const next = items[index + 1]; if (next) loadImage(imageUrlFor(next)).catch(() => {}); }, [items, index]);
   const coverReady = Boolean(current) && drawnId === current.id;
+  useEffect(() => { if (loads) fillCaptions(current?.id ?? null); }, [loads]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (slide > activeSlides.length) setSlide(activeSlides.length); }, [activeSlides.length, slide]);
 
   const patchItem = (item) => setItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
@@ -169,7 +191,9 @@ export default function App() {
     if (!p || !Object.keys(p).length) return null;
     const saved = { note: item.note || "", caption: item.caption || "", song: item.song || "" };
     const typed = { note: (p.note ?? saved.note).trim(), caption: p.caption ?? saved.caption, song: (p.song ?? saved.song).trim() };
-    return changedFields(saved, typed, ["note", "caption", "song"]);
+    const ch = changedFields(saved, typed, ["note", "caption", "song"]);
+    if (ch && "caption" in ch.before) ch.before.captionSource = item.captionSource ?? null; // undo restores the source too (1.9)
+    return ch;
   }
   async function flushPending(item = current) {
     const pe = pendingEditFor(item);
@@ -237,13 +261,15 @@ export default function App() {
     await record("Note", current.id, { edit: { note: current.note || "" } }, { edit: { note } });
     say("Note saved for the next revision.");
   });
-  const saveCaption = (caption) => attempt(() => { setPending(current.id, "caption", null); return record("Caption", current.id, { edit: { caption: current.caption || "" } }, { edit: { caption } }); });
+  // Undo puts a caption's source back with its words (1.9), so a placeholder she typed over is a placeholder again.
+  const captionOf = (item) => ({ caption: item.caption || "", captionSource: item.captionSource ?? null });
+  const saveCaption = (caption) => attempt(() => { setPending(current.id, "caption", null); return record("Caption", current.id, { edit: captionOf(current) }, { edit: { caption } }); });
   async function regenerate(kind) {
-    const before = kind === "caption" ? { caption: current.caption || "" } : { song: current.song || "", songPreviewUrl: current.songPreviewUrl || "" };
+    const before = kind === "caption" ? captionOf(current) : { song: current.song || "", songPreviewUrl: current.songPreviewUrl || "" };
     await attempt(async () => {
       const { item } = await post(`/api/items/${current.id}/edit`, kind === "caption" ? { regenerateCaption: true } : { shuffleSong: true });
       patchItem(item);
-      const after = kind === "caption" ? { caption: item.caption } : { song: item.song, songPreviewUrl: item.songPreviewUrl || "" };
+      const after = kind === "caption" ? captionOf(item) : { song: item.song, songPreviewUrl: item.songPreviewUrl || "" };
       history.current.push({ label: kind === "caption" ? "Caption" : "Song", itemId: item.id, before: { edit: before }, after: { edit: after } });
       bumpHistory();
     });

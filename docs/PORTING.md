@@ -12,6 +12,70 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.9.0: captions in the space's own voice
+
+Quill's #269, #276, #284, #292 and #296, from Arjang's #265, #267, #270, #272 and #274. The original drafts every
+blank caption with a model before she sees the cover, and never replaces a caption someone typed. This release brings
+that over, in each space's own voice.
+
+1. **Where a caption came from.** A new field, captionSource: "placeholder" (the offline draft, the quote as
+   written), "model" or "human". Upload, Drive import, the caption action and Redo set placeholder. A typed caption
+   sets human. A saved model draft sets model. Old rows have no source. A blank caption, or one equal to the offline
+   draft of the cover's current quote, reads as a placeholder. Anything else reads as human, so words of unknown
+   origin are never replaced.
+2. **What a model may draft** (canDraft in server/captionDrafts.js): a queue or approved cover whose caption is blank,
+   or a placeholder on a cover made since drafting started. Model and human captions are never redrafted.
+3. **The gate.** A new setting, captionFillFrom: when 1.9.0 first ran in this copy. Placeholders on covers made before
+   it wait. Backfill sets it to 0, which lets a model redraft the placeholders already in the deck. That is the
+   owner's call. Never turn it on as part of a port. A space that knows some differing captions are offline
+   leftovers leaves them as they read (human) until the owner decides.
+4. **The prompt** (captionPrompt). With no voice it is the original's generateInstagramCaption prompt, word for word,
+   with the cover's quote and an image description. That draft must fit the original's output schema: 1 to 80
+   characters, at most 8 words, no hashtags, no emoji, no not-this-but-that. With a voice, the prompt keeps the
+   caption on topic of the text on the cover (the quote when it shows, then her text boxes, or the quote when
+   nothing shows), in that voice, with no length rule of its own. Every draft also meets Pollen's caption rules.
+   draftProblems checks both.
+5. **The voice.** A new setting, captionVoice: text her Muse sets with POST /api/settings/caption-voice. It lives in
+   the space's own data, never in the repo. A creator's specifics, such as her spellings and her angle, belong in it,
+   not in the code.
+6. **The fill loop** (client, App.jsx). After each load it asks GET /api/captions/wanted, then calls
+   POST /api/items/:id/caption-fill for each, off-screen covers first. Upstream's own server has no model: a blank
+   caption gets the offline placeholder, and a placeholder answers no-model, which stops the loop for the session.
+
+### New field on each cover (photos table)
+
+| Field | Type | Default | What it is |
+| --- | --- | --- | --- |
+| captionSource | text | none, read as in item 1 | placeholder, model or human |
+
+### New settings
+
+| Setting | Type | Default | What it is |
+| --- | --- | --- | --- |
+| captionVoice | text | "" | The space's caption voice. Empty means none |
+| captionFillFrom | number (ms) | set the first time 1.9.0 runs | Placeholders on covers made before it wait for backfill |
+
+### Actions
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| Upload, Drive import, POST /api/items/:id/caption | Set captionSource placeholder |
+| POST /api/items/:id/edit | A caption sets human. With captionSource (placeholder, model or human) it sets that instead, and null removes the field, so undo puts a caption's source back with its words. regenerateCaption sets placeholder |
+| GET /api/captions/wanted | New. { ids } of covers a model may draft, queue first |
+| GET /api/items/:id/caption-prompt | New. { prompt, voice, basedOn, canDraft }; basedOn is the caption as it stands |
+| POST /api/items/:id/caption-draft | New. { caption, basedOn }. Saves as model only while canDraft holds and the caption still equals basedOn, and the draft passes draftProblems. Otherwise { saved: false, reason: locked, changed or rules } |
+| POST /api/items/:id/caption-fill | New. Upstream: a blank caption gets the placeholder ({ drafted: true, reason: "offline" }); a placeholder answers { drafted: false, reason: "no-model" }; anything else is locked |
+| GET, POST /api/settings/caption-voice | New. { voice } sets the voice, { backfill: true } sets captionFillFrom to 0. Both answer { voice, fillFrom } |
+
+Redo (New caption) asks for a fresh draft because she asked, so a space with a model may map regenerateCaption to a model draft saved as model. A space whose actions can call a model maps caption-fill to that call: when canDraft holds, take the caption as it
+stands, draft from captionPrompt(cover, captionVoice) with the cover's image description, check it with
+draftProblems, and save it as model only if the caption still equals what it was when drafting began. A space whose
+actions can't call a model keeps upstream's caption-fill, and its Muse can draft with caption-prompt and caption-draft.
+
+Checks after the port: counts; captionFillFrom is the port time, so no cover already in the deck is redrafted; with a
+voice set, a new cover's placeholder gets a draft in that voice; a typed caption is never replaced; with no model, the
+fill loop makes one try per session and stops.
+
 ## 1.8.1: the landscape safe zone and Opacity 25 to 100
 
 Quill's #283 answers to two 1.8.0 questions. Port it on top of 1.8.0. No new fields, and no saved cover is rewritten.

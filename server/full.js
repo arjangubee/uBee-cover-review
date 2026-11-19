@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { generateCaption, loadQuotes } from "./services.js";
 import { DATA_DIR, LIBRARY_DIR, store } from "./store.js";
 import { nextOpacity } from "./styleRules.js";
+import { canDraft, captionPrompt, captionState, draftProblems } from "./captionDrafts.js";
 
 // Full Cover Review feature set, ported from the Muse original.
 // The original server/src/actions.ts (5,020 lines) maps onto these endpoints.
@@ -369,12 +370,68 @@ export function registerFull(app, upload) {
     res.json({ item });
   });
 
-  // Caption: generateinstagramcaption in the original.
+  // Caption: generateinstagramcaption in the original. Here it is the offline draft, a placeholder (1.9).
   app.post("/api/items/:id/caption", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
     item.caption = generateCaption(item, store.settings.voiceProfile);
+    item.captionSource = "placeholder";
     store.saveDb();
     res.json({ item });
+  });
+
+  // ---------- v1.9: captions drafted by a model, in the space's own voice (Quill #269, #276, #284, #292) ----------
+  // This server has no model. A space with one maps caption-fill to its model call, with captionPrompt, draftProblems
+  // and the unchanged-since-drafting check below. A model outside the server can use caption-prompt and caption-draft.
+  if (store.settings.captionFillFrom == null) { store.settings.captionFillFrom = Date.now(); store.saveSettings(); }
+  const draftOpts = (item) => ({ offlineDraft: generateCaption(item, store.settings.voiceProfile), fillFrom: store.settings.captionFillFrom });
+  const captionVoice = () => String(store.settings.captionVoice || "");
+  const voiceState = () => ({ voice: captionVoice(), fillFrom: store.settings.captionFillFrom });
+
+  // The covers whose captions a model may draft: queue first, then approved.
+  app.get("/api/captions/wanted", (_req, res) => {
+    const order = { queue: 0, approved: 1 };
+    const ids = store.db.items.filter((i) => canDraft(i, draftOpts(i))).sort((a, b) => order[a.status] - order[b.status] || a.id - b.id).map((i) => i.id);
+    res.json({ ids });
+  });
+  app.get("/api/items/:id/caption-prompt", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    res.json({ prompt: captionPrompt(item, captionVoice()), voice: Boolean(captionVoice().trim()), basedOn: String(item.caption ?? ""), canDraft: canDraft(item, draftOpts(item)) });
+  });
+  // A model's draft lands only while the caption is still what it was when drafting began, so a typed caption wins.
+  app.post("/api/items/:id/caption-draft", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const draft = String(req.body?.caption ?? "").trim();
+    if (!canDraft(item, draftOpts(item))) return res.json({ saved: false, reason: "locked", item });
+    if (String(item.caption ?? "") !== String(req.body?.basedOn ?? "")) return res.json({ saved: false, reason: "changed", item });
+    const problems = draftProblems(draft, { voice: captionVoice() });
+    if (problems.length) return res.json({ saved: false, reason: "rules", problems, item });
+    item.caption = draft;
+    item.captionSource = "model";
+    store.saveDb();
+    res.json({ saved: true, item });
+  });
+  // The client's fill loop asks here for each cover it may draft. A blank caption gets the offline placeholder;
+  // anything else needs a model, which this server doesn't have.
+  app.post("/api/items/:id/caption-fill", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    if (!canDraft(item, draftOpts(item))) return res.json({ drafted: false, reason: "locked", item });
+    if (captionState(item, draftOpts(item).offlineDraft) === "blank") {
+      item.caption = generateCaption(item, store.settings.voiceProfile);
+      item.captionSource = "placeholder";
+      store.saveDb();
+      return res.json({ drafted: true, reason: "offline", item });
+    }
+    res.json({ drafted: false, reason: "no-model", item });
+  });
+  // The space's caption voice: her Muse sets it, it stays in this copy's data. Empty means none. Backfill lets a
+  // model redraft placeholders on covers made before drafting started; that is the owner's call.
+  app.get("/api/settings/caption-voice", (_req, res) => res.json(voiceState()));
+  app.post("/api/settings/caption-voice", (req, res) => {
+    const b = req.body || {};
+    if (b.voice != null) store.settings.captionVoice = String(b.voice).trim().slice(0, 20000);
+    if (b.backfill === true) store.settings.captionFillFrom = 0;
+    store.saveSettings();
+    res.json(voiceState());
   });
 
   // Why it matches: her Muse records why the photo, quote and song belong together. v1.4.
@@ -425,6 +482,7 @@ export function registerFull(app, upload) {
       item.song = e.song || "";
       if (e.why) item.why = cleanWhy(e.why);
       item.caption = generateCaption(item, store.settings.voiceProfile);
+      item.captionSource = "placeholder"; // the offline draft (1.9)
       created.push(item);
     }
     importState.lastBatchAt = Date.now();

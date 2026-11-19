@@ -8,7 +8,8 @@ import { join } from "node:path";
 import { captionProblems } from "../server/captionRules.js";
 import { nextOpacity } from "../server/styleRules.js";
 import { canDraft, captionPrompt, draftProblems, needsDescription } from "../server/captionDrafts.js";
-import { bakedCta, cleanCtas, ctaFor, postedCaption } from "../server/captionCtas.js";
+import { bakedCta, cleanCtas, ctaFor, plainCaption, postedCaption } from "../server/captionCtas.js";
+import * as sharedCall from "../client/src/captionCall.js";
 
 // Smoke runs in a throwaway data folder, so it never touches a creator's real photos,
 // decisions, workspace or settings.
@@ -411,12 +412,33 @@ try {
     assert(cleanCtas([{ keyword: "two words", line: "Comment two words!!" }]).error, "a keyword is one word");
     assert(cleanCtas([{ keyword: "SLOW", line: "Comment SLOW ✨" }]).error, "a line Pollen would refuse is refused");
     assert(cleanCtas([{ keyword: "SLOW", line: "Comment SLOW!!" }, { keyword: "slow", line: "Comment SLOW now!!" }]).error, "one line per keyword");
-    assert(cleanCtas(Array.from({ length: 7 }, (_, i) => ({ keyword: `K${i}`, line: `Comment K${i}!!` }))).error, "six at most");
+    assert(/comment CTAs/.test(cleanCtas(Array.from({ length: 7 }, (_, i) => ({ keyword: `K${i}`, line: `Comment K${i}!!` }))).error || ""), "six at most, named comment CTAs");
     assert(!cleanCtas([]).error && cleanCtas([]).ctas.length === 0, "an empty list clears them");
     assert(bakedCta("Comment SLOW and I'll send you my practice!! golden hour", CALLS), "her line baked in");
     assert(bakedCta("golden hour!! comment slow for the practice!!", CALLS), "her keyword's call anywhere, any case");
     assert(bakedCta("Comment WORD and I'll send it!! hi", []), "a call at the start, even with no list");
     assert(!bakedCta("I comment on the slow river!!", CALLS) && !bakedCta("golden hour", []), "her words are fine");
+  });
+  // ---------- v1.10.1: Comment CTA, and off really hides it (Arjang #453, Quill #458) ----------
+  await check("v1.10.1 one helper decides what shows and what posts, shared by the page and the server", async () => {
+    assert(plainCaption === sharedCall.plainCaption && postedCaption === sharedCall.postedCaption && ctaFor === sharedCall.ctaFor, "the server uses the page's helper");
+  });
+  await check("v1.10.1 off leaves a call written into the caption out, and on adds her line once", async () => {
+    const baked = `${CALLS[0].line} golden hour with you`;
+    assert(plainCaption(baked, CALLS) === "golden hour with you", `her line at the start: ${plainCaption(baked, CALLS)}`);
+    assert(postedCaption({ caption: baked }, CALLS) === "golden hour with you", "off posts the plain caption");
+    assert(postedCaption({ caption: baked, cta: "SLOW" }, CALLS) === `${CALLS[0].line} golden hour with you`, "on adds her line once");
+    assert(postedCaption({ caption: baked, cta: "EFFORT" }, CALLS) === `${CALLS[1].line} golden hour with you`, "the other call replaces the written one");
+    assert(plainCaption(`${CALLS[0].line.toUpperCase()} golden hour`, CALLS) === "golden hour", "her line in any case");
+    assert(plainCaption(`golden hour!! ${CALLS[1].line}`, CALLS) === "golden hour!!", "her line at the end");
+    assert(plainCaption(`golden hour!!\n\n${CALLS[1].line}\n\nslow mornings`, CALLS) === "golden hour!!\n\nslow mornings", "the rest keeps its shape");
+    assert(plainCaption("Comment WORD and I'll send it!! golden hour", []) === "golden hour", "a Comment WORD sentence at the start, even with no list");
+    assert(plainCaption("Comment WORD for my 3.5 minute practice!! golden hour", []) === "golden hour", "a decimal doesn't end the call early");
+    assert(plainCaption("Comment below if you feel it!!", CALLS) === "Comment below if you feel it!!", "an ordinary word after comment stays");
+    assert(plainCaption("I comment on the slow river!!", CALLS) === "I comment on the slow river!!", "her words stay");
+    assert(plainCaption("golden hour", CALLS) === "golden hour" && plainCaption("", CALLS) === "" && plainCaption(undefined, CALLS) === "", "nothing to cut");
+    assert(plainCaption(CALLS[0].line, CALLS) === "" && postedCaption({ caption: CALLS[0].line }, CALLS) === "", "a caption that is only a call is empty when off");
+    assert(postedCaption({ caption: CALLS[0].line, cta: "SLOW" }, CALLS) === CALLS[0].line, "and her line alone when on");
   });
   await check("v1.10 the space keeps its comment calls, and a cover's switch is off until she turns it on", async () => {
     const empty = await (await fetch(`${base}/api/settings/caption-ctas`)).json();
@@ -436,7 +458,7 @@ try {
       const other = await postJson(`/api/items/${item.id}/edit`, { note: "hi" });
       assert(other.item.cta === "EFFORT", "other edits leave the switch alone");
       const unknown = await fetch(`${base}/api/items/${item.id}/edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cta: "NOPE" }) });
-      assert(unknown.status === 400, `a call that isn't on her list answers 400, got ${unknown.status}`);
+      assert(unknown.status === 400 && /comment CTA/.test((await unknown.json()).error), `a call that isn't on her list answers 400 and says comment CTA, got ${unknown.status}`);
       const off = await postJson(`/api/items/${item.id}/edit`, { cta: null });
       assert(!("cta" in off.item), `off clears it: ${JSON.stringify(off.item.cta)}`);
     } finally {
@@ -449,8 +471,8 @@ try {
       const item = await newItem("cta-draft.png");
       const p = await (await fetch(`${base}/api/items/${item.id}/caption-prompt`)).json();
       const baked = await postJson(`/api/items/${item.id}/caption-draft`, { caption: `${CALLS[0].line} slow coffee`, basedOn: p.basedOn });
-      assert(baked.saved === false && baked.reason === "rules" && baked.problems.some((x) => /comment call/i.test(x)), JSON.stringify(baked));
-      assert(draftProblems("Comment WORD and get it!! hi", { voice: "warm", ctas: [] }).some((x) => /comment call/i.test(x)), "a call is refused even with no list");
+      assert(baked.saved === false && baked.reason === "rules" && baked.problems.some((x) => /comment CTA/.test(x)), JSON.stringify(baked));
+      assert(draftProblems("Comment WORD and get it!! hi", { voice: "warm", ctas: [] }).some((x) => /comment CTA/.test(x)), "a call is refused even with no list");
       assert(draftProblems("slow coffee", { voice: "", ctas: [CALLS[0]] }).length === 0, "a plain draft still passes");
     } finally {
       await postJson(`/api/settings/caption-ctas`, { ctas: [] });
@@ -459,11 +481,12 @@ try {
   await check("v1.10 a voiced caption always carries the photo, text covers too, and leaves the comment call out", async () => {
     const text = { quote: "slow mornings", description: "a woman on a balcony", showQuote: true, extraTexts: [] };
     const voiced = captionPrompt(text, "warm");
-    assert(voiced.includes("slow mornings") && voiced.includes("a woman on a balcony") && /allude to something in the photo/i.test(voiced), voiced);
+    assert(voiced.includes("slow mornings") && voiced.includes("a woman on a balcony") && /something specific in the photo/i.test(voiced), voiced);
+    assert(/subtext/i.test(voiced) && /curiosity loops/i.test(voiced) && /the more open loops, the better/i.test(voiced), `#453's standard: ${voiced}`);
     assert(/leave out any call to comment/i.test(voiced), `the switch adds the call: ${voiced}`);
     assert(needsDescription({ ...text, description: "" }, "warm") === true, "a text cover needs its photo described too");
     assert(needsDescription({ ...text, description: "" }, "") === false, "with no voice nothing is needed");
-    assert(!/allude|call to comment/i.test(captionPrompt(text, "")), "the no-voice prompt stays the original's");
+    assert(!/allude|call to comment|subtext|curiosity/i.test(captionPrompt(text, "")), "the no-voice prompt stays the original's");
   });
   await check("v1.4 a rating can be cleared, so undo can take back a first rating", async () => {
     const item = await newItem("quill-rate.png");
@@ -697,6 +720,28 @@ try {
       const rOn = hive.requests.find((r) => r.client_key === keyOn), rOff = hive.requests.find((r) => r.client_key === keyOff);
       assert(rOn && rOn.caption === `${CALLS[0].line} golden hour with you`, `on: ${rOn && rOn.caption}`);
       assert(rOff && rOff.caption === "golden hour alone", `off: ${rOff && rOff.caption}`);
+    } finally {
+      await postJson(`/api/settings/caption-ctas`, { ctas: [] });
+    }
+  });
+  await check("v1.10.1 pollen posts the plain caption when the switch is off, and her line once when it's on", async () => {
+    await postJson(`/api/settings/caption-ctas`, { ctas: [CALLS[0]] });
+    try {
+      const off = await approvedItem("cta-baked-off.png", `${CALLS[0].line} soft rain`);
+      const on = await approvedItem("cta-baked-on.png", `${CALLS[0].line} soft sun`);
+      await postJson(`/api/items/${on.id}/edit`, { cta: "SLOW" });
+      for (const c of [off, on]) await render(c.id);
+      const checked = await (await post("/api/pollen/check", { itemIds: [off.id, on.id] })).json();
+      const cOff = checked.items.find((x) => x.itemId === off.id), cOn = checked.items.find((x) => x.itemId === on.id);
+      assert(cOff.caption === "soft rain", `off: the check answers with the plain caption: ${cOff.caption}`);
+      assert(cOn.caption === `${CALLS[0].line} soft sun`, `on: her line once: ${cOn.caption}`);
+      await (await post("/api/pollen/schedule", { itemIds: [off.id, on.id], channelIds: [CH_IG] })).json();
+      const keyOff = (await pollenOf(off.id)).clientKey, keyOn = (await pollenOf(on.id)).clientKey;
+      const rOff = hive.requests.find((r) => r.client_key === keyOff), rOn = hive.requests.find((r) => r.client_key === keyOn);
+      assert(rOff && rOff.caption === "soft rain", `off posts the plain caption: ${rOff && rOff.caption}`);
+      assert(rOn && rOn.caption === `${CALLS[0].line} soft sun`, `on posts her line once: ${rOn && rOn.caption}`);
+      const all = (await (await fetch(`${base}/api/items?status=approved`)).json()).items;
+      assert(all.find((i) => i.id === off.id).caption === `${CALLS[0].line} soft rain`, "the build rewrites no stored caption");
     } finally {
       await postJson(`/api/settings/caption-ctas`, { ctas: [] });
     }

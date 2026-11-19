@@ -123,7 +123,7 @@ async function scheduleOne(id, picked) {
   if (item.pollen && LOCKED.includes(item.pollen.status)) {
     return { itemId: id, status: item.pollen.status, bookedDay: item.pollen.bookedDay || null };
   }
-  const caption = postedCaption(item, store.settings.captionCtas); // the comment call, when on, posts first (1.10)
+  const caption = postedCaption(item, store.settings.captionCtas); // off: the plain caption; on: her comment CTA once, then the caption (1.10.1)
   const problems = captionProblems(caption);
   if (problems.length) return { itemId: id, status: "refused", error: problems.join(" ") };
   const render = item.pollenRender;

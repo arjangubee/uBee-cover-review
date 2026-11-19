@@ -65,12 +65,12 @@ Caption voice, for drafting with a model (1.9):
 2. Save it with `POST /api/settings/caption-voice` as `{ "voice": "..." }`. It stays in this copy's data. Send an empty voice to remove it.
 3. New covers start with the quote as a placeholder caption. If your space can call a model, draft placeholders and blank captions with `GET /api/items/:id/caption-prompt`, then save each draft with `POST /api/items/:id/caption-draft` and the basedOn it gave you. A caption they typed is never replaced.
    A cover with no text on it gets a caption about its photo. When the prompt says needsDescription, look at the photo (imageUrl) and record what it shows with `POST /api/items/:id/description` first. Never write about a hidden quote.
-   Every voiced caption alludes to something in the photo (1.10), so every cover needs its description first, covers with text on them too.
+   Every voiced caption references something specific in the photo, invents subtext around it and opens curiosity loops (1.10.1), so every cover needs its description first, covers with text on them too.
 4. Covers already in the deck keep their captions. Only redraft those (`{ "backfill": true }`) when the owner says to.
 
-Comment calls, if they run ManyChat-style keyword DMs (1.10):
+Comment CTAs, if they run ManyChat-style keyword DMs (1.10, named Comment CTA in 1.10.1):
 1. Save each call with its keyword with `POST /api/settings/caption-ctas` as `{ "ctas": [{ "keyword": "WORD", "line": "Comment WORD and I'll send you ..." }] }`. Use their exact lines and only keywords their DM automation really answers. They stay in this copy's data. Send an empty list to remove them.
-2. Each cover gets a switch under "Instagram caption", off by default. When it's on, the call's line leads the caption that posts. That's their switch to flip, cover by cover.
+2. Each cover gets a "Comment CTA" switch under "Instagram caption", off by default. Off, the caption shows and posts plain: a call written into an older caption is left out. On, the call's line leads the caption once. That's their switch to flip, cover by cover.
 3. Never write a call into a caption. A draft with one in it is refused; the switch is the only way in.
 
 ## 5b. uBee clients save in the uBee shared Drive (client mode)

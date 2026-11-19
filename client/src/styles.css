@@ -132,7 +132,7 @@ img { max-width: 100%; }
 .titleRow .state { grid-column: 1 / -1; }
 .captionRow { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line); }
 .captionLabel { color: var(--text-2); font-size: 15px; font-weight: 700; line-height: 1.45; white-space: nowrap; }
-/* The comment call switch (1.10): under the label, off by default; her call leads the caption only when it's on. */
+/* The Comment CTA switch (1.10, renamed in 1.10.1): under the label, off by default; her call leads the caption only when it's on. */
 .captionSide, .commentCall { display: grid; gap: 4px; justify-items: start; align-content: start; }
 .callSwitch { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0; border: 0; background: none; color: var(--text-2); font-size: 14px; font-weight: 600; }
 .callSwitch .track { position: relative; flex: none; width: 54px; height: 32px; border-radius: 999px; background: var(--line-strong); transition: background 0.2s; }

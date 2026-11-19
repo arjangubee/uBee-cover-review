@@ -49,7 +49,7 @@ export default function App() {
   const [quotesStatus, setQuotesStatus] = useState(null);
   const [quizQuotes, setQuizQuotes] = useState([]);
   const [pollen, setPollen] = useState(null);
-  const [ctas, setCtas] = useState([]); // the space's comment calls (1.10); none means no switch under the caption
+  const [ctas, setCtas] = useState([]); // the space's comment CTAs (1.10); none means no switch under the caption
   const [toast, setToast] = useState(null);
   const [burst, setBurst] = useState(0); // the heart that pops on the cover when she likes it
   const [drawnId, setDrawnId] = useState(null); // the cover whose photo is on screen: only that one can be decided
@@ -272,8 +272,8 @@ export default function App() {
   // Undo puts a caption's source back with its words (1.9), so a placeholder she typed over is a placeholder again.
   const captionOf = (item) => ({ caption: item.caption || "", captionSource: item.captionSource ?? null });
   const saveCaption = (caption) => attempt(() => { setPending(current.id, "caption", null); return record("Caption", current.id, { edit: captionOf(current) }, { edit: { caption } }); });
-  // The comment call switch (1.10): a keyword turns it on, null turns it off; undo steps back like any edit.
-  const setCta = (keyword) => attempt(() => record("Comment call", current.id, { edit: { cta: current.cta ?? null } }, { edit: { cta: keyword } }));
+  // The Comment CTA switch (1.10, renamed in 1.10.1): a keyword turns it on, null turns it off; undo steps back like any edit.
+  const setCta = (keyword) => attempt(() => record("Comment CTA", current.id, { edit: { cta: current.cta ?? null } }, { edit: { cta: keyword } }));
   async function regenerate(kind) {
     const before = kind === "caption" ? captionOf(current) : { song: current.song || "", songPreviewUrl: current.songPreviewUrl || "" };
     await attempt(async () => {
@@ -555,7 +555,7 @@ export default function App() {
       )}
 
       {sheet && (
-        <ScheduleSheet items={sheet.items} quotesUnlocked={Boolean(quotesStatus?.unlocked)} api={api} post={post}
+        <ScheduleSheet items={sheet.items} ctas={ctas} quotesUnlocked={Boolean(quotesStatus?.unlocked)} api={api} post={post}
           onClose={() => { setSheet(null); load().catch(() => {}); }}
           onDone={() => { sheet.stop(); setSheet(null); load().catch(() => {}); }} />
       )}

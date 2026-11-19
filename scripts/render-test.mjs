@@ -318,6 +318,17 @@ check("the safe zone is the original's for each shape of cover", () => {
   assert(near(safeZoneFor(1000, 1000), { left: 60, top: 60, right: 940, bottom: 940 }), "square keeps 6% all round");
   assert(near(safeZoneFor(1080, 1920), { left: 54, top: 300, right: 1026, bottom: 1500 }), JSON.stringify(safeZoneFor(1080, 1920)));
 });
+check("a landscape cover's safe zone follows the original's formula, in the photo's own frame", () => {
+  // Quill #283, safeBoundsForGeometry for any ratio above 1: the photo sits in the 4:5 frame, inset 5% across (6% from
+  // 1.7:1), and top and bottom by the larger of 2% of the frame and 6% of the photo's height (8% from 1.7:1).
+  const near = (z, e) => ["left", "top", "right", "bottom"].every((k) => Math.abs(z[k] - e[k]) < 1e-6);
+  const show = (w, h) => JSON.stringify(safeZoneFor(w, h));
+  assert(near(safeZoneFor(1440, 1080), { left: 72, top: 64.8, right: 1368, bottom: 1015.2 }), `4:3 ${show(1440, 1080)}`);
+  assert(near(safeZoneFor(1620, 1080), { left: 81, top: 64.8, right: 1539, bottom: 1015.2 }), `3:2 ${show(1620, 1080)}`);
+  assert(near(safeZoneFor(1920, 1080), { left: 115.2, top: 86.4, right: 1804.8, bottom: 993.6 }), `16:9 ${show(1920, 1080)}`);
+  assert(near(safeZoneFor(1100, 1000), { left: 55, top: 60, right: 1045, bottom: 940 }), `just above 1:1 is landscape ${show(1100, 1000)}`);
+  assert(near(safeZoneFor(4000, 1000), { left: 240, top: 100, right: 3760, bottom: 900 }), `a panorama keeps 2% of the frame ${show(4000, 1000)}`);
+});
 check("Randomize never touches color, font or weight, and every layout lands inside the safe zone", () => {
   const rand = seeded(11);
   const quotes = ["golden hour again", "what a privilege it is to have another day to try again", "a lot of people are surprised to find out what I really do for work every day"];

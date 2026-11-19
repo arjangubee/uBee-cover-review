@@ -6,6 +6,7 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { captionProblems } from "../server/captionRules.js";
+import { nextOpacity } from "../server/styleRules.js";
 
 // Smoke runs in a throwaway data folder, so it never touches a creator's real photos,
 // decisions, workspace or settings.
@@ -252,6 +253,17 @@ try {
     assert(styled.item.extraTexts[0].fontWeight === 400 && styled.item.extraTexts[0].textFont === "tiktok", JSON.stringify(styled.item.extraTexts[0]));
     const medium = await postJson(`/api/items/${item.id}/style`, { fontWeight: 500 });
     assert(medium.item.fontWeight === 500, "a saved weight stays");
+  });
+  await check("v1.8.1 opacity runs 25 to 100 like the original; a stored value under 25 stays until her opacity changes", async () => {
+    assert(nextOpacity(10, 100) === 25 && nextOpacity(120, 100) === 100 && nextOpacity(60, 100) === 60, "new values clamp to 25 to 100");
+    assert(nextOpacity(22, 22) === 22 && nextOpacity(23, 22) === 25 && nextOpacity(40, 22) === 40, "an unchanged old value passes through as stored");
+    const item = await newItem("opacity.png");
+    const low = await postJson(`/api/items/${item.id}/style`, { opacity: 10 });
+    assert(low.item.opacity === 25, `floor ${low.item.opacity}`);
+    const high = await postJson(`/api/items/${item.id}/style`, { opacity: 140 });
+    assert(high.item.opacity === 100, `ceiling ${high.item.opacity}`);
+    const boxes = await postJson(`/api/items/${item.id}/style`, { extraTexts: [{ quote: "a", opacity: 5 }, { quote: "b", opacity: 70 }] });
+    assert(boxes.item.extraTexts[0].opacity === 25 && boxes.item.extraTexts[1].opacity === 70, JSON.stringify(boxes.item.extraTexts.map((b) => b.opacity)));
   });
   await check("v1.4 a rating can be cleared, so undo can take back a first rating", async () => {
     const item = await newItem("quill-rate.png");

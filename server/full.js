@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateCaption, loadQuotes } from "./services.js";
 import { DATA_DIR, LIBRARY_DIR, store } from "./store.js";
+import { nextOpacity } from "./styleRules.js";
 
 // Full Cover Review feature set, ported from the Muse original.
 // The original server/src/actions.ts (5,020 lines) maps onto these endpoints.
@@ -44,9 +45,11 @@ const isNum = (v) => v != null && v !== "" && Number.isFinite(Number(v));
 const BOX_RANGES = { lineCount: [0, 99], textWidth: [20, 100], textHeight: [60, 200], widthScale: [10, 50], heightScale: [10, 50] };
 const BOX_NUMBERS = ["fontSize", "fontWeight", "opacity", "horizontalPosition", "verticalPosition", "lineCount", "textWidth", "textHeight", "widthScale", "heightScale"];
 
-function setNumbers(target, src) {
+// `stored` is the same text as saved now (the cover itself, or the text box in the same place), for the opacity rule.
+function setNumbers(target, src, stored = target) {
   for (const k of BOX_NUMBERS) {
     if (!isNum(src[k])) continue;
+    if (k === "opacity") { target.opacity = nextOpacity(src.opacity, stored?.opacity); continue; }
     target[k] = BOX_RANGES[k] ? clampNum(src[k], ...BOX_RANGES[k]) : Number(src[k]);
     if (k === "lineCount") target[k] = Math.round(target[k]);
   }
@@ -61,14 +64,14 @@ function rememberCustomColor(hex) {
 }
 
 /** Her extra text boxes, cleaned: at most 5, text up to 300 characters, only known style fields. */
-export function cleanTextBoxes(list) {
-  return (Array.isArray(list) ? list : []).slice(0, 5).filter((b) => b && typeof b === "object").map((b) => {
+export function cleanTextBoxes(list, stored = []) {
+  return (Array.isArray(list) ? list : []).slice(0, 5).filter((b) => b && typeof b === "object").map((b, i) => {
     const box = { ...styleDefaults(), quote: String(b.quote ?? "").slice(0, 300) };
     delete box.extraTexts; delete box.barColor; delete box.textNegative;
     if (typeof b.textColor === "string" && HEX.test(b.textColor)) box.textColor = b.textColor.toUpperCase();
     if (FONTS.includes(b.textFont)) box.textFont = b.textFont;
     if (ALIGNS.includes(b.textAlign)) box.textAlign = b.textAlign;
-    setNumbers(box, b);
+    setNumbers(box, b, (Array.isArray(stored) ? stored : [])[i]);
     return box;
   });
 }
@@ -245,7 +248,7 @@ export function registerFull(app, upload) {
     if (b.textFont && FONTS.includes(b.textFont)) item.textFont = b.textFont;
     if (ALIGNS.includes(b.textAlign)) item.textAlign = b.textAlign;
     setNumbers(item, b);
-    if (b.extraTexts !== undefined) item.extraTexts = cleanTextBoxes(b.extraTexts);
+    if (b.extraTexts !== undefined) item.extraTexts = cleanTextBoxes(b.extraTexts, item.extraTexts);
     if (["#FFFFFF", "#000000"].includes(b.barColor)) item.barColor = b.barColor;
     if (b.textNegative != null) item.textNegative = Boolean(b.textNegative);
     store.saveDb();

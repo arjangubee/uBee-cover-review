@@ -33,7 +33,7 @@ export function loadImage(url) {
 }
 
 /** The cover fit inside maxW x maxH. children({ cssW, cssH }) draws overlays on top, in CSS pixels. */
-export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, canvasRef, onDrawn, children, className = "", ...rest }) {
+export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, detail = 1, canvasRef, onDrawn, children, className = "", ...rest }) {
   const ref = useRef(null);
   const base = useRef({ key: "", canvas: null });
   const reported = useRef(null);
@@ -70,7 +70,9 @@ export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas || !img) return;
-    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    // detail > 1 (the magnifier) draws sharper, up to the photo's own pixels and at most 2048 across.
+    const screen = Math.min(3, window.devicePixelRatio || 1);
+    const dpr = detail > 1 ? Math.max(screen, Math.min(screen * detail, natural.w / cssW, 2048 / cssW)) : screen;
     const W = Math.max(1, Math.round(cssW * dpr)), H = Math.max(1, Math.round(cssH * dpr));
     if (canvas.width !== W) canvas.width = W;
     if (canvas.height !== H) canvas.height = H;

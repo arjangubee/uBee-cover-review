@@ -1,7 +1,7 @@
 {
-  "version": "1.6.0",
+  "version": "1.7.0",
   "date": "2026-11-19",
   "whatsNew": [
-    "The play button opens Spotify's own player for the cover's song, like the original"
+    "Tap the magnifying glass to fly the photo up, then pinch to zoom, like Apple Photos"
   ]
 }

@@ -12,7 +12,7 @@ const TAP = 8; // a press that moves less than this many pixels is a tap
 
 export default function CoverStage({
   item, quoteOn, slides, slide, setSlide, story, editing, activeBox, onStartEdit, onSelectBox, onMoveBox,
-  pickMode, onPick, onMosaicsChange, burst = 0, onDrawn,
+  pickMode, onPick, onMosaicsChange, burst = 0, onDrawn, onZoom,
 }) {
   const [showBurst, setShowBurst] = useState(false);
   useEffect(() => {
@@ -113,6 +113,11 @@ export default function CoverStage({
     }
   }
 
+  // The magnifier (1.7) flies up whatever she's looking at: the cover, or a photo slide.
+  const shownSlide = !single && slide > 0 ? slides[slide - 1] : null;
+  const zoomable = Boolean(onZoom) && !story && shownSlide?.mediaType !== "video";
+  const zoomSource = () => stageRef.current?.querySelector(single ? ".coverCanvas" : ".slideItem.current .coverCanvas, .slideItem.current img") || null;
+
   const cover = (maxW, maxH, extra = {}) => (
     <CoverCanvas item={item} quoteOn={quoteOn} maxW={maxW} maxH={maxH} story={story} canvasRef={canvasRef} onDrawn={onDrawn}
       className={[editing && "editing", pickMode && "picking"].filter(Boolean).join(" ")} {...extra}>
@@ -145,6 +150,12 @@ export default function CoverStage({
             </div>
           ))}
         </div>
+      )}
+      {zoomable && (
+        <button type="button" className="zoomBtn" aria-label="Zoom in on the photo"
+          onClick={() => { const el = zoomSource(); if (el) onZoom({ source: zoomSource, slideUrl: shownSlide?.mediaUrl || null }); }}>
+          <Icon name="zoom" size={22} />
+        </button>
       )}
       {pickMode && <p className="pickHint" role="status">Tap the photo to pick a color</p>}
       {showBurst && <span key={burst} className="likeBurst" aria-hidden="true"><Icon name="heart" size={110} filled /></span>}

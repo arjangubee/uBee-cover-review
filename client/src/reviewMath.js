@@ -67,3 +67,27 @@ export function spotifyEmbedUrl(link) {
   const m = String(link ?? "").trim().match(/^(?:https:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}(?:-[a-z]{2})?\/)?|spotify:)(track|episode)[/:]([A-Za-z0-9]{22})(?:[?#][^"'<>\s]*)?$/);
   return m ? `https://open.spotify.com/embed/${m[1]}/${m[2]}` : null;
 }
+
+// ---------- The magnifier (1.7), on the original's zoom state: { scale 1 to 4, x and y: the zoom center in % } ----------
+export const ZOOM_MAX = 4;
+export const ZOOM_SNAP = 1.08; // the original lets go of anything under 1.08
+export const ZOOM_REST = { scale: 1, x: 50, y: 50 };
+const pct = (v) => Math.min(100, Math.max(0, v));
+
+/** A pinch or wheel step to a raw scale. Clamped to 1..4; from rest the zoom centers on the pinch point. */
+export function zoomTo(z, raw, at) {
+  const scale = Math.min(ZOOM_MAX, Math.max(1, raw));
+  const fromRest = z.scale <= 1 && at;
+  return { scale, x: fromRest ? pct(at.x) : z.x, y: fromRest ? pct(at.y) : z.y, raw };
+}
+
+/** When the fingers lift: under 1.08 snaps back to rest, like the original. */
+export function zoomSettle(z) {
+  return (z.raw ?? z.scale) < ZOOM_SNAP ? { ...ZOOM_REST } : { scale: z.scale, x: z.x, y: z.y };
+}
+
+/** One finger or the mouse moves a zoomed photo: its zoom center slides the other way, staying on the photo. */
+export function zoomPan(z, dx, dy, w, h) {
+  if (z.scale <= 1) return z;
+  return { ...z, x: pct(z.x - (dx / (w * (z.scale - 1))) * 100), y: pct(z.y - (dy / (h * (z.scale - 1))) * 100) };
+}

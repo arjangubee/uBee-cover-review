@@ -37,6 +37,11 @@ This runs at 30/30 too, so some existing covers move:
 Checks after the port: the screen and the posted image still match. Covers whose Horizontal sits between 42 and 58,
 with text inside the photo, draw exactly as before. Count the covers that moved, and post one before and after.
 
+Deliberate deviation, ruled by Quill: the original's main editor fits text she hasn't moved yet to a safe zone (for
+4:5, left 5%, top 6%, 90% wide and 88% tall), while its cover view, grid, carousel and preview use the image frame.
+Here every view, the editor included, uses the image frame, so what she sees while editing is what posts. Covers
+she hasn't positioned lose that extra safe-zone pull-in on their first edit. The image-frame clamp above still applies.
+
 ## 1.5.2: covers with the quote off skip the stock check
 
 One deliberate change from the original, ruled by Quill: a cover with its quote off draws no quote, so the Compose

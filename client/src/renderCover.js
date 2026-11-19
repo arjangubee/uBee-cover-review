@@ -2,6 +2,7 @@
 // The screen and the posted JPEG both go through drawCover, so what she approved is what posts.
 // The photo comes from this app's own address (/api/items/:id/image), so a photo from Drive or
 // another site never blocks the canvas export.
+import { RANDOM_LAYOUTS, randomEditorialLayout } from "./reviewMath.js";
 
 export const FONT_CSS = {
   tiktok: "'TikTok Sans', system-ui, sans-serif",
@@ -14,13 +15,23 @@ export const FONT_CSS = {
 
 /** What the font menu says for each font. */
 export const FONT_LABELS = {
-  tiktok: "TikTok Sans Classic",
+  tiktok: "TikTok Sans", // the plain TikTok Sans face; new text starts at Regular (1.8)
   avenir: "Avenir",
   serif: "Serif",
   condensed: "Condensed",
   papyrus: "Papyrus",
   papyrus_condensed: "Papyrus Condensed",
 };
+
+// Two presets beside the 11 colors (1.8, Arjang #263, Quill #269). Each sets the color and the opacity together;
+// they are not palette colors, so the palette stays 11 and a palette color picked after sets the color only.
+export const HALF_PRESETS = [
+  { name: "Black 50%", patch: { textColor: "#000000", opacity: 50 } },
+  { name: "White 50%", patch: { textColor: "#FFFFFF", opacity: 50 } },
+];
+/** True when a text box carries exactly this preset's color and opacity. */
+export const presetOn = (box, preset) =>
+  String(box?.textColor || "").toUpperCase() === preset.patch.textColor && Number(box?.opacity) === preset.patch.opacity;
 
 // The deck's photo width on a computer screen. Text sizes are set against it, so a cover drawn wider
 // scales them up by (cover width / this) and the quote covers the same share of the photo.
@@ -352,4 +363,42 @@ export async function renderCover(item, { maxLong = 2160, quoteOn = Boolean(item
   await ensureFonts(item, quoteOn);
   drawCover(canvas.getContext("2d"), item, img, w, h, { quoteOn });
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't make the cover image."))), "image/jpeg", 0.92));
+}
+
+// ---------- Randomize layout (1.8): the original's six layouts, kept inside the original's safe zone ----------
+// The safe zone in % of the cover, per shape (the original's safeBoundsFor): near 4:5, 3:4, square, 9:16 and landscape.
+// A cover takes the profile whose shape is nearest its own.
+const SAFE_ZONES = [
+  { aspect: 9 / 16, left: 5, top: 300 / 19.2, width: 90, height: 1200 / 19.2 },
+  { aspect: 3 / 4, left: 6, top: 6, width: 88, height: 88 },
+  { aspect: 4 / 5, left: 5, top: 6, width: 90, height: 88 },
+  { aspect: 1, left: 6, top: 6, width: 88, height: 88 },
+  { aspect: 4 / 3, left: 5, top: 6, width: 90, height: 88 },
+];
+/** The safe zone of a width x height cover, in pixels. */
+export function safeZoneFor(width, height) {
+  const a = width / height;
+  const z = SAFE_ZONES.reduce((best, p) => (Math.abs(Math.log(p.aspect / a)) < Math.abs(Math.log(best.aspect / a)) ? p : best));
+  return { left: (width * z.left) / 100, top: (height * z.top) / 100, right: (width * (z.left + z.width)) / 100, bottom: (height * (z.top + z.height)) / 100 };
+}
+/** True when the whole drawn block (its fit and stretch included) sits inside the safe zone, 2 px in. */
+export function insideSafeZone(box, width, height, measureAt) {
+  const b = coverLayout(box, width, height, measureAt).bounds, z = safeZoneFor(width, height), inset = (2 * width) / PREVIEW_WIDTH, e = 1e-6;
+  return b.left >= z.left + inset - e && b.right <= z.right - inset + e && b.top >= z.top + inset - e && b.bottom <= z.bottom - inset + e;
+}
+/**
+ * Randomize layout, Quill's spec on the original: one of the six layouts, drawn again up to `tries` times until the
+ * whole block fits the safe zone. If none does, the centered hero keeps its draw and only its size shrinks until it
+ * fits. Returns layout fields only (align, size, Lines, position): never the color, the font or the weight.
+ */
+export function randomizeLayout(box, aspect, measureAt, rand = Math.random, { tries = 10 } = {}) {
+  const width = PREVIEW_WIDTH, height = PREVIEW_WIDTH / (aspect || 0.8);
+  const fits = (p) => insideSafeZone({ ...box, ...p }, width, height, measureAt);
+  for (let i = 0; i < tries; i++) {
+    const p = randomEditorialLayout(rand, box.quote);
+    if (fits(p)) return p;
+  }
+  const p = randomEditorialLayout(rand, box.quote, RANDOM_LAYOUTS[0]);
+  while (p.fontSize > 6 && !fits(p)) p.fontSize -= 2;
+  return p;
 }

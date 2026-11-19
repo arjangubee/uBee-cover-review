@@ -175,7 +175,7 @@ A near monochrome dark interface where every saturated color carries a platform 
 - **Bee Chartreuse** (bee-chartreuse): The uBee bee in the header, the wordmark in the footer, the caret, text selection (at 35% alpha), the approved queue dot, approved badges and checks in the grid, success receipts, the update banner, and the Pollen scheduling actions in sheets. It marks the brand and the approved state.
 
 ### Secondary
-- **Action Blue** (action-blue): The filled Save button in the editor and the pick hint on the cover. The one filled call to action on the review screen.
+- **Action Blue** (action-blue): The filled Add photos and Steal it buttons, and the pick hint on the cover. The one filled call to action on a screen. The editor has none: it saves as she goes.
 - **Link Blue** (link-blue): Text actions such as Post on the note row and Save on the caption.
 - **Focus Blue** (focus-blue): Keyboard focus rings and the selected text swatch ring.
 
@@ -229,7 +229,7 @@ A near monochrome dark interface where every saturated color carries a platform 
 
 One centered column, at most 560 px wide, with a 16 px gutter. The cover stage breaks out of the gutter to run edge to edge, and its height is always five fourths of its width. The header is a sticky 56 px row: back, queue pill, info, cover count, undo, redo, bee. Under the cover sits the six icon action row, then the Slides stepper and the Posts row, then the note, title, caption, compose check, reasons and ratings as hairline rows.
 
-The editor is a sheet on the bottom edge, at most 56% of the screen tall and 760 px wide, with a 1.5% black background so the review screen shows through it, the way the original does. Its top carries a drag handle, then New text box and Face mosaic, then the stretch sliders, all over the lower part of the cover. Its Cancel and Save bar docks to its bottom above the host app's tab bar (92 px on touch screens). Toasts float above that bar.
+The editor is a sheet on the bottom edge, 56% of the screen tall at rest and 88% swiped up, and 760 px wide, with a 1.5% black background so the review screen shows through it, the way the original does. Its top carries a drag handle with a small save status at its right (Saves as you go, Saving, Saved), then New text box and Face mosaic, then the stretch sliders, all over the lower part of the cover. There is no button bar: its content scrolls clear of the host app's tab bar (92 px on touch screens). Toasts float above that bar.
 
 The header fits a 375 px phone with the bee and every 44 px target, and no control ever shares its box with another that does something else: the queue pill tucks 4 px under the back button's empty edge (both open all covers), and the cover count may run 6 px into info's empty right edge and 4 px into undo's empty left edge while letting taps through to them. Undo and redo sit side by side, 44 px apart. Below 420 px the font and align controls stack. Below 390 px the queue pill drops its words and keeps the dot and count. Grids go from three to four columns at 520 px. Sheets rise from the bottom on a phone and center at 700 px and up.
 
@@ -263,8 +263,8 @@ Icons are authored on a 24 px grid with a 1.75 stroke, round caps and round join
 
 ### Buttons
 - **Shape:** Rounded rectangles (14 px), outline buttons slightly softer (16 px).
-- **Primary:** Action Blue fill, white 17 px bold text, 52 px tall. Used for Save in the editor.
-- **Secondary:** Black fill with an Off Gray border, white text, same size. Used for Cancel beside Save.
+- **Primary:** Action Blue fill, white 17 px bold text, 52 px tall. Used for Add photos and Steal it.
+- **Secondary:** Black fill with an Off Gray border, white text, same size. Used for See all covers and the info sheet's actions.
 - **Outline:** Transparent with a Strong Hairline border, 16 px semibold, icon plus words. Used for Randomize layout and similar one off actions.
 - **Link:** Link Blue bold text with no box, 44 px tall. Disabled turns a dark blue.
 - **Press:** Icon buttons scale to 0.94 on press; hover adds a faint dark fill only on hover capable screens.
@@ -300,7 +300,9 @@ The 4:5 canvas drawn by the posting renderer, with a dark translucent 1/N counte
 A 44 px glass in a dark translucent circle at the top left of the cover, the twin of the 1/N counter at the top right. It flies the photo up edge to edge over rgba(0, 0, 0, 0.72) with an 18 px backdrop blur, in 320 ms (none with reduced motion). Zoomed, a Reset zoom pill sits above the host app's tab bar.
 
 ### Editor Sheet
-Bottom-anchored, one open stop, slides up and out in 260 ms (none with reduced motion). The handle is a 44 by 5 px white bar in a full-width 30 px strip. A short drag snaps back; a drag past max(96 px, 16% of the screen), a tap on the handle, a tap outside or Escape closes it like Cancel. The review screen behind it is inert while it is open.
+Bottom-anchored, two stops: 56% at rest and 88% swiped up, moving between them in 260 ms (none with reduced motion). The handle is a 44 by 5 px white bar in a full-width 30 px strip, with the save status in 13 px semibold Secondary Text at its right (Not saved yet in Error Red). A swipe up a quarter of the way to 88% goes there, and a swipe down a quarter of the way back returns to 56%; it never rests between them. From 56%, a drag past max(96 px, 16% of the screen) closes it. A tap on the handle, a tap off the sheet (the cover's empty frame included) or Escape closes it too, and every way of closing keeps the edits. The review screen behind it is inert while it is open.
+
+Color swatches are 44 px circles. The 11 palette colors come first; Black 50% and White 50% sit in their own row under them, showing their tone at half strength over a gray checkerboard with 50% printed in 12 px bold, white on the black one and black on the white one.
 
 ## Do's and Don'ts
 

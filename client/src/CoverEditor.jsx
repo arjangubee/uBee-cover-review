@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import Icon from "./icons.jsx";
-import { CONTRAST_MODES, FONT_LABELS, STYLE_DEFAULTS, autoLineCount, canvasMeasureAt } from "./renderCover.js";
+import { CONTRAST_MODES, FONT_LABELS, HALF_PRESETS, STYLE_DEFAULTS, autoLineCount, canvasMeasureAt, presetOn } from "./renderCover.js";
 
-// The text editor that opens on the cover. Every change shows on the cover right away; nothing saves
-// until Save, and Cancel puts the cover back the way it was.
+// The text editor that opens on the cover. Every change shows on the cover right away and saves as she goes (1.8):
+// there is no Save or Cancel. Undo, after the editor closes, steps back one saved change at a time.
 
 // Lines works like the original: on Auto it shows how many rows it draws; the first tap either way picks a number,
 // fewer stops at 1, more has no cap but the word count (a row needs a word).
@@ -13,7 +13,7 @@ const ALIGNS = [["left", "L", "Left"], ["center", "C", "Center"], ["right", "R",
 
 export default function CoverEditor({
   draft, activeBox, setActiveBox, setBox, setItem, setImageEdit, palette, fonts, customColors, quotesUnlocked,
-  pickMode, setPickMode, onRemoveBox, onCancel, onSave, saving, onNewBox, onAddMosaic, canAddBox,
+  pickMode, setPickMode, onRemoveBox, onNewBox, onAddMosaic, canAddBox,
 }) {
   const extras = draft.extraTexts || [];
   const box = { ...STYLE_DEFAULTS, ...(activeBox === -1 ? draft : extras[activeBox] || {}) };
@@ -94,6 +94,19 @@ export default function CoverEditor({
             aria-label={c.name} aria-pressed={box.textColor === c.hex} onClick={() => setBox({ textColor: c.hex })} />
         ))}
       </div>
+      {/* Their own row beside the 11 colors (Arjang #263, Quill #269): each sets the color and the opacity together. */}
+      <div className="swatches presets" role="group" aria-label="Colors at 50%">
+        {HALF_PRESETS.map((p) => {
+          const on = presetOn(box, p);
+          return (
+            <button type="button" key={p.name} className={on ? "swatch half on" : "swatch half"} aria-label={p.name} aria-pressed={on}
+              style={{ "--tone": `${p.patch.textColor}80`, "--ink": p.patch.textColor === "#000000" ? "#FFFFFF" : "#000000" }}
+              onClick={() => setBox(p.patch)}>
+              <span aria-hidden="true">50%</span>
+            </button>
+          );
+        })}
+      </div>
       <details className="customColors">
         <summary><span>Custom colors</span><span className="countBadge">{customColors.length}</span></summary>
         {customColors.length ? (
@@ -153,11 +166,6 @@ export default function CoverEditor({
       <label className="fieldLabel" htmlFor="noteField">Note for the next revision</label>
       <textarea id="noteField" className="field" rows={2} value={draft.note || ""} placeholder="Say it how you would say it"
         onChange={(e) => setItem({ note: e.target.value })} />
-
-      <div className="editorActions">
-        <button type="button" className="secondaryBtn" onClick={onCancel} disabled={saving}>Cancel</button>
-        <button type="button" className="primaryBtn" onClick={onSave} disabled={saving}>{saving ? "Saving" : "Save"}</button>
-      </div>
     </section>
   );
 }

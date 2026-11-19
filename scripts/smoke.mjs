@@ -245,6 +245,14 @@ try {
     assert(shuffled.item.song === "Her - Lib Song" && shuffled.item.songSpotifyUrl === link, `${shuffled.item.song} ${shuffled.item.songSpotifyUrl}`);
     await postJson(`/api/connectors/spotify/sync-library`, { tracks: [] });
   });
+  await check("v1.8 new covers and new text boxes start in TikTok Sans Regular; saved covers keep their weight", async () => {
+    const item = await newItem("regular.png");
+    assert(item.textFont === "tiktok" && item.fontWeight === 400, `${item.textFont} ${item.fontWeight}`);
+    const styled = await postJson(`/api/items/${item.id}/style`, { extraTexts: [{ quote: "mine" }] });
+    assert(styled.item.extraTexts[0].fontWeight === 400 && styled.item.extraTexts[0].textFont === "tiktok", JSON.stringify(styled.item.extraTexts[0]));
+    const medium = await postJson(`/api/items/${item.id}/style`, { fontWeight: 500 });
+    assert(medium.item.fontWeight === 500, "a saved weight stays");
+  });
   await check("v1.4 a rating can be cleared, so undo can take back a first rating", async () => {
     const item = await newItem("quill-rate.png");
     const r = await postJson(`/api/items/${item.id}/rate`, { songRating: 6 });

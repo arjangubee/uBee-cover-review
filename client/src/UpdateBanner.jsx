@@ -18,7 +18,8 @@ export default function UpdateBanner() {
   const [u, setU] = useState(null);
   const [hosted, setHosted] = useState(null); // { version, whatsNew, ask } for a copy without git
   const [asked, setAsked] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState(null); // null | "copied" | "manual": a tap always shows a result (1.8)
+  const askRef = useRef(null);
   const [phase, setPhase] = useState("idle"); // idle | updating | restarting
   const [error, setError] = useState(null);
   const fromBoot = useRef(null);
@@ -108,8 +109,31 @@ export default function UpdateBanner() {
   }
 
   if (hosted && !u?.available && !error) {
+    // Copy the line for her Muse. Some apps block the clipboard, so there's a fallback; if both fail, the line is
+    // selected and the banner says to press and hold it. A tap is never a silent no-op.
     async function copyAsk() {
-      try { await navigator.clipboard.writeText(hosted.ask); setCopied(true); } catch { setCopied(false); }
+      let ok = false;
+      try { await navigator.clipboard.writeText(hosted.ask); ok = true; } catch { /* blocked here: try the old way */ }
+      if (!ok) {
+        try {
+          const t = document.createElement("textarea");
+          t.value = hosted.ask;
+          t.setAttribute("readonly", "");
+          t.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+          document.body.appendChild(t);
+          t.select();
+          ok = document.execCommand("copy");
+          t.remove();
+        } catch { ok = false; }
+      }
+      if (!ok && askRef.current) {
+        const range = document.createRange();
+        range.selectNodeContents(askRef.current);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      }
+      setCopied(ok ? "copied" : "manual");
     }
     return (
       <div className="updateBanner" role="alert">
@@ -125,8 +149,11 @@ export default function UpdateBanner() {
         ) : (
           <>
             <span>Your Muse updates this copy. Send your Muse this:</span>
-            <div className="askLine">{hosted.ask}</div>
-            <button className="updateNow" onClick={copyAsk}>{copied ? "COPIED" : "COPY IT"}</button>
+            <button type="button" ref={askRef} className="askLine copyable" onClick={copyAsk} aria-label={`Copy: ${hosted.ask}`}>{hosted.ask}</button>
+            <button className="updateNow" onClick={copyAsk}>{copied === "copied" ? "COPIED" : "COPY IT"}</button>
+            {copied && (
+              <span className="copyNote" role="status">{copied === "copied" ? "Copied. Paste it to your Muse." : "Press and hold the line to copy it, then paste it to your Muse."}</span>
+            )}
           </>
         )}
       </div>

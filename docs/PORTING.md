@@ -12,6 +12,21 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.9.1: remove a custom color
+
+Arjang's yes to #282. Her custom colors can come off her list: in the editor, open Custom colors, tap Remove colors,
+then tap a color to remove it, and Done to finish. Covers that use a removed color keep it; only the shortcut goes.
+The 11 palette colors can't be removed. No new fields.
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| POST /api/palette/custom-colors/remove | New. { hex: "#RRGGBB" } takes it off settings.customColors and answers the palette like GET /api/palette. Removing a color that isn't there changes nothing; anything that isn't #RRGGBB answers 400 |
+
+Client: CoverEditor.jsx (Remove colors and Done in the Custom colors panel), App.jsx, styles.css.
+
+Checks after the port: a color she picked shows in Custom colors; Remove colors, then tapping it, takes it off; the
+cover that uses it keeps its color. Then the counts.
+
 ## 1.9.0: captions in the space's own voice
 
 Quill's #269, #276, #284, #292 and #296, from Arjang's #265, #267, #270, #272 and #274. The original drafts every

@@ -236,6 +236,14 @@ export function registerFull(app, upload) {
   app.get("/api/workspace", (_req, res) => res.json({ workspace: store.settings.workspace }));
 
   app.get("/api/palette", (_req, res) => res.json({ palette: PALETTE, fonts: FONTS, customColors: store.settings.customColors || [] }));
+  // Remove one of her custom colors (1.9.1, Arjang's yes to #282). Covers that use it keep it; only the shortcut goes.
+  app.post("/api/palette/custom-colors/remove", (req, res) => {
+    const hex = String(req.body?.hex ?? "").toUpperCase();
+    if (!HEX.test(hex)) return res.status(400).json({ error: "Send the color as #RRGGBB." });
+    const list = store.settings.customColors || [];
+    if (list.includes(hex)) { store.settings.customColors = list.filter((c) => c !== hex); store.saveSettings(); }
+    res.json({ palette: PALETTE, fonts: FONTS, customColors: store.settings.customColors || [] });
+  });
 
   // Style editor: updatecoverstyle + updatebarcolor in the original.
   app.post("/api/items/:id/style", (req, res) => {

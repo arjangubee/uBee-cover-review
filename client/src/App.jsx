@@ -256,6 +256,12 @@ export default function App() {
     const patch = randomizeLayout({ ...box, quote: current.quote || "" }, img.naturalWidth / img.naturalHeight, measure);
     await record("Randomize", current.id, { style: pickStyle(current, Object.keys(patch)) }, { style: patch });
   });
+  // Takes one of her custom colors off her list (1.9.1). Covers that use it keep it.
+  const removeCustomColor = (hex) => attempt(async () => {
+    const p = await post("/api/palette/custom-colors/remove", { hex });
+    setPalette({ palette: p.palette, fonts: p.fonts, customColors: p.customColors || [] });
+    say(`Removed ${hex} from your colors.`);
+  });
   const postNote = (note) => attempt(async () => {
     setPending(current.id, "note", null);
     await record("Note", current.id, { edit: { note: current.note || "" } }, { edit: { note } });
@@ -511,7 +517,7 @@ export default function App() {
                   <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
                     palette={palette.palette} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
                     pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox}
-                    onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={draft.extraTexts.length < MAX_BOXES} />
+                    onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={draft.extraTexts.length < MAX_BOXES} onRemoveCustomColor={removeCustomColor} />
                 </EditorSheet>
               )}
             </>

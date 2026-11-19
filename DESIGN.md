@@ -302,7 +302,7 @@ A 44 px glass in a dark translucent circle at the top left of the cover, the twi
 ### Editor Sheet
 Bottom-anchored, two stops: 56% at rest and 88% swiped up, moving between them in 260 ms (none with reduced motion). The handle is a 44 by 5 px white bar in a full-width 30 px strip, with the save status in 13 px semibold Secondary Text at its right (Not saved yet in Error Red). A swipe up a quarter of the way to 88% goes there, and a swipe down a quarter of the way back returns to 56%; it never rests between them. From 56%, a drag past max(96 px, 16% of the screen) closes it. A tap on the handle, a tap off the sheet (the cover's empty frame included) or Escape closes it too, and every way of closing keeps the edits. The review screen behind it is inert while it is open.
 
-Color swatches are 44 px circles. The 11 palette colors come first; Black 50% and White 50% sit in their own row under them, showing their tone at half strength over a gray checkerboard with 50% printed in 12 px bold, white on the black one and black on the white one.
+Color swatches are 44 px circles. The 11 palette colors come first; Black 50% and White 50% sit in their own row under them, showing their tone at half strength over a gray checkerboard with 50% printed in 12 px bold, white on the black one and black on the white one. Custom colors sit in their own panel; Remove colors puts a white 20 px x badge on each swatch's top right corner, and a tap removes that color until Done.
 
 ## Do's and Don'ts
 

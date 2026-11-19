@@ -2,18 +2,26 @@
 // Pure functions only, so a ported space can use the same rules with its own model call.
 import { captionProblems } from "./captionRules.js";
 
-/** The text that sits on the cover: the quote when it shows, then her text boxes. With none, the cover's quote. */
+/**
+ * The text that shows on the cover: the quote when it's turned on, then her text boxes. Empty when nothing shows
+ * (1.9.2, Quill #327): a hidden quote is not on the cover, so it is never a caption's topic.
+ */
 export function overlaidText(cover) {
-  const parts = [cover.showQuote ? cover.quote : "", ...(Array.isArray(cover.extraTexts) ? cover.extraTexts.map((b) => b?.quote) : [])]
-    .map((t) => String(t ?? "").trim()).filter(Boolean);
-  return parts.length ? parts.join("\n") : String(cover.quote ?? "").trim();
+  return [cover.showQuote ? cover.quote : "", ...(Array.isArray(cover.extraTexts) ? cover.extraTexts.map((b) => b?.quote) : [])]
+    .map((t) => String(t ?? "").trim()).filter(Boolean).join("\n");
+}
+
+/** True when a voiced caption would be about the photo (no text shows) and nobody has said what the photo shows yet. */
+export function needsDescription(cover, voice) {
+  return Boolean(String(voice ?? "").trim()) && !overlaidText(cover) && !String(cover.description ?? "").trim();
 }
 
 /**
  * The prompt a model drafts one caption from. With no voice it is the original's generateInstagramCaption prompt,
  * word for word (Quill #284). With the space's voice it is on topic of the text on the cover, in that voice, with no
- * length rule of its own: the voice decides length, format and tone. A creator's specifics (her spellings, her angle)
- * live in her voice text, in her space's data, never here.
+ * length rule of its own: the voice decides length, format and tone. When the cover shows no text, the caption is
+ * about what the photo shows, from the cover's description (1.9.2, Quill #327). A creator's specifics (her spellings,
+ * her angle) live in her voice text, in her space's data, never here.
  */
 export function captionPrompt(cover, voice) {
   const v = String(voice ?? "").trim();
@@ -24,9 +32,12 @@ export function captionPrompt(cover, voice) {
       + "polished prose, or full setup. Never use an antithesis formula such as \"it's not this, it's that,\" \"not x but y,\" or any close variation. "
       + `Avoid repeating the cover quote.\n\nCover quote: ${cover.quote ?? ""}\nImage description: ${cover.description ?? ""}`;
   }
-  return "Write one Instagram caption for this cover in the creator's own voice, described below. "
-    + "Keep it on topic of the text on the cover. Follow the voice exactly, the way she writes and spells.\n\n"
-    + `Text on the cover:\n${overlaidText(cover)}\n\nHer voice:\n${v}`;
+  const head = "Write one Instagram caption for this cover in the creator's own voice, described below. "
+    + "Write as her, in the first person, so her words and her story stay hers. Follow the voice exactly, the way she writes and spells.";
+  const text = overlaidText(cover);
+  if (text) return `${head} Keep it on topic of the text on the cover.\n\nText on the cover:\n${text}\n\nHer voice:\n${v}`;
+  return `${head} There is no text on this cover, so write about what the photo shows.\n\n`
+    + `What the photo shows:\n${String(cover.description ?? "").trim()}\n\nHer voice:\n${v}`;
 }
 
 /**

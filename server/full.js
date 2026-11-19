@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { generateCaption, loadQuotes } from "./services.js";
 import { DATA_DIR, LIBRARY_DIR, store } from "./store.js";
 import { nextOpacity } from "./styleRules.js";
-import { canDraft, captionPrompt, captionState, draftProblems } from "./captionDrafts.js";
+import { canDraft, captionPrompt, captionState, draftProblems, needsDescription } from "./captionDrafts.js";
 
 // Full Cover Review feature set, ported from the Muse original.
 // The original server/src/actions.ts (5,020 lines) maps onto these endpoints.
@@ -403,7 +403,16 @@ export function registerFull(app, upload) {
   });
   app.get("/api/items/:id/caption-prompt", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
-    res.json({ prompt: captionPrompt(item, captionVoice()), voice: Boolean(captionVoice().trim()), basedOn: String(item.caption ?? ""), canDraft: canDraft(item, draftOpts(item)) });
+    res.json({ prompt: captionPrompt(item, captionVoice()), voice: Boolean(captionVoice().trim()), basedOn: String(item.caption ?? ""), canDraft: canDraft(item, draftOpts(item)),
+      imageUrl: item.imageUrl, description: String(item.description ?? ""), needsDescription: needsDescription(item, captionVoice()) });
+  });
+  // What the photo shows, in plain words, recorded by her Muse (1.9.2). A voiced caption on a cover with no text is
+  // about the photo, so it needs this first.
+  app.post("/api/items/:id/description", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    item.description = String(req.body?.text ?? "").trim().slice(0, 1000);
+    store.saveDb();
+    res.json({ item });
   });
   // A model's draft lands only while the caption is still what it was when drafting began, so a typed caption wins.
   app.post("/api/items/:id/caption-draft", (req, res) => {
@@ -411,6 +420,7 @@ export function registerFull(app, upload) {
     const draft = String(req.body?.caption ?? "").trim();
     if (!canDraft(item, draftOpts(item))) return res.json({ saved: false, reason: "locked", item });
     if (String(item.caption ?? "") !== String(req.body?.basedOn ?? "")) return res.json({ saved: false, reason: "changed", item });
+    if (needsDescription(item, captionVoice())) return res.json({ saved: false, reason: "no-description", item }); // say what the photo shows first (1.9.2)
     const problems = draftProblems(draft, { voice: captionVoice() });
     if (problems.length) return res.json({ saved: false, reason: "rules", problems, item });
     item.caption = draft;

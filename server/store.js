@@ -68,6 +68,7 @@ export const store = {
       originalImageUrl: null, beacons: null, composeAttestedAt: null, embeddedText: null, imageEdit: null,
       why: null, songPreviewUrl: "", // v1.4: "why it matches" from her Muse, a song preview when the pool has one
       songSpotifyUrl: "", // v1.6: the song's Spotify link; the play button opens Spotify's own player for it
+      description: "", // v1.9.2: what the photo shows, from her Muse; a voiced caption on a cover with no text is about it
       createdAt: Date.now(),
       decidedAt: null,
       ...partial,

@@ -1,7 +1,7 @@
 {
-  "version": "1.9.1",
+  "version": "1.9.2",
   "date": "2026-11-19",
   "whatsNew": [
-    "Remove a custom color from your list: open Custom colors in the editor and tap Remove colors"
+    "Where your Muse drafts captions, a cover with no text gets a caption about its photo"
   ]
 }

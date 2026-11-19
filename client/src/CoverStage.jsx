@@ -12,7 +12,7 @@ const TAP = 8; // a press that moves less than this many pixels is a tap
 
 export default function CoverStage({
   item, quoteOn, slides, slide, setSlide, story, editing, activeBox, onStartEdit, onSelectBox, onMoveBox,
-  pickMode, onPick, onMosaicsChange, burst = 0, onDrawn, onZoom,
+  pickMode, onPick, onMosaicsChange, burst = 0, onDrawn, onZoom, onTapOff,
 }) {
   const [showBurst, setShowBurst] = useState(false);
   useEffect(() => {
@@ -135,7 +135,8 @@ export default function CoverStage({
   );
 
   return (
-    <div className="stage" ref={stageRef} style={{ height: stageH }}>
+    <div className="stage" ref={stageRef} style={{ height: stageH }}
+      onClick={(e) => { if (editing && (e.target === e.currentTarget || e.target.classList.contains("stageSingle"))) onTapOff?.(); }}>
       {total > 1 && !single && <span className="slideCount" aria-live="polite">{slide + 1}/{total}</span>}
       {single ? (
         <div className="stageSingle">{cover(stageW, stageH)}</div>

@@ -1,9 +1,9 @@
 // Client logic checked without a browser: the layout math that puts the quote on the posted cover where
 // the review deck shows it, the words the Approved grid uses, and the new-version check for hosted copies.
 // Run: node scripts/render-test.mjs
-import { PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, contrastPixel, coverLayout, drawCover, mosaicRects, textBoxes, textHitBoxes, wrapText } from "../client/src/renderCover.js";
+import { FONT_LABELS, HALF_PRESETS, PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, contrastPixel, coverLayout, drawCover, insideSafeZone, mosaicRects, presetOn, randomizeLayout, safeZoneFor, textBoxes, textHitBoxes, wrapText } from "../client/src/renderCover.js";
 import { createHistory } from "../client/src/undo.js";
-import { ZOOM_REST, changedFields, displayTitle, parseSong, randomLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars, zoomPan, zoomSettle, zoomTo } from "../client/src/reviewMath.js";
+import { RANDOM_LAYOUTS, ZOOM_REST, changedFields, displayTitle, parseSong, randomEditorialLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars, zoomPan, zoomSettle, zoomTo } from "../client/src/reviewMath.js";
 import { LOCKED, badgeFor, formatDay, selectable } from "../client/src/pollenView.js";
 import { RELEASE_URL, newer, releaseBanner } from "../client/src/release.js";
 
@@ -294,15 +294,58 @@ check("only the fields that changed go into an edit, with their old values for u
   assert(JSON.stringify(d.after) === '{"b":[2],"c":"y"}' && JSON.stringify(d.before) === '{"b":[1],"c":"x"}', JSON.stringify(d));
   assert(changedFields({ a: 1 }, { a: 1 }, ["a"]) === null, "nothing changed, no edit");
 });
-check("Randomize layout stays inside the palette, the fonts and the photo", () => {
-  const palette = [{ hex: "#FFFFFF" }, { hex: "#FB0909" }];
-  let seed = 7; const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  for (let i = 0; i < 40; i++) {
-    const p = randomLayout(rand, palette, ["tiktok", "serif", "papyrus"]);
-    assert(palette.some((c) => c.hex === p.textColor) && ["tiktok", "serif"].includes(p.textFont), JSON.stringify(p));
-    assert(p.horizontalPosition >= 30 && p.horizontalPosition <= 70 && p.verticalPosition >= 20 && p.verticalPosition <= 80, JSON.stringify(p));
-    assert([0, 2, 3, 4].includes(p.lineCount) && ["left", "center", "right"].includes(p.textAlign) && [500, 700].includes(p.fontWeight), JSON.stringify(p));
+// ---------- v1.8: Randomize like the original's createRandomizedEditorialDraft, kept inside the safe zone ----------
+const LAYOUT_KEYS = ["fontSize", "horizontalPosition", "lineCount", "textAlign", "verticalPosition"];
+const seeded = (n) => { let seed = n; return () => ((seed = (seed * 16807) % 2147483647) / 2147483647); };
+check("the original's six layouts, picked at even odds, with its ranges", () => {
+  assert(RANDOM_LAYOUTS.length === 6, `layouts ${RANDOM_LAYOUTS.length}`);
+  const words = "one two three four five six seven eight nine ten";
+  const first = randomEditorialLayout(() => 0, words), last = randomEditorialLayout(() => 0.999999, words);
+  assert(JSON.stringify(first) === JSON.stringify({ textAlign: "center", fontSize: 38, lineCount: 2, horizontalPosition: 46, verticalPosition: 32 }), JSON.stringify(first));
+  assert(JSON.stringify(last) === JSON.stringify({ textAlign: "center", fontSize: 56, lineCount: 1, horizontalPosition: 54, verticalPosition: 62 }), `monoline ${JSON.stringify(last)}`);
+  const justified = randomEditorialLayout(() => 0, words, RANDOM_LAYOUTS[3]);
+  assert(justified.textAlign === "justify" && justified.horizontalPosition === 49, JSON.stringify(justified));
+});
+check("Lines from Randomize never asks for more rows than the words allow", () => {
+  assert(randomEditorialLayout(() => 0.5, "only two", RANDOM_LAYOUTS[1]).lineCount === 2, "a left pillar of two words gets two rows");
+  assert(randomEditorialLayout(() => 0.99, "three short words", RANDOM_LAYOUTS[3]).lineCount === 1, "justify needs two words a row");
+  assert(randomEditorialLayout(() => 0.5, "", RANDOM_LAYOUTS[0]).lineCount === 0, "no words, Auto");
+});
+check("the safe zone is the original's for each shape of cover", () => {
+  const near = (z, e) => ["left", "top", "right", "bottom"].every((k) => Math.abs(z[k] - e[k]) < 1e-6);
+  assert(near(safeZoneFor(1080, 1350), { left: 54, top: 81, right: 1026, bottom: 1269 }), JSON.stringify(safeZoneFor(1080, 1350)));
+  assert(near(safeZoneFor(1080, 1440), { left: 64.8, top: 86.4, right: 1015.2, bottom: 1353.6 }), "3:4 keeps 6% all round");
+  assert(near(safeZoneFor(1000, 1000), { left: 60, top: 60, right: 940, bottom: 940 }), "square keeps 6% all round");
+  assert(near(safeZoneFor(1080, 1920), { left: 54, top: 300, right: 1026, bottom: 1500 }), JSON.stringify(safeZoneFor(1080, 1920)));
+});
+check("Randomize never touches color, font or weight, and every layout lands inside the safe zone", () => {
+  const rand = seeded(11);
+  const quotes = ["golden hour again", "what a privilege it is to have another day to try again", "a lot of people are surprised to find out what I really do for work every day"];
+  for (let i = 0; i < 240; i++) {
+    const box = { ...base, quote: quotes[i % 3], textColor: "#FB0909", textFont: "serif", fontWeight: 700, widthScale: [30, 42, 18][i % 3] };
+    const aspect = [4 / 5, 3 / 4, 1][i % 3];
+    const p = randomizeLayout(box, aspect, atPx, rand);
+    assert(JSON.stringify(Object.keys(p).sort()) === JSON.stringify(LAYOUT_KEYS), `Randomize changed more than the layout: ${Object.keys(p)}`);
+    assert(insideSafeZone({ ...box, ...p }, PREVIEW_WIDTH, PREVIEW_WIDTH / aspect, atPx), `outside the safe zone: ${JSON.stringify(p)} ${aspect}`);
   }
+});
+check("when nothing fits, Randomize keeps the centered hero and only shrinks the size", () => {
+  const box = { ...base, quote: "one two three four five six seven eight nine ten eleven twelve thirteen", textHeight: 200, heightScale: 50 };
+  const p = randomizeLayout(box, 4 / 5, atPx, seeded(3), { tries: 0 });
+  assert(p.textAlign === "center" && p.horizontalPosition >= 46 && p.horizontalPosition <= 54 && p.verticalPosition >= 32 && p.verticalPosition <= 70, JSON.stringify(p));
+  assert(p.fontSize <= 82 && insideSafeZone({ ...box, ...p }, PREVIEW_WIDTH, PREVIEW_WIDTH * 1.25, atPx), JSON.stringify(p));
+});
+check("the default text font reads TikTok Sans", () => {
+  assert(FONT_LABELS.tiktok === "TikTok Sans", FONT_LABELS.tiktok);
+});
+check("the two 50% presets set the color and the opacity together, apart from the 11 colors", () => {
+  // Arjang #263, Quill #269: compound presets beside the palette, not new palette colors.
+  assert(HALF_PRESETS.length === 2, JSON.stringify(HALF_PRESETS));
+  const [black, white] = HALF_PRESETS;
+  assert(black.name === "Black 50%" && JSON.stringify(black.patch) === JSON.stringify({ textColor: "#000000", opacity: 50 }), JSON.stringify(black));
+  assert(white.name === "White 50%" && JSON.stringify(white.patch) === JSON.stringify({ textColor: "#FFFFFF", opacity: 50 }), JSON.stringify(white));
+  assert(presetOn({ ...base, textColor: "#000000", opacity: 50 }, black) && !presetOn({ ...base, textColor: "#000000", opacity: 100 }, black), "on only at both values");
+  assert(!presetOn({ ...base, textColor: "#FFFFFF", opacity: 50 }, black) && presetOn({ ...base, textColor: "#ffffff", opacity: 50 }, white), "matches the color, any case");
 });
 check("booked days read like Tue Nov 24 in any time zone", () => {
   assert(formatDay("2026-11-24") === "Tue Nov 24", formatDay("2026-11-24"));

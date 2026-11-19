@@ -40,21 +40,33 @@ export function changedFields(before, after, keys) {
   return Object.keys(a).length ? { before: b, after: a } : null;
 }
 
-const pick = (rand, list) => list[Math.min(list.length - 1, Math.floor(rand() * list.length))];
-const between = (rand, lo, hi) => Math.round(lo + rand() * (hi - lo));
 
 /** Randomize layout: a fresh look from her palette and fonts, kept well inside the photo. */
-export function randomLayout(rand, palette, fonts) {
-  const usable = fonts.filter((f) => !String(f).startsWith("papyrus"));
+// Randomize layout (1.8): the original's createRandomizedEditorialDraft. Six layouts at even odds, each value drawn
+// with its randomInt (rounded, both ends included). It sets layout only: align, size, Lines and position, never the
+// color, the font or the weight. renderCover.js's randomizeLayout keeps the result inside the safe zone.
+export const RANDOM_LAYOUTS = [
+  { name: "centered hero", textAlign: "center", x: [46, 54], y: [32, 70], fontSize: [38, 82], lines: [2, 4] },
+  { name: "left pillar", textAlign: "left", x: [27, 39], y: [24, 76], fontSize: [18, 48], lines: [3, 6] },
+  { name: "right pillar", textAlign: "right", x: [61, 73], y: [24, 76], fontSize: [16, 44], lines: [3, 7] },
+  { name: "justified center", textAlign: "justify", justify: true, x: [49, 51], y: [30, 70], fontSize: [24, 60], lines: [2, 4] },
+  { name: "small left column", textAlign: "left", x: [31, 45], y: [18, 82], fontSize: [10, 28], lines: [4, 8] },
+  { name: "monoline", textAlign: "center", x: [46, 54], y: [38, 62], fontSize: [28, 56], lines: [1, 1] },
+];
+const randomInt = (rand, lo, hi) => Math.round(lo + rand() * (hi - lo));
+
+/** One draw from the original's six layouts (or the one given). Lines never asks for more rows than the words allow. */
+export function randomEditorialLayout(rand, quote, layout = RANDOM_LAYOUTS[Math.min(RANDOM_LAYOUTS.length - 1, Math.floor(rand() * RANDOM_LAYOUTS.length))]) {
+  const words = String(quote || "").split(/\s+/).filter(Boolean).length;
+  const possible = layout.justify ? Math.min(8, Math.max(1, Math.floor(words / 2))) : Math.min(8, words);
+  const low = Math.min(layout.lines[0], possible);
+  const high = Math.max(low, Math.min(layout.lines[1], possible));
   return {
-    textColor: pick(rand, palette).hex,
-    textFont: pick(rand, usable.length ? usable : fonts),
-    fontWeight: pick(rand, [500, 700]),
-    textAlign: pick(rand, ["left", "center", "right"]),
-    lineCount: pick(rand, [0, 2, 3, 4]),
-    fontSize: between(rand, 46, 80),
-    horizontalPosition: between(rand, 30, 70),
-    verticalPosition: between(rand, 20, 80),
+    textAlign: layout.textAlign,
+    fontSize: randomInt(rand, ...layout.fontSize),
+    lineCount: words ? randomInt(rand, low, high) : 0,
+    horizontalPosition: randomInt(rand, ...layout.x),
+    verticalPosition: randomInt(rand, ...layout.y),
   };
 }
 

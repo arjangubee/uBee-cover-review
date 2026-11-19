@@ -12,6 +12,61 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.8.0: the editor bundle
+
+Arjang's #242 to #246, #255, #258 and #263, built to Quill's rulings #249, #251, #260 to #262 and #269, as one release.
+No new fields, no new tables, and no saved cover is rewritten.
+
+1. **It saves as she goes.** The Save and Cancel buttons are gone. Every change shows on the cover at once and saves
+   600 ms after the last change, through the same edit call Randomize uses. A small status at the top right of the
+   sheet reads "Saves as you go", "Saving…", "Saved" or "Not saved yet". Every way of closing (a tap on the handle, a
+   drag down, a tap off the sheet, Escape) saves anything still waiting first, and none of them throws an edit away.
+   If that last save fails, the sheet comes back open with "Not saved yet".
+   Undo is per change, like the original's one command per change: each save is one undo step, so changes made within
+   600 ms of each other (one slider drag) undo together. Closing adds no step of its own.
+   Deliberate deviation, ruled by Quill (#249, #251): the original's sheet saves only on Save, and Cancel throws the
+   edit away. Here nothing is thrown away; undo is the way back.
+2. **Two stops.** The sheet rests at 56svh as before. A swipe up on the handle, or up from the top of the sheet's
+   content, takes it to 88svh. A swipe down from 88 goes back to 56, and a swipe down from 56 closes it; there is no
+   jump from 88 straight to closed. A quarter of the way to the other stop is enough to go there, and it never rests
+   between them.
+3. **A tap off closes it and keeps the edits** (Arjang #258). That covers a tap above the sheet, beside the cover, and
+   on the dark bars inside the cover's frame around a wide photo. Taps on the photo itself still move and pick text.
+4. **TikTok Sans, Regular for new text.** The menu now says "TikTok Sans" for the default font. The letters are the same
+   face as before (the bundled TikTok Sans); only the label changes. New covers, new Drive covers and new text boxes
+   start at weight 400 (Regular). Saved covers keep their stored weight (500) and look the same (Quill #261, option a).
+5. **Randomize layout, the original's six layouts, inside the safe zone.** One of the six from
+   createRandomizedEditorialDraft at even odds (Quill #260): centered hero, left pillar, right pillar, justified center,
+   small left column, monoline, each with its own size, Lines and position ranges. Here the justified center is
+   textAlign "justify". Lines never asks for more rows than the words allow (at most 8; half the words for justify).
+   The whole drawn block (fit and stretch included) must sit inside the safe zone for the cover's shape, 2 px in. It
+   draws again up to 10 times; if nothing fits, it keeps the centered hero's draw and shrinks only the size until it
+   fits. It changes align, size, Lines and position only, never the color, the opacity, the font or the weight. The
+   Horizontal and Vertical sliders and dragging the text still use the whole photo, as before.
+   Safe zones, as % of the cover, for the shape nearest the cover's own: 9:16 left 5, top 15.6 (300 of 1920), 90 wide,
+   62.5 tall (1200 of 1920); 3:4 and 1:1, 6 all round; 4:5, left 5, top 6, 90 wide, 88 tall. Landscape (4:3) uses the
+   4:5 numbers, an approximation of the original's landscape profile.
+   Deliberate deviation, ruled by Quill (#249, #260): the original has no safe zone check, no second draw and no shrink.
+6. **Black 50% and White 50%** (Arjang #263, Quill #269). Two presets in their own row under the 11 colors. Each sets
+   the color and the opacity together (#000000 or #FFFFFF, at 50). They are not palette colors: the palette stays 11
+   and her saved custom colors don't change. A palette color picked after sets the color only, and the opacity slider
+   stays hers to move. Randomize never touches either.
+7. **The update line copies.** On a copy that can't update itself, UPDATE NOW shows the line for her Muse, as before.
+   Tapping the line now copies it, like COPY IT. Copying tries the clipboard, then the browser's older copy command,
+   then selects the line. She always sees a result: "Copied. Paste it to your Muse." or "Press and hold the line to
+   copy it, then paste it to your Muse." (Quill #261.)
+
+Server: store.js (a new cover starts at fontWeight 400) and full.js (styleDefaults: new text boxes and new Drive covers
+start at 400). Client: EditorSheet.jsx, App.jsx, CoverEditor.jsx, CoverStage.jsx, UpdateBanner.jsx, renderCover.js
+(FONT_LABELS, HALF_PRESETS and presetOn, the safe zones and randomizeLayout), reviewMath.js (RANDOM_LAYOUTS and
+randomEditorialLayout replace randomLayout), styles.css.
+
+Checks after the port: the sheet stops at 56 and 88; edit, tap off, reopen, and the edit is still there, with no Save
+tap; new text says TikTok Sans, Regular; Randomize, tapped many times, never changes the color, the opacity or the
+font, and never lands outside the safe zone; Black 50% and White 50% set both values, and White after Black 50% keeps
+50; tapping the update line shows Copied or the press and hold note. Then the counts. No decisions, notes, ratings,
+quotes, songs or saved styling change.
+
 ## 1.7.0: the magnifier
 
 Arjang's spec, built on the original's display zoom. A glass at the top left of the cover flies the photo up, edge to

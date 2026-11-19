@@ -22,4 +22,4 @@ No creator-specific data ever goes in a repo: no photos, no Drive folder ids, no
 
 ## Where the live app lives
 
-A creator's Muse space is a separate live copy, built from the repo's files, and it can't update itself. When uBee releases a new version, the app shows UPDATE NOW and hands her one line for her Muse. The Muse then rebuilds the space from uBee's latest `main` and keeps her data. The steps are in AGENTS.md under Updates.
+A creator's Muse space is a separate live copy, built from the repo's files, and it can't update itself. When uBee releases a new version, the app shows UPDATE NOW and hands her one line for her Muse. Tapping the line copies it, and the app says when it's copied, or how to copy it by hand if the app blocks copying. The Muse then rebuilds the space from uBee's latest `main` and keeps her data. The steps are in AGENTS.md under Updates.

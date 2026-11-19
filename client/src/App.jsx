@@ -10,8 +10,8 @@ import { CoverHeader, ModeSwitch, SongRow } from "./CoverTop.jsx";
 import Icon from "./icons.jsx";
 import InfoSheet from "./InfoSheet.jsx";
 import LibraryView from "./LibraryView.jsx";
-import { STYLE_DEFAULTS, renderCover, withDefaults } from "./renderCover.js";
-import { changedFields, displayTitle, randomLayout, valueForStars } from "./reviewMath.js";
+import { STYLE_DEFAULTS, canvasMeasureAt, randomizeLayout, renderCover, withDefaults } from "./renderCover.js";
+import { changedFields, displayTitle, valueForStars } from "./reviewMath.js";
 import ScheduleSheet from "./ScheduleSheet.jsx";
 import { createHistory } from "./undo.js";
 import UpdateBanner from "./UpdateBanner.jsx";
@@ -41,7 +41,7 @@ export default function App() {
   const [zoom, setZoom] = useState(null); // the magnifier (1.7): { source, slideUrl } while the photo is flown up
   const [activeBox, setActiveBox] = useState(-1);
   const [pickMode, setPickMode] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [saveState, setSaveState] = useState("idle"); // the editor saves as she goes (1.8): idle | saving | saved | error
   const [busy, setBusy] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [sheet, setSheet] = useState(null); // { items, stop } while the Schedule sheet is open
@@ -52,7 +52,10 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [burst, setBurst] = useState(0); // the heart that pops on the cover when she likes it
   const [drawnId, setDrawnId] = useState(null); // the cover whose photo is on screen: only that one can be decided
-  const draftBase = useRef(null); // the cover as it was when the editor opened; Save compares against it
+  const draftSaved = useRef(null); // the open draft as it stands on the server; each autosave sends only what changed
+  const draftNow = useRef(null);
+  const saveChain = useRef(Promise.resolve(true));
+  const sheetDismiss = useRef(null); // closes the editor sheet with its slide, from a tap off the photo
   const pending = useRef({}); // typed but not yet saved: { [itemId]: { note, caption, song } }
   const stepping = useRef(false);
   const [, setHistoryTick] = useState(0);
@@ -106,7 +109,7 @@ export default function App() {
     .filter((s) => !s.deletedAt).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)), [shown]);
   useEffect(() => { setSlide(0); setPickMode(false); }, [current?.id]);
   // The editor belongs to one cover: if that cover leaves the screen, the editor closes with it.
-  useEffect(() => { if (draft && current?.id !== draft.id) closeEditor(); }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (draft && current?.id !== draft.id) finishEdit(); }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setZoom(null); }, [current?.id, view]); // another cover starts unzoomed, like the original
   // The next cover's photo starts loading now, so moving on is instant.
   useEffect(() => { const next = items[index + 1]; if (next) loadImage(imageUrlFor(next)).catch(() => {}); }, [items, index]);
@@ -139,7 +142,7 @@ export default function App() {
     bumpHistory();
   }
   async function step(direction) {
-    if (draft || stepping.current) return; // the editor's draft is its own undo: Cancel
+    if (draft || stepping.current) return; // while the editor is open, undo and redo wait until it closes
     const entry = direction === "undo" ? history.current.undo() : history.current.redo();
     bumpHistory();
     if (!entry) return;
@@ -222,7 +225,11 @@ export default function App() {
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   });
   const randomize = () => attempt(async () => {
-    const patch = randomLayout(Math.random, palette.palette.length ? palette.palette : [{ hex: "#FFFFFF" }], palette.fonts.length ? palette.fonts : ["tiktok"]);
+    // The original's six layouts, kept inside the safe zone (1.8). Layout only: never the color, the font or the weight.
+    const img = await loadImage(imageUrlFor(current));
+    const box = effectiveStyle(current);
+    const measure = canvasMeasureAt(box) || ((px) => (t) => t.length * px * 0.5);
+    const patch = randomizeLayout({ ...box, quote: current.quote || "" }, img.naturalWidth / img.naturalHeight, measure);
     await record("Randomize", current.id, { style: pickStyle(current, Object.keys(patch)) }, { style: patch });
   });
   const postNote = (note) => attempt(async () => {
@@ -273,13 +280,16 @@ export default function App() {
     patchItem((await post(`/api/items/${current.id}/story-framing`, { storyPanX: current.storyPanX, storyPanY: current.storyPanY })).item);
   });
 
-  // ---------- The editor: a draft of the cover until Save ----------
+  // ---------- The editor: every change saves as she goes (1.8), each save one undo step ----------
   function startEdit(box = -1) {
     if (!current) return;
     setStory(false);
     setSlide(0);
-    draftBase.current = JSON.parse(JSON.stringify(current));
-    setDraft(JSON.parse(JSON.stringify({ ...current, ...effectiveStyle(current), imageEdit: { contrast: "normal", mosaics: [], ...(current.imageEdit || {}) } })));
+    const opened = JSON.parse(JSON.stringify({ ...current, ...effectiveStyle(current), imageEdit: { contrast: "normal", mosaics: [], ...(current.imageEdit || {}) } }));
+    draftSaved.current = JSON.parse(JSON.stringify(opened));
+    draftNow.current = opened;
+    setSaveState("idle");
+    setDraft(opened);
     setActiveBox(box);
     // The sheet covers the lower part of the screen, like the original. If the cover's top is hidden under
     // the header, bring it down into view; otherwise the page stays where she left it.
@@ -293,7 +303,8 @@ export default function App() {
     });
   }
   function closeEditor() {
-    draftBase.current = null;
+    draftSaved.current = null;
+    draftNow.current = null;
     setDraft(null);
     setActiveBox(-1);
     setPickMode(false);
@@ -309,7 +320,8 @@ export default function App() {
     if (!draft || draft.extraTexts.length >= MAX_BOXES) return;
     const main = effectiveStyle(draft);
     const at = draft.extraTexts.length;
-    const box = { ...pickStyle(draft, STYLE_KEYS), quote: "Your text", verticalPosition: main.verticalPosition > 55 ? 22 : 78, lineCount: 0 };
+    // A new text box starts in TikTok Sans Regular (1.8), with the rest of the cover's look.
+    const box = { ...pickStyle(draft, STYLE_KEYS), textFont: "tiktok", fontWeight: 400, quote: "Your text", verticalPosition: main.verticalPosition > 55 ? 22 : 78, lineCount: 0 };
     setDraft((d) => ({ ...d, extraTexts: [...d.extraTexts, box] }));
     setActiveBox(at);
   }
@@ -321,29 +333,57 @@ export default function App() {
     setImageEdit({ mosaics: [...(draft.imageEdit?.mosaics || []), { x: 35, y: 25, w: 30, h: 30 }] });
     say("Drag the box over a face. Drag its corner to resize it.");
   }
-  async function saveDraft() {
-    const base = draftBase.current;
-    if (!draft || !base || base.id !== draft.id) { closeEditor(); return; }
-    // Always the cover the editor opened on, compared with how it was when it opened.
-    const style = changedFields(effectiveStyle(base), effectiveStyle(draft), [...STYLE_KEYS, "extraTexts"]);
-    const edit = changedFields({ quote: base.quote || "", note: base.note || "" }, { quote: draft.quote || "", note: draft.note || "" }, ["quote", "note"]);
+  // What changed between two states of the draft, as one undoable change: { before, after }, or null.
+  function draftChange(base, now) {
+    const style = changedFields(effectiveStyle(base), effectiveStyle(now), [...STYLE_KEYS, "extraTexts"]);
+    const edit = changedFields({ quote: base.quote || "", note: base.note || "" }, { quote: now.quote || "", note: now.note || "" }, ["quote", "note"]);
     const imageEdit = changedFields({ contrast: base.imageEdit?.contrast || "normal", mosaics: base.imageEdit?.mosaics || [] },
-      { contrast: draft.imageEdit?.contrast || "normal", mosaics: draft.imageEdit?.mosaics || [] }, ["contrast", "mosaics"]);
-    const flip = Boolean(base.showQuote) !== Boolean(draft.showQuote);
-    if (!style && !edit && !imageEdit && !flip) { closeEditor(); return; }
+      { contrast: now.imageEdit?.contrast || "normal", mosaics: now.imageEdit?.mosaics || [] }, ["contrast", "mosaics"]);
+    const flip = Boolean(base.showQuote) !== Boolean(now.showQuote);
+    if (!style && !edit && !imageEdit && !flip) return null;
     const before = {}, after = {};
     if (style) { before.style = style.before; after.style = style.after; }
     if (edit) { before.edit = edit.before; after.edit = edit.after; }
     if (imageEdit) { before.imageEdit = imageEdit.before; after.imageEdit = imageEdit.after; }
-    if (flip) { before.showQuote = Boolean(base.showQuote); after.showQuote = Boolean(draft.showQuote); }
-    setSaving(true);
-    try {
-      await record("Edit", draft.id, before, after);
-      closeEditor();
-      say("Saved. It posts exactly like this.");
-      if (style?.after.textColor || style?.after.extraTexts) api("/api/palette").then((p) => setPalette({ palette: p.palette, fonts: p.fonts, customColors: p.customColors || [] })).catch(() => {});
-    } catch (e) { say(e.message); }
-    setSaving(false);
+    if (flip) { before.showQuote = Boolean(base.showQuote); after.showQuote = Boolean(now.showQuote); }
+    return { before, after, style };
+  }
+  // Sends what changed since the last save, one save at a time. Each save is one step for Undo, like the original's
+  // one command per change. Resolves false if it couldn't save.
+  function persistDraft() {
+    saveChain.current = saveChain.current.then(async () => {
+      const base = draftSaved.current, now = draftNow.current;
+      if (!base || !now || base.id !== now.id) return true;
+      const ch = draftChange(base, now);
+      if (!ch) return true;
+      setSaveState("saving");
+      try {
+        await applyChange(now.id, ch.after);
+        history.current.push({ label: "Edit", itemId: now.id, before: ch.before, after: ch.after });
+        bumpHistory();
+        if (draftSaved.current?.id === now.id) draftSaved.current = JSON.parse(JSON.stringify(now));
+        setSaveState("saved");
+        if (ch.style?.after.textColor || ch.style?.after.extraTexts) api("/api/palette").then((p) => setPalette({ palette: p.palette, fonts: p.fonts, customColors: p.customColors || [] })).catch(() => {});
+        return true;
+      } catch (e) {
+        setSaveState("error");
+        say(`Couldn't save: ${e.message}`);
+        return false;
+      }
+    });
+    return saveChain.current;
+  }
+  useEffect(() => {
+    draftNow.current = draft;
+    if (!draft) return undefined;
+    const t = setTimeout(persistDraft, 600);
+    return () => clearTimeout(t);
+  }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Every way out of the editor just closes it: what she changed is saved first. False keeps it open.
+  async function finishEdit() {
+    if (!(await persistDraft())) return false;
+    closeEditor();
+    return true;
   }
   function onPick(hex) {
     setPickMode(false);
@@ -423,7 +463,7 @@ export default function App() {
               <CoverStage item={shown} quoteOn={quoteOn} slides={activeSlides} slide={slide} setSlide={setSlide} story={story && !draft}
                 editing={Boolean(draft)} activeBox={activeBox} onStartEdit={(box) => startEdit(box)} onSelectBox={setActiveBox} onMoveBox={moveBox}
                 pickMode={pickMode} onPick={onPick} onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} burst={burst} onDrawn={setDrawnId}
-                onZoom={setZoom} />
+                onZoom={setZoom} onTapOff={() => sheetDismiss.current?.()} />
               <div className="behind" inert={draft ? true : undefined}>
                 <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={remix} onDownload={download}
                   onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)} />
@@ -441,13 +481,11 @@ export default function App() {
                 <Ratings item={current} onRate={rate} />
               </div>
               {draft && (
-                <EditorSheet onDismiss={closeEditor}>
-                  {(dismiss) => (
-                    <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
-                      palette={palette.palette} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
-                      pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox} onCancel={dismiss} onSave={saveDraft} saving={saving}
-                      onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={draft.extraTexts.length < MAX_BOXES} />
-                  )}
+                <EditorSheet onDismiss={finishEdit} status={saveState} dismissRef={sheetDismiss}>
+                  <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
+                    palette={palette.palette} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
+                    pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox}
+                    onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={draft.extraTexts.length < MAX_BOXES} />
                 </EditorSheet>
               )}
             </>

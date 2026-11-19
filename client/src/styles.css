@@ -209,28 +209,34 @@ img { max-width: 100%; }
 @media (prefers-reduced-motion: reduce) { .zoomView, .zoomFrame, .zoomLayer { transition: none; } }
 
 /* ---------- The editor sheet, like the original ----------
-   Bottom-anchored, at most 56% of the screen, a 1.5% black background so the review screen shows through.
-   A transparent layer behind it catches taps outside (Cancel); the cover sits above that layer and stays live. */
+   Bottom-anchored, 56% of the screen at rest and 88% swiped up (1.8), a 1.5% black background so the review screen
+   shows through. A transparent layer behind it catches taps outside, which close it and keep the edits (1.8); the
+   cover sits above that layer and stays live, and a tap on its empty frame closes it too. */
 .behind { display: contents; }
 .sheetLayer { position: fixed; inset: 0; z-index: 40; touch-action: none; }
 .app.editing .stage { z-index: 45; }
 .app.editing .topbar { z-index: 46; }
-.editorSheet { position: fixed; left: 50%; bottom: 0; z-index: 50; display: flex; flex-direction: column; width: min(760px, 100%); max-height: 56svh;
+.editorSheet { --stop: 56svh; position: fixed; left: 50%; bottom: 0; z-index: 50; display: flex; flex-direction: column; width: min(760px, 100%);
+  max-height: clamp(56svh, calc(var(--stop) + var(--grow, 0px)), 88svh); /* two stops (1.8): 56% at rest, 88% swiped up */
   background: rgba(0, 0, 0, 0.015); border-radius: 20px 20px 0 0; pointer-events: none; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
-  transform: translate(-50%, var(--drag, 0px)); transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1); animation: sheetUp 0.26s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  transform: translate(-50%, var(--drag, 0px)); transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), max-height 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: sheetUp 0.26s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.editorSheet.tall { --stop: 88svh; }
 .editorSheet > * { pointer-events: auto; }
 .editorSheet.dragging { transition: none; }
 .editorSheet.closing { transform: translate(-50%, 100%); transition-timing-function: cubic-bezier(0.4, 0, 1, 1); }
 .editorSheet.closing > * { pointer-events: none; } /* sliding away: nothing in it answers, not even Save */
 @keyframes sheetUp { from { transform: translate(-50%, 100%); } }
-.sheetHandle { flex: none; display: grid; place-items: center; width: 100%; height: 30px; padding: 0; border: 0; background: none; cursor: grab; touch-action: none; }
+.sheetTop { position: relative; flex: none; }
+.sheetHandle { display: grid; place-items: center; width: 100%; height: 30px; padding: 0; border: 0; background: none; cursor: grab; touch-action: none; }
+.sheetStatus { position: absolute; top: 50%; right: 16px; transform: translateY(-50%); color: var(--text-2); font-size: 13px; font-weight: 600; pointer-events: none; }
+.sheetStatus.error { color: #ff6961; }
 .sheetHandle::before { content: ""; width: 44px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.85); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
 .sheetHandle:active { cursor: grabbing; }
 .sheetHandle:focus-visible { outline: none; }
 .sheetHandle:focus-visible::before { box-shadow: 0 0 0 3px var(--ring); }
-.sheetScroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px; }
+.sheetScroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px calc(16px + var(--host-bar) + env(safe-area-inset-bottom)); }
 .editorSheet .field, .editorSheet .primaryBtn, .editorSheet .secondaryBtn, .editorSheet select { text-shadow: none; }
-.editorSheet .editorActions { bottom: 0; padding-bottom: calc(12px + var(--host-bar) + env(safe-area-inset-bottom)); }
 .editorTools { display: flex; gap: 10px; margin: 2px 0 4px; }
 @media (prefers-reduced-motion: reduce) { .editorSheet { animation: none; transition: none; } }
 
@@ -278,6 +284,9 @@ textarea.field { resize: vertical; }
 .swatch.rainbow { border: 0; background: conic-gradient(#ff3b30, #ffcc00, #34c759, #32ade6, #5856d6, #ff2d55, #ff3b30); }
 .swatch.rainbow svg { filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6)); }
 .swatch input[type="color"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+/* The 50% presets: the tone at half strength over a checkerboard, so it reads as see-through. */
+.swatches.presets { margin-top: 10px; }
+.swatch.half { background: linear-gradient(var(--tone), var(--tone)), repeating-conic-gradient(#8e8e93 0 25%, #d1d1d6 0 50%) 50% / 12px 12px; color: var(--ink); font-size: 12px; font-weight: 700; letter-spacing: 0; }
 .plusDot { position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; width: 20px; height: 20px; border: 2px solid var(--bg); border-radius: 50%; background: #fff; color: #000; pointer-events: none; }
 .customColors { margin-top: 12px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 16px; }
 .customColors summary { display: flex; align-items: center; justify-content: space-between; min-height: 54px; font-size: 15px; font-weight: 700; list-style: none; cursor: pointer; }
@@ -294,8 +303,6 @@ textarea.field { resize: vertical; }
 .segmented button { height: 48px; padding: 0 6px; border: 1px solid transparent; border-radius: 12px; background: transparent; color: var(--text-2); font-size: 17px; }
 .segmented button.on { border-color: #fff; background: var(--bg); color: #fff; }
 .dangerLink { min-height: 44px; margin-top: 6px; padding: 0; border: 0; background: none; color: var(--red); font-size: 16px; font-weight: 600; }
-.editorActions { position: sticky; bottom: calc(var(--host-bar) + env(safe-area-inset-bottom)); z-index: 20; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-  margin: 18px -16px 0; padding: 12px 16px; background: var(--bg); border-top: 1px solid var(--line); }
 .primaryBtn, .secondaryBtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 20px; border-radius: 14px; font-size: 17px; font-weight: 700; }
 .primaryBtn { border: 0; background: var(--blue); color: #fff; }
 .secondaryBtn { border: 1px solid var(--off); background: var(--bg); color: #fff; font-weight: 600; }
@@ -303,6 +310,8 @@ textarea.field { resize: vertical; }
 .asLabel { cursor: pointer; }
 .askLine { background: #101010; color: var(--accent); border-radius: 10px; padding: 12px 14px; font-weight: 700; font-size: 16px; line-height: 1.4; }
 .askLine.small { font-size: 15px; padding: 10px 12px; overflow-wrap: anywhere; }
+.askLine.copyable { display: block; width: 100%; border: 0; text-align: left; cursor: copy; -webkit-user-select: text; user-select: text; } /* tapping the line copies it (1.8) */
+.copyNote { font-weight: 700; }
 
 /* ---------- Empty, library, info sheet, toast ---------- */
 .emptyCover { display: grid; justify-items: center; gap: 12px; padding: 72px 8px 24px; text-align: center; }

@@ -26,7 +26,7 @@ export const FONTS = ["tiktok", "avenir", "serif", "condensed", "papyrus", "papy
 export function styleDefaults() {
   return {
     textColor: "#FFFFFF", textFont: "tiktok", textAlign: "center",
-    fontSize: 58, fontWeight: 500, opacity: 100,
+    fontSize: 58, fontWeight: 400, opacity: 100, // v1.8: new text starts in TikTok Sans Regular
     horizontalPosition: 50, verticalPosition: 50, lineCount: 0,
     textWidth: 84, textHeight: 100, widthScale: 30, heightScale: 30, extraTexts: [],
     barColor: "#000000", textNegative: false,

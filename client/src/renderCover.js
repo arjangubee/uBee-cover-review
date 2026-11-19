@@ -31,7 +31,7 @@ export const STYLE_DEFAULTS = {
   textColor: "#FFFFFF", textFont: "tiktok", textAlign: "center",
   fontSize: 58, fontWeight: 500, opacity: 100,
   horizontalPosition: 50, verticalPosition: 50, lineCount: 0,
-  textWidth: 84, textHeight: 100,
+  textWidth: 84, textHeight: 100, widthScale: 30, heightScale: 30,
 };
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -122,7 +122,7 @@ export function coverLayout(box, width, height, measureAt) {
   const boxW = (width * clamp(s.textWidth, 20, 100)) / 100;
   let fontPx = previewFontPx(s) * (width / PREVIEW_WIDTH);
   let lines;
-  const lineCount = clamp(Math.round(s.lineCount), 0, 4);
+  const lineCount = clamp(Math.round(s.lineCount), 0, 99); // no cap: the balancer stops at the word count
   if (lineCount > 0) {
     lines = balanceLines(s.quote, lineCount, measureAt(fontPx));
     // Lines picks the rows; the size gives way so the widest row fits the box.
@@ -174,19 +174,30 @@ export function coverLayout(box, width, height, measureAt) {
     return { text, y, x, left, width: w };
   });
 
-  // Keep every row on the photo: slide the whole block in by what spills over an edge.
+  // Text width and Text height stretch the block around its anchor (30 is neutral, like the original).
+  const sx = clamp(Number(s.widthScale) || 30, 10, 50) / 30;
+  const sy = clamp(Number(s.heightScale) || 30, 10, 50) / 30;
+  // Keep every row on the photo: slide the whole block in by what spills over an edge, as drawn (stretched).
+  let shift = 0;
   if (rows.length) {
-    const minLeft = Math.min(...rows.map((r) => r.left));
-    const maxRight = Math.max(...rows.map((r) => r.left + r.width));
-    const shift = minLeft < 0 ? -minLeft : maxRight > width ? width - maxRight : 0;
+    const minLeft = cx + (Math.min(...rows.map((r) => r.left)) - cx) * sx;
+    const maxRight = cx + (Math.max(...rows.map((r) => r.left + r.width)) - cx) * sx;
+    shift = minLeft < 0 ? -minLeft : maxRight > width ? width - maxRight : 0;
     if (shift) {
       boxLeft += shift;
       rows = rows.map((r) => ({ ...r, x: r.x + shift, left: r.left + shift, words: r.words?.map((wd) => ({ ...wd, x: wd.x + shift })) }));
     }
   }
   const x = align === "left" ? boxLeft : align === "right" ? boxLeft + boxW : boxLeft + boxW / 2;
+  const anchorX = cx + shift, anchorY = cy;
+  const rawLeft = rows.length ? Math.min(...rows.map((r) => r.left)) : boxLeft;
+  const rawRight = rows.length ? Math.max(...rows.map((r) => r.left + r.width)) : boxLeft + boxW;
+  const bounds = {
+    left: anchorX + (rawLeft - anchorX) * sx, right: anchorX + (rawRight - anchorX) * sx,
+    top: anchorY + (top - anchorY) * sy, bottom: anchorY + (top + rows.length * lineHeight - anchorY) * sy,
+  };
   return { fontPx, lines, rows, x, top, lineHeight, align, justify, boxLeft, boxW, alpha: clamp(s.opacity, 0, 100) / 100,
-    color: s.textColor, font: s.textFont, weight: s.fontWeight };
+    color: s.textColor, font: s.textFont, weight: s.fontWeight, sx, sy, anchorX, anchorY, bounds };
 }
 
 /** The text boxes a cover draws: the quote when it's on, then her extra boxes, which always draw. */
@@ -283,6 +294,10 @@ export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(ite
     ctx.fillStyle = box.textColor || "#FFFFFF";
     ctx.globalAlpha = L.alpha;
     ctx.textBaseline = "middle";
+    ctx.save();
+    ctx.translate(L.anchorX, L.anchorY);
+    ctx.scale(L.sx, L.sy);
+    ctx.translate(-L.anchorX, -L.anchorY);
     for (const row of L.rows) {
       if (row.words) {
         ctx.textAlign = "left";
@@ -292,6 +307,7 @@ export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(ite
         ctx.fillText(row.text, row.x, row.y);
       }
     }
+    ctx.restore();
     ctx.globalAlpha = 1;
   }
   ctx.restore();
@@ -302,9 +318,7 @@ export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(ite
 export function textHitBoxes(item, width, height, measureCtx, quoteOn = Boolean(item.showQuote)) {
   return textBoxes(item, quoteOn).map((box) => {
     const L = coverLayout(box, width, height, (px) => { measureCtx.font = fontString(box, px); return (t) => measureCtx.measureText(t).width; });
-    const left = L.rows.length ? Math.min(...L.rows.map((r) => r.left)) : L.boxLeft;
-    const right = L.rows.length ? Math.max(...L.rows.map((r) => r.left + r.width)) : L.boxLeft + L.boxW;
-    return { index: box.main ? -1 : box.extraIndex, left, right, top: L.top, bottom: L.top + L.rows.length * L.lineHeight };
+    return { index: box.main ? -1 : box.extraIndex, ...L.bounds };
   });
 }
 

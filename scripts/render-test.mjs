@@ -1,7 +1,7 @@
 // Client logic checked without a browser: the layout math that puts the quote on the posted cover where
 // the review deck shows it, the words the Approved grid uses, and the new-version check for hosted copies.
 // Run: node scripts/render-test.mjs
-import { PREVIEW_WIDTH, balanceLines, contrastPixel, coverLayout, mosaicRects, textBoxes, wrapText } from "../client/src/renderCover.js";
+import { PREVIEW_WIDTH, STYLE_DEFAULTS, balanceLines, contrastPixel, coverLayout, drawCover, mosaicRects, textBoxes, textHitBoxes, wrapText } from "../client/src/renderCover.js";
 import { createHistory } from "../client/src/undo.js";
 import { changedFields, displayTitle, parseSong, randomLayout, starsFor, storyCrop, valueForStars } from "../client/src/reviewMath.js";
 import { LOCKED, badgeFor, formatDay, selectable } from "../client/src/pollenView.js";
@@ -114,6 +114,64 @@ check("justify spreads each row to both box edges, except a paragraph's last row
   const lastRow = L.rows[L.rows.length - 1];
   assert(!lastRow.words || lastRow.words.every((w, i, a) => i === 0 || w.x > a[i - 1].x), "last row reads left to right");
   assert(L.align === "left" && Math.abs(lastRow.x - L.boxLeft) < 1e-6, "the last row sits on the left edge");
+});
+// A stand-in for a canvas: fonts measure half as wide as they are tall, and every fillText is recorded
+// in screen space through the translate and scale calls drawCover makes.
+function fakeCtx() {
+  const ctx = { font: "", fillStyle: "", globalAlpha: 1, textBaseline: "", textAlign: "", drawn: [], m: [1, 0, 0, 1, 0, 0], stack: [] };
+  const pxOf = () => Number((/([\d.]+)px/.exec(ctx.font) || [0, 10])[1]);
+  ctx.measureText = (t) => ({ width: String(t).length * pxOf() * 0.5 });
+  ctx.save = () => ctx.stack.push([...ctx.m]);
+  ctx.restore = () => { ctx.m = ctx.stack.pop() || [1, 0, 0, 1, 0, 0]; };
+  ctx.clearRect = () => {};
+  ctx.translate = (x, y) => { ctx.m = [ctx.m[0], 0, 0, ctx.m[3], ctx.m[4] + ctx.m[0] * x, ctx.m[5] + ctx.m[3] * y]; };
+  ctx.scale = (sx, sy) => { ctx.m = [ctx.m[0] * sx, 0, 0, ctx.m[3] * sy, ctx.m[4], ctx.m[5]]; };
+  ctx.fillText = (text, x, y) => ctx.drawn.push({ text, x: ctx.m[0] * x + ctx.m[4], y: ctx.m[3] * y + ctx.m[5], sx: ctx.m[0], sy: ctx.m[3] });
+  return ctx;
+}
+const stretchItem = (extra) => ({ id: 1, showQuote: true, quote: "golden hour again", fontSize: 58, fontWeight: 500, textFont: "tiktok",
+  textAlign: "center", textColor: "#FFFFFF", opacity: 100, horizontalPosition: 50, verticalPosition: 50, ...extra });
+const hit = (item, w = 1000, h = 1250) => textHitBoxes(item, w, h, fakeCtx(), true)[0];
+
+check("text stretch defaults to the neutral 30 and 30 for every cover", () => {
+  assert(STYLE_DEFAULTS.widthScale === 30 && STYLE_DEFAULTS.heightScale === 30, JSON.stringify(STYLE_DEFAULTS));
+});
+check("at 30 and 30 the text draws exactly as it did before stretch existed", () => {
+  const a = coverLayout(base, 1000, 1250, atPx), b = coverLayout({ ...base, widthScale: 30, heightScale: 30 }, 1000, 1250, atPx);
+  assert(JSON.stringify(a.rows) === JSON.stringify(b.rows) && a.top === b.top, "rows moved at the neutral stretch");
+  const plain = fakeCtx(); drawCover(plain, stretchItem({}), null, 1000, 1250, { quoteOn: true });
+  assert(plain.drawn.length && plain.drawn.every((d) => d.sx === 1 && d.sy === 1), JSON.stringify(plain.drawn));
+});
+check("Text width 45 draws the block one and a half times as wide around the same anchor", () => {
+  const n = hit(stretchItem({})), w = hit(stretchItem({ widthScale: 45 }));
+  assert(Math.abs((w.right - w.left) - 1.5 * (n.right - n.left)) < 1e-6, `width ${w.right - w.left} vs ${n.right - n.left}`);
+  assert(Math.abs((w.left + w.right) / 2 - (n.left + n.right) / 2) < 1e-6, "the stretched block moved off its anchor");
+  assert(Math.abs((w.bottom - w.top) - (n.bottom - n.top)) < 1e-6, "width stretch changed the height");
+});
+check("stretch stays inside the original's 10 to 50 range", () => {
+  const big = coverLayout({ ...base, widthScale: 80, heightScale: 2 }, 1000, 1250, atPx);
+  assert(Math.abs(big.sx - 50 / 30) < 1e-9 && Math.abs(big.sy - 10 / 30) < 1e-9, `scale ${big.sx}, ${big.sy}`);
+});
+check("Text height 15 draws the block half as tall around the same anchor", () => {
+  const n = hit(stretchItem({})), t = hit(stretchItem({ heightScale: 15 }));
+  assert(Math.abs((t.bottom - t.top) - (n.bottom - n.top) / 2) < 1e-6, `height ${t.bottom - t.top} vs ${n.bottom - n.top}`);
+  assert(Math.abs((t.top + t.bottom) / 2 - (n.top + n.bottom) / 2) < 1e-6, "the squashed block moved off its anchor");
+});
+check("the drawn text and the tap box agree when the text is stretched", () => {
+  const item = stretchItem({ widthScale: 50, heightScale: 20 }), ctx = fakeCtx();
+  drawCover(ctx, item, null, 1000, 1250, { quoteOn: true });
+  const box = hit(item);
+  const d = ctx.drawn[0];
+  assert(Math.abs(d.sx - 50 / 30) < 1e-9 && Math.abs(d.sy - 20 / 30) < 1e-9, `scale ${d.sx}, ${d.sy}`);
+  assert(d.y > box.top && d.y < box.bottom, `row at ${d.y} outside the tap box ${box.top}..${box.bottom}`);
+});
+check("a stretched block that would spill off the photo slides back on", () => {
+  const b = hit(stretchItem({ quote: "golden hour", horizontalPosition: 92, widthScale: 50 }));
+  assert(b.right <= 1000 + 1e-6 && b.left >= -1e-6, `spills: ${b.left}..${b.right}`);
+});
+check("Lines has no cap at 4: six lines make six rows when there are six words", () => {
+  const L = coverLayout({ ...base, quote: "one two three four five six seven", lineCount: 6 }, 1000, 1250, atPx);
+  assert(L.rows.length === 6, `rows ${L.rows.length}`);
 });
 check("image contrast: normal leaves pixels alone, black and white is gray, more contrast pushes from the middle", () => {
   assert(JSON.stringify(contrastPixel(10, 120, 240, "normal")) === "[10,120,240]", "normal");

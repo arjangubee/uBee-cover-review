@@ -296,6 +296,9 @@ The signature row under the cover: like, repost, download, dislike, comment, edi
 ### Cover Stage
 The 4:5 canvas drawn by the posting renderer, with a dark translucent 1/N counter pill in the top right. While editing it sits above the sheet's outside-tap layer, so dragging moves the text directly and taps pick boxes, mosaics and colors.
 
+### Magnifier
+A 44 px glass in a dark translucent circle at the top left of the cover, the twin of the 1/N counter at the top right. It flies the photo up edge to edge over rgba(0, 0, 0, 0.72) with an 18 px backdrop blur, in 320 ms (none with reduced motion). Zoomed, a Reset zoom pill sits above the host app's tab bar.
+
 ### Editor Sheet
 Bottom-anchored, one open stop, slides up and out in 260 ms (none with reduced motion). The handle is a 44 by 5 px white bar in a full-width 30 px strip. A short drag snaps back; a drag past max(96 px, 16% of the screen), a tap on the handle, a tap outside or Escape closes it like Cancel. The review screen behind it is inert while it is open.
 

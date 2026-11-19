@@ -190,6 +190,24 @@ img { max-width: 100%; }
 .brandFoot .rule { width: 72px; height: 1px; background: #55761a; }
 .brandFoot .wordmark { height: 34px; object-fit: contain; }
 
+/* ---------- The magnifier (1.7): the photo flies up over a dark blur; pinch zooms 1 to 4 ---------- */
+.zoomBtn { position: absolute; top: 10px; left: 12px; z-index: 3; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55); color: #fff; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.zoomView { position: fixed; inset: 0; z-index: 80; overflow: hidden; touch-action: none; overscroll-behavior: none; background: rgba(0, 0, 0, 0.72);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); transition: background-color 0.32s ease, -webkit-backdrop-filter 0.32s ease, backdrop-filter 0.32s ease; }
+.zoomView.from, .zoomView.closing { background: rgba(0, 0, 0, 0); -webkit-backdrop-filter: blur(0); backdrop-filter: blur(0); }
+.zoomFrame { position: absolute; transform-origin: 0 0; transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.zoomView.from .zoomFrame { transition: none; }
+.zoomLayer { width: 100%; height: 100%; transition: transform 0.2s ease-out; will-change: transform; }
+.zoomLayer.gesturing { transition: none; }
+.zoomLayer img { display: block; width: 100%; height: 100%; object-fit: contain; -webkit-user-select: none; user-select: none; }
+.zoomReset { position: absolute; left: 50%; bottom: calc(18px + var(--host-bar) + env(safe-area-inset-bottom)); transform: translateX(-50%); min-height: 44px; padding: 0 18px;
+  border: 0; border-radius: 999px; background: rgba(28, 28, 30, 0.88); color: #fff; font-size: 15px; font-weight: 700; }
+.zoomClose { position: absolute; top: 12px; left: 12px; z-index: 2; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px; background: rgba(28, 28, 30, 0.88);
+  color: #fff; font-size: 15px; font-weight: 700; clip-path: inset(50%); }
+.zoomClose:focus-visible { clip-path: none; outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .zoomView, .zoomFrame, .zoomLayer { transition: none; } }
+
 /* ---------- The editor sheet, like the original ----------
    Bottom-anchored, at most 56% of the screen, a 1.5% black background so the review screen shows through.
    A transparent layer behind it catches taps outside (Cancel); the cover sits above that layer and stays live. */

@@ -12,6 +12,25 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.7.0: the magnifier
+
+Arjang's spec, built on the original's display zoom. A glass at the top left of the cover flies the photo up, edge to
+edge, over a dark (rgba(0, 0, 0, 0.72)), blurred (18 px) background. Pinch zooms like Apple Photos, 1 to 4, centered
+where the pinch starts. Letting go under 1.08 snaps back to 1, as in the original. A drag moves a zoomed photo, a
+double tap zooms in or back out, and Reset zoom shows while zoomed. A tap on the dark background, or Escape, flies it
+back to its place. On a computer, a trackpad pinch or ctrl + wheel zooms, and a plain wheel moves a zoomed photo.
+It works on the cover screen and in the editor. Closing it never closes the editor, and another cover starts unzoomed.
+
+Client only. No new fields, no server change.
+
+New file: ZoomView.jsx. Changed: CoverStage.jsx (the glass, hidden in Story view and on a video slide), CoverCanvas.jsx
+(detail: draws the flown-up cover sharper, up to the photo's own pixels and at most 2048 across), App.jsx (the zoom
+state, and the review screen is inert while the photo is up), reviewMath.js (zoomTo, zoomSettle, zoomPan on the
+original's { scale, x, y } state), icons.jsx (zoom), styles.css.
+
+Checks after the port: the glass flies the photo up, a pinch zooms, a tap off flies it back, and the glass flies it up
+again, on the cover screen and in the editor. No decisions, notes, ratings, quotes, songs or styling change.
+
 ## 1.6.0: the Spotify player
 
 The song row's play button works like the original's: it opens Spotify's own player for this cover's song, and she

@@ -109,6 +109,7 @@ Since 1.4.0 the cover is the screen, the way Quill's Cover Review looks. Since 1
 - The cover as it will post, in a 4:5 frame. The screen and the posted image are drawn by the same code, so what she approves is what posts.
 - The song row: the play button opens Spotify's own player for the cover's song when the song has a Spotify link, or plays a preview when the pool has one. Shuffle picks another song.
 - Icons under the cover: like (approve), dislike (pass), download, repost (remix into a new version), note, edit.
+- The glass at the top left of the cover flies the photo up to fill the screen. Pinch to zoom (up to 4 times), drag to look around, double tap to zoom in or out, and tap the dark background to put it back. It works in the editor too.
 - Slides: swipe the cover or use the Slides stepper to move through them, add one with +, remove one with minus. Posts steps between covers.
 - Randomize layout tries a fresh look from her palette and fonts. Undo takes it back.
 - Tap the text (or the pencil) and the editor slides up from the bottom, nearly see-through, so the cover stays in view and stays live: New text box, Face mosaic, Text width and Text height (stretch), the quote, Lines (Auto, or any count), color (the 11 palette colors first, plus custom colors and an eyedropper), font, align (left, center, right, justify), weight, image contrast, size, opacity, position, a note for the next revision, then Cancel or Save. Dragging it down, tapping its handle or tapping outside it closes it without saving.

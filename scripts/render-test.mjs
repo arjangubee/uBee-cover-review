@@ -3,7 +3,7 @@
 // Run: node scripts/render-test.mjs
 import { PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, contrastPixel, coverLayout, drawCover, mosaicRects, textBoxes, textHitBoxes, wrapText } from "../client/src/renderCover.js";
 import { createHistory } from "../client/src/undo.js";
-import { changedFields, displayTitle, parseSong, randomLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars } from "../client/src/reviewMath.js";
+import { ZOOM_REST, changedFields, displayTitle, parseSong, randomLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars, zoomPan, zoomSettle, zoomTo } from "../client/src/reviewMath.js";
 import { LOCKED, badgeFor, formatDay, selectable } from "../client/src/pollenView.js";
 import { RELEASE_URL, newer, releaseBanner } from "../client/src/release.js";
 
@@ -249,6 +249,26 @@ check("a song's Spotify link becomes the original's embed, and nothing else gets
   for (const bad of ["", null, undefined, "Artist - Title", `https://evil.example/track/${id}`, `https://open.spotify.com/album/${id}`,
     `https://open.spotify.com/track/${id}"onload="x`, "https://open.spotify.com/track/short", `javascript:alert(1)//open.spotify.com/track/${id}`])
     assert(spotifyEmbedUrl(bad) === null, `${bad} should get no player`);
+});
+// ---------- v1.7: the magnifier, on the original's zoom state (scale 1 to 4, a zoom center in %) ----------
+check("a pinch zooms between 1 and 4, centered where it started", () => {
+  const z = zoomTo(ZOOM_REST, 5, { x: 30, y: 140 });
+  assert(z.scale === 4 && z.x === 30 && z.y === 100, JSON.stringify(z));
+  const more = zoomTo({ scale: 2, x: 30, y: 60 }, 3, { x: 80, y: 80 });
+  assert(more.scale === 3 && more.x === 30 && more.y === 60, `an already zoomed photo keeps its center: ${JSON.stringify(more)}`);
+  assert(zoomTo(ZOOM_REST, 0.5, { x: 10, y: 10 }).scale === 1, "never below 1");
+});
+check("letting go under 1.08 snaps back to 1 and the middle, like the original", () => {
+  assert(JSON.stringify(zoomSettle(zoomTo(ZOOM_REST, 1.05, { x: 20, y: 20 }))) === JSON.stringify(ZOOM_REST), "tiny pinch");
+  assert(JSON.stringify(zoomSettle(zoomTo({ scale: 2, x: 40, y: 40 }, 0.9, null))) === JSON.stringify(ZOOM_REST), "pinched back past 1");
+  const kept = zoomSettle(zoomTo(ZOOM_REST, 1.5, { x: 20, y: 70 }));
+  assert(kept.scale === 1.5 && kept.x === 20 && kept.y === 70 && !("raw" in kept), JSON.stringify(kept));
+});
+check("dragging a zoomed photo slides it under the finger and stops at its edges", () => {
+  const z = zoomPan({ scale: 2, x: 50, y: 50 }, 40, -20, 400, 500);
+  assert(Math.abs(z.x - 40) < 1e-9 && Math.abs(z.y - 54) < 1e-9, JSON.stringify(z));
+  assert(zoomPan({ scale: 3, x: 5, y: 95 }, 400, -400, 400, 500).x === 0 && zoomPan({ scale: 3, x: 5, y: 95 }, 400, -400, 400, 500).y === 100, "stops at the edges");
+  assert(JSON.stringify(zoomPan(ZOOM_REST, 50, 50, 400, 500)) === JSON.stringify(ZOOM_REST), "an unzoomed photo doesn't pan");
 });
 check("story view crops a 9:16 frame from the photo where the pan sliders point", () => {
   const c = storyCrop(2000, 1000, 0, 50);

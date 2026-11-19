@@ -3,6 +3,7 @@ import { api, post, upload } from "./api.js";
 import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, ImageInfo, NoteComposer, Ratings, Steppers, StoryControls, TitleRow, WhyMatches } from "./CoverDetails.jsx";
 import CoverEditor from "./CoverEditor.jsx";
 import EditorSheet from "./EditorSheet.jsx";
+import ZoomView from "./ZoomView.jsx";
 import { imageUrlFor, loadImage } from "./CoverCanvas.jsx";
 import CoverStage from "./CoverStage.jsx";
 import { CoverHeader, ModeSwitch, SongRow } from "./CoverTop.jsx";
@@ -37,6 +38,7 @@ export default function App() {
   const [story, setStory] = useState(false);
   const [slide, setSlide] = useState(0);
   const [draft, setDraft] = useState(null);
+  const [zoom, setZoom] = useState(null); // the magnifier (1.7): { source, slideUrl } while the photo is flown up
   const [activeBox, setActiveBox] = useState(-1);
   const [pickMode, setPickMode] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -105,6 +107,7 @@ export default function App() {
   useEffect(() => { setSlide(0); setPickMode(false); }, [current?.id]);
   // The editor belongs to one cover: if that cover leaves the screen, the editor closes with it.
   useEffect(() => { if (draft && current?.id !== draft.id) closeEditor(); }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setZoom(null); }, [current?.id, view]); // another cover starts unzoomed, like the original
   // The next cover's photo starts loading now, so moving on is instant.
   useEffect(() => { const next = items[index + 1]; if (next) loadImage(imageUrlFor(next)).catch(() => {}); }, [items, index]);
   const coverReady = Boolean(current) && drawnId === current.id;
@@ -376,7 +379,7 @@ export default function App() {
 
   useEffect(() => {
     function onKey(e) {
-      if (draft || infoOpen || sheet || view !== "cover") return;
+      if (draft || zoom || infoOpen || sheet || view !== "cover") return;
       if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); step(e.shiftKey ? "redo" : "undo"); return; }
       if (e.key === "ArrowRight") { e.preventDefault(); if (e.shiftKey) setSlide((s) => Math.min(activeSlides.length, s + 1)); else goTo(index + 1); }
@@ -395,7 +398,8 @@ export default function App() {
           onOpen={openFromLibrary} onUpload={uploadPhotos} onClose={() => setView("cover")}
           onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} />
       ) : (
-        <main className="review">
+        <>
+        <main className="review" inert={zoom ? true : undefined}>
           <CoverHeader list={list} count={counts?.[list] ?? items.length} position={index + 1} total={items.length}
             canUndo={history.current.canUndo()} canRedo={history.current.canRedo()} locked={Boolean(draft)}
             onBack={showLibrary} onInfo={() => setInfoOpen(true)} onUndo={() => step("undo")} onRedo={() => step("redo")} />
@@ -418,7 +422,8 @@ export default function App() {
               </div>
               <CoverStage item={shown} quoteOn={quoteOn} slides={activeSlides} slide={slide} setSlide={setSlide} story={story && !draft}
                 editing={Boolean(draft)} activeBox={activeBox} onStartEdit={(box) => startEdit(box)} onSelectBox={setActiveBox} onMoveBox={moveBox}
-                pickMode={pickMode} onPick={onPick} onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} burst={burst} onDrawn={setDrawnId} />
+                pickMode={pickMode} onPick={onPick} onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} burst={burst} onDrawn={setDrawnId}
+                onZoom={setZoom} />
               <div className="behind" inert={draft ? true : undefined}>
                 <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={remix} onDownload={download}
                   onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)} />
@@ -449,6 +454,11 @@ export default function App() {
           )}
           <BrandFoot />
         </main>
+        {zoom && current && (
+          <ZoomView item={shown} quoteOn={quoteOn} slideUrl={zoom.slideUrl} source={zoom.source}
+            onClose={() => { setZoom(null); requestAnimationFrame(() => document.querySelector(".zoomBtn")?.focus({ preventScroll: true })); }} />
+        )}
+        </>
       )}
 
       {infoOpen && (

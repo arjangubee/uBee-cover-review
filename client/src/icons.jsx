@@ -31,6 +31,7 @@ const PATHS = {
   chevronDown: <path d="M6 9.5l6 6 6-6" />,
   copy: <><rect x="8.5" y="8.5" width="11" height="11" rx="2" /><path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2" /></>,
   refresh: <><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" /><path d="M19.8 4.2v4.6h-4.6" /></>,
+  zoom: <><circle cx="10.5" cy="10.5" r="6.25" /><path d="M15.1 15.1L20 20" /><path d="M10.5 7.9v5.2" /><path d="M7.9 10.5h5.2" /></>,
 };
 
 /** An icon by name. Decorative by default; give it a label when it stands alone. */

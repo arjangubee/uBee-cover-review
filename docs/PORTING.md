@@ -12,6 +12,36 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.6.0: the Spotify player
+
+The song row's play button works like the original's: it opens Spotify's own player for this cover's song, and she
+taps play inside it. That keeps iOS happy about audio. Closing it removes the player, so playback stops, and moving
+to another cover closes it too. A song with no Spotify link but a preview still plays the preview, as in 1.4.
+
+### New field on each cover (photos table)
+
+| Field | Type | Default | What it is |
+| --- | --- | --- | --- |
+| songSpotifyUrl | text | "" | The song's Spotify link: https://open.spotify.com/track/<id> (an intl-xx part is fine), or spotify:track:<id>. Episodes work too |
+
+### Actions
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| POST /api/connectors/spotify/sync-library | Each track may carry spotifyUrl |
+| POST /api/trending/refresh | Each song may carry spotifyUrl |
+| New covers, shuffleSong | The suggested song brings its spotifyUrl along as songSpotifyUrl |
+| POST /api/items/:id/edit | A typed song drops the link unless songSpotifyUrl comes with it. songSpotifyUrl on its own attaches a link without changing the song |
+
+### Client
+
+Changed: CoverTop.jsx (SongRow), reviewMath.js (spotifyEmbedUrl), styles.css (.spotifyEmbed). spotifyEmbedUrl only
+builds https://open.spotify.com/embed/<track or episode>/<22-character id>, so the player can never load another site.
+The iframe exists only while the player is open, keyed by the cover and its link.
+
+Checks after the port: play opens the player for the cover's own song, close stops it, switching covers doesn't
+carry playback over, and no song, quote or styling data changed.
+
 ## 1.5.3: the original's fit
 
 The text block now fits and stretches exactly like the original (SafeQuote fitInsideSafeZone in Quill's

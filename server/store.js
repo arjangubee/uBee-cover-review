@@ -67,6 +67,7 @@ export const store = {
       imageQualityStatus: "passed", repairStatus: "ready",
       originalImageUrl: null, beacons: null, composeAttestedAt: null, embeddedText: null, imageEdit: null,
       why: null, songPreviewUrl: "", // v1.4: "why it matches" from her Muse, a song preview when the pool has one
+      songSpotifyUrl: "", // v1.6: the song's Spotify link; the play button opens Spotify's own player for it
       createdAt: Date.now(),
       decidedAt: null,
       ...partial,

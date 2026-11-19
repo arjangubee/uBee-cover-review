@@ -3,7 +3,7 @@
 // Run: node scripts/render-test.mjs
 import { PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, contrastPixel, coverLayout, drawCover, mosaicRects, textBoxes, textHitBoxes, wrapText } from "../client/src/renderCover.js";
 import { createHistory } from "../client/src/undo.js";
-import { changedFields, displayTitle, parseSong, randomLayout, starsFor, storyCrop, valueForStars } from "../client/src/reviewMath.js";
+import { changedFields, displayTitle, parseSong, randomLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars } from "../client/src/reviewMath.js";
 import { LOCKED, badgeFor, formatDay, selectable } from "../client/src/pollenView.js";
 import { RELEASE_URL, newer, releaseBanner } from "../client/src/release.js";
 
@@ -239,6 +239,16 @@ check("undo and redo walk back and forth, and a new change clears redo", () => {
 check("extra boxes remember which of her boxes they are, even with an empty one before them", () => {
   const boxes = textBoxes({ ...base, quote: "q", extraTexts: [{ quote: "" }, { quote: "second" }] }, true);
   assert(boxes[1].extraIndex === 1 && boxes[0].main === true, JSON.stringify(boxes.map((b) => [b.main, b.extraIndex])));
+});
+// ---------- v1.6: the original's Spotify player ----------
+check("a song's Spotify link becomes the original's embed, and nothing else gets a player", () => {
+  const id = "4uLU6hMCjMI75M1A2tKUQC", want = `https://open.spotify.com/embed/track/${id}`;
+  for (const link of [`https://open.spotify.com/track/${id}`, `https://open.spotify.com/track/${id}?si=abc123`, `https://open.spotify.com/intl-de/track/${id}`,
+    `spotify:track:${id}`, ` https://open.spotify.com/track/${id} `]) assert(spotifyEmbedUrl(link) === want, `${link} -> ${spotifyEmbedUrl(link)}`);
+  assert(spotifyEmbedUrl(`https://open.spotify.com/episode/${id}`) === `https://open.spotify.com/embed/episode/${id}`, "episodes play too");
+  for (const bad of ["", null, undefined, "Artist - Title", `https://evil.example/track/${id}`, `https://open.spotify.com/album/${id}`,
+    `https://open.spotify.com/track/${id}"onload="x`, "https://open.spotify.com/track/short", `javascript:alert(1)//open.spotify.com/track/${id}`])
+    assert(spotifyEmbedUrl(bad) === null, `${bad} should get no player`);
 });
 check("story view crops a 9:16 frame from the photo where the pan sliders point", () => {
   const c = storyCrop(2000, 1000, 0, 50);

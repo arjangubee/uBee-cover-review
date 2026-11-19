@@ -107,6 +107,7 @@ Since 1.4.0 the cover is the screen, the way Quill's Cover Review looks. Since 1
 
 - Header: back to all covers, the queue count, setup and help, "Cover 1 of 17", undo and redo.
 - The cover as it will post, in a 4:5 frame. The screen and the posted image are drawn by the same code, so what she approves is what posts.
+- The song row: the play button opens Spotify's own player for the cover's song when the song has a Spotify link, or plays a preview when the pool has one. Shuffle picks another song.
 - Icons under the cover: like (approve), dislike (pass), download, repost (remix into a new version), note, edit.
 - Slides: swipe the cover or use the Slides stepper to move through them, add one with +, remove one with minus. Posts steps between covers.
 - Randomize layout tries a fresh look from her palette and fonts. Undo takes it back.

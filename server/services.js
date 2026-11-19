@@ -36,14 +36,14 @@ export function suggestSong(item) {
   const lib = store.settings.spotifyLibrary || [];
   if (lib.length) {
     const s = lib[item.id % lib.length];
-    return { song: `${s.artist} - ${s.title}`, songSource: "spotify", songPreviewUrl: String(s.previewUrl || "") };
+    return { song: `${s.artist} - ${s.title}`, songSource: "spotify", songPreviewUrl: String(s.previewUrl || ""), songSpotifyUrl: String(s.spotifyUrl || "") };
   }
   const trending = loadTrending().songs || [];
   if (trending.length) {
     const s = trending[item.id % trending.length];
-    return { song: `${s.artist} - ${s.title}`, songSource: "trending", songPreviewUrl: String(s.previewUrl || "") };
+    return { song: `${s.artist} - ${s.title}`, songSource: "trending", songPreviewUrl: String(s.previewUrl || ""), songSpotifyUrl: String(s.spotifyUrl || "") };
   }
-  return { song: "", songSource: "none", songPreviewUrl: "" };
+  return { song: "", songSource: "none", songPreviewUrl: "", songSpotifyUrl: "" };
 }
 
 // ---------- Voice profile: learned from the creator's own captions, with consent ----------

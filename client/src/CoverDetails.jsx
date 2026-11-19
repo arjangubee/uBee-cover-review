@@ -106,7 +106,7 @@ export function ComposeCheck({ item, onRecheck, busy }) {
   const b = item.beacons;
   const verdict = !b ? { word: "NOT CHECKED", tone: "idle" } : b.STEPS_VERIFIED ? { word: "PASS", tone: "pass" } : { word: "CHECK", tone: "fail" };
   const detail = {
-    QUOTE_IN_STOCK: item.quote ? `"${item.quote}"` : "No quote yet",
+    QUOTE_IN_STOCK: b?.QUOTE_IN_STOCK === null ? "The quote is off on this cover." : item.quote ? `"${item.quote}"` : "No quote yet",
     SONG_IN_POOL: item.song ? [parseSong(item.song).artist, parseSong(item.song).title].filter(Boolean).join(" · ") : "No song yet",
     STEPS_VERIFIED: item.composeAttestedAt ? `Composed ${new Date(item.composeAttestedAt).toLocaleDateString()}` : "Not verified yet",
   };
@@ -121,11 +121,12 @@ export function ComposeCheck({ item, onRecheck, busy }) {
         <ul className="checks">
           {CHECKS.map(([key, name, what]) => {
             const ok = b?.[key];
+            const na = Boolean(b) && ok === null; // 1.5.2: the quote is off, so its stock check doesn't apply
             return (
-              <li key={key} className={ok ? "ok" : b ? "no" : "idle"}>
+              <li key={key} className={na ? "na" : ok ? "ok" : b ? "no" : "idle"}>
                 <span className="checkDot" aria-hidden="true">{ok ? <Icon name="check" size={18} /> : null}</span>
                 <div>
-                  <p className="checkName">{name} <span className="yes">{!b ? "" : ok ? "YES" : "NO"}</span></p>
+                  <p className="checkName">{name} <span className="yes">{!b ? "" : na ? "NOT NEEDED" : ok ? "YES" : "NO"}</span></p>
                   <p className="checkWhat">{key} · {what}</p>
                   <p className="checkDetail">{detail[key]}</p>
                 </div>

@@ -154,6 +154,8 @@ img { max-width: 100%; }
 .checkName { margin: 2px 0 0; font-size: 18px; font-weight: 700; }
 .checkName .yes { margin-left: 8px; color: var(--green); font-size: 15px; font-weight: 800; letter-spacing: 0.04em; }
 .checks li.no .yes { color: #ff6961; }
+.checks li.na .yes { color: var(--muted); }
+.checks li.na .checkDot { border-style: dashed; }
 .checkWhat, .checkDetail { margin: 3px 0 0; color: var(--muted); font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
 .chipBtn { height: 46px; margin-top: 12px; padding: 0 20px; border: 1px solid var(--line-strong); border-radius: 999px; background: transparent; color: #fff; font-size: 16px; font-weight: 700; }
 .why { margin-top: 22px; }

@@ -130,13 +130,16 @@ function loadSongPool() {
 
 // Compose verification gate, same three beacons as the original:
 // QUOTE_IN_STOCK, SONG_IN_POOL, STEPS_VERIFIED.
+// One deliberate change from the original (1.5.2, Quill's ruling): a cover with its quote off draws no quote, so
+// QUOTE_IN_STOCK reads null (not applicable) and the steps rest on the image and the song. In the original the
+// quote field only ever held stock quotes; here a quote-off cover can hold caption-like text that was never a quote.
 export function verifyItem(item) {
   const quotes = loadQuotes().map((q) => q.text.toLowerCase());
-  const quoteInStock = Boolean(item.quote) && quotes.includes(item.quote.trim().toLowerCase());
+  const quoteInStock = item.showQuote ? Boolean(item.quote) && quotes.includes(item.quote.trim().toLowerCase()) : null;
   const pool = loadSongPool().map((s) => `${s.artist} - ${s.title}`.toLowerCase());
   const spotify = (store.settings.spotifyLibrary || []).map((s) => `${s.artist} - ${s.title}`.toLowerCase());
   const songInPool = Boolean(item.song) && (pool.includes(item.song.trim().toLowerCase()) || spotify.includes(item.song.trim().toLowerCase()) || item.songSource === "trending");
-  const beacons = { QUOTE_IN_STOCK: quoteInStock, SONG_IN_POOL: songInPool, STEPS_VERIFIED: quoteInStock && songInPool && Boolean(item.imageUrl) };
+  const beacons = { QUOTE_IN_STOCK: quoteInStock, SONG_IN_POOL: songInPool, STEPS_VERIFIED: quoteInStock !== false && songInPool && Boolean(item.imageUrl) };
   item.beacons = beacons;
   item.composeAttestedAt = beacons.STEPS_VERIFIED ? Date.now() : null;
   return beacons;
@@ -214,6 +217,7 @@ export function registerFull(app, upload) {
       return res.status(403).json({ error: "Quote overlay is locked. Connect your quotes, or take the quote quiz and steal quotes that sound like you first." });
     }
     item.showQuote = want;
+    if (item.beacons) verifyItem(item); // a checked cover stays truthful: the quote check depends on the toggle (1.5.2)
     store.saveDb();
     res.json({ item });
   });

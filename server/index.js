@@ -136,6 +136,7 @@ app.post("/api/items/upload", upload.array("photos", 200), (req, res) => {
     item.quote = suggestQuote(item, quotes);
     Object.assign(item, suggestSong(item));
     item.caption = generateCaption(item, store.settings.voiceProfile);
+    item.captionSource = "placeholder"; // the offline draft; a model may replace it (1.9)
     store.saveDb();
     return item;
   });
@@ -157,10 +158,17 @@ app.post("/api/items/:id/edit", (req, res) => {
   const item = store.getItem(req.params.id);
   if (!item) return res.status(404).json({ error: "item not found" });
   for (const key of ["quote", "song", "caption", "note"]) if (req.body[key] != null) item[key] = String(req.body[key]);
+  // A typed caption is hers and is never redrafted (1.9). Undo sends the source back with the words: one of the three
+  // sources, or null for a row saved before sources existed.
+  if (req.body.caption != null) {
+    const src = req.body.captionSource;
+    if (src === null) delete item.captionSource;
+    else item.captionSource = ["placeholder", "model", "human"].includes(src) ? src : "human";
+  }
   // A typed song has no preview and no Spotify link unless they come with it. Her Muse can attach a link on its own (v1.6).
   if (req.body.song != null) { item.songPreviewUrl = String(req.body.songPreviewUrl || ""); item.songSpotifyUrl = String(req.body.songSpotifyUrl || ""); }
   else if (req.body.songSpotifyUrl != null) item.songSpotifyUrl = String(req.body.songSpotifyUrl);
-  if (req.body.regenerateCaption) item.caption = generateCaption(item, store.settings.voiceProfile);
+  if (req.body.regenerateCaption) { item.caption = generateCaption(item, store.settings.voiceProfile); item.captionSource = "placeholder"; }
   if (req.body.shuffleSong) Object.assign(item, suggestSong({ ...item, id: item.id + Math.floor(Math.random() * 7) + 1 }));
   if (req.body.shuffleQuote) item.quote = suggestQuote({ ...item, id: item.id + Math.floor(Math.random() * 13) + 1 }, loadQuotes());
   store.saveDb();

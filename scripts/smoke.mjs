@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { captionProblems } from "../server/captionRules.js";
 import { nextOpacity } from "../server/styleRules.js";
+import { canDraft, captionPrompt, draftProblems } from "../server/captionDrafts.js";
 
 // Smoke runs in a throwaway data folder, so it never touches a creator's real photos,
 // decisions, workspace or settings.
@@ -264,6 +265,94 @@ try {
     assert(high.item.opacity === 100, `ceiling ${high.item.opacity}`);
     const boxes = await postJson(`/api/items/${item.id}/style`, { extraTexts: [{ quote: "a", opacity: 5 }, { quote: "b", opacity: 70 }] });
     assert(boxes.item.extraTexts[0].opacity === 25 && boxes.item.extraTexts[1].opacity === 70, JSON.stringify(boxes.item.extraTexts.map((b) => b.opacity)));
+  });
+  // ---------- v1.9: captions in the space's voice (Quill #269, #276, #284, #292) ----------
+  await check("v1.9 the caption prompt is the original's word for word with no voice, and on the cover's own text with one", async () => {
+    const cover = { quote: "slow mornings", description: "a girl on a balcony", showQuote: true, extraTexts: [] };
+    const original = "Write one Instagram caption for this cover. Make it a short unexpected curveball that still clicks with the image and quote. Sound like a person typing with caveman-level brevity: one fragment, one blunt observation, or a few raw words. One to eight words. Lowercase is fine. Mild profanity is fine when it genuinely fits, but do not force it. No emoji, hashtags, explanations, marketing language, polished prose, or full setup. Never use an antithesis formula such as \"it's not this, it's that,\" \"not x but y,\" or any close variation. Avoid repeating the cover quote.\n\nCover quote: slow mornings\nImage description: a girl on a balcony";
+    assert(captionPrompt(cover, "") === original, captionPrompt(cover, ""));
+    const voiced = captionPrompt({ ...cover, extraTexts: [{ quote: "part two" }] }, "Short and warm. Ends with two exclamation marks.");
+    assert(voiced.includes("slow mornings") && voiced.includes("part two") && voiced.includes("Ends with two exclamation marks.") && !voiced.includes("One to eight words"), voiced);
+    const hidden = captionPrompt({ ...cover, showQuote: false, extraTexts: [{ quote: "only this" }] }, "warm");
+    assert(hidden.includes("only this") && !hidden.includes("slow mornings"), "the quote isn't on the cover, so the box text is the topic");
+    assert(captionPrompt({ ...cover, showQuote: false }, "warm").includes("slow mornings"), "with no text on the cover, the quote is the topic");
+  });
+  await check("v1.9 a model draft is checked like the original's output with no voice; with a voice only Pollen's rules apply", async () => {
+    assert(draftProblems("slow coffee wins", { voice: "" }).length === 0, "a good short draft");
+    assert(draftProblems("one two three four five six seven eight nine", { voice: "" }).length === 1, "nine words");
+    assert(draftProblems("x".repeat(81), { voice: "" }).length === 1, "81 characters");
+    assert(draftProblems("mood #sunday", { voice: "" }).length === 1, "a hashtag");
+    assert(draftProblems("  ", { voice: "" }).length === 1, "empty");
+    assert(draftProblems("Yayyy this whole long sentence in her voice has many more words than eight!!", { voice: "warm" }).length === 0, "a voice has no length rule of its own");
+    assert(draftProblems("so good \u2728", { voice: "warm" }).length === 1, "Pollen's rules still apply");
+  });
+  await check("v1.9 a model may draft blank captions, and offline placeholders on covers made after the release", async () => {
+    const opts = { offlineDraft: "slow mornings", fillFrom: 1000 };
+    const at = (o) => ({ status: "queue", caption: "slow mornings", quote: "slow mornings", createdAt: 2000, ...o });
+    assert(canDraft(at({ captionSource: "placeholder" }), opts), "a new placeholder");
+    assert(!canDraft(at({ captionSource: "placeholder", createdAt: 500 }), opts), "an older cover waits for backfill");
+    assert(canDraft(at({ captionSource: "placeholder", createdAt: 500 }), { ...opts, fillFrom: 0 }), "backfill opens it");
+    assert(canDraft(at({ caption: " ", captionSource: "human", createdAt: 500 }), opts), "a blank caption always gets a draft");
+    assert(!canDraft(at({ captionSource: "human" }), opts) && !canDraft(at({ captionSource: "model" }), opts), "typed and model captions are locked");
+    assert(canDraft(at({}), opts), "an old row that matches its offline draft is a placeholder");
+    assert(!canDraft(at({ caption: "my own words" }), opts), "an old row with other words is locked");
+    assert(!canDraft(at({ caption: "", status: "rejected" }), opts), "passed covers are left alone");
+  });
+  await check("v1.9 captions keep their source; upstream has no model, so its fill keeps the offline draft", async () => {
+    const item = await newItem("source.png");
+    assert(item.captionSource === "placeholder" && item.caption, JSON.stringify(item));
+    const want = await (await fetch(`${base}/api/captions/wanted`)).json();
+    assert(want.ids.includes(item.id), `a new placeholder is wanted: ${JSON.stringify(want)}`);
+    const fill = await postJson(`/api/items/${item.id}/caption-fill`, {});
+    assert(fill.drafted === false && fill.reason === "no-model" && fill.item.caption === item.caption, JSON.stringify(fill));
+    const typed = await postJson(`/api/items/${item.id}/edit`, { caption: "my own" });
+    assert(typed.item.captionSource === "human", typed.item.captionSource);
+    const want2 = await (await fetch(`${base}/api/captions/wanted`)).json();
+    assert(!want2.ids.includes(item.id), "a typed caption is not wanted");
+    await postJson(`/api/items/${item.id}/edit`, { caption: "" });
+    const refill = await postJson(`/api/items/${item.id}/caption-fill`, {});
+    assert(refill.drafted === true && refill.item.caption && refill.item.captionSource === "placeholder", JSON.stringify(refill));
+    const redo = await postJson(`/api/items/${item.id}/edit`, { caption: "mine again" });
+    const again = await postJson(`/api/items/${redo.item.id}/edit`, { regenerateCaption: true });
+    assert(again.item.captionSource === "placeholder", again.item.captionSource);
+  });
+  await check("v1.9 a model's draft saves only while the caption is unchanged and draftable, then it's locked", async () => {
+    const item = await newItem("draft.png");
+    const p = await (await fetch(`${base}/api/items/${item.id}/caption-prompt`)).json();
+    assert(p.canDraft === true && p.voice === false && p.basedOn === item.caption && p.prompt.startsWith("Write one Instagram caption"), JSON.stringify(p));
+    const bad = await postJson(`/api/items/${item.id}/caption-draft`, { caption: "one two three four five six seven eight nine", basedOn: p.basedOn });
+    assert(bad.saved === false && bad.reason === "rules" && bad.problems.length === 1, JSON.stringify(bad));
+    const stale = await postJson(`/api/items/${item.id}/caption-draft`, { caption: "slow coffee", basedOn: "something else" });
+    assert(stale.saved === false && stale.reason === "changed", JSON.stringify(stale));
+    const ok = await postJson(`/api/items/${item.id}/caption-draft`, { caption: "slow coffee", basedOn: p.basedOn });
+    assert(ok.saved === true && ok.item.caption === "slow coffee" && ok.item.captionSource === "model", JSON.stringify(ok));
+    const again = await postJson(`/api/items/${item.id}/caption-draft`, { caption: "another", basedOn: "slow coffee" });
+    assert(again.saved === false && again.reason === "locked", JSON.stringify(again));
+  });
+  await check("v1.9 undo can put a caption's source back with its words", async () => {
+    const item = await newItem("undo-source.png");
+    const typed = await postJson(`/api/items/${item.id}/edit`, { caption: "mine" });
+    assert(typed.item.captionSource === "human", "typed");
+    const back = await postJson(`/api/items/${item.id}/edit`, { caption: item.caption, captionSource: "placeholder" });
+    assert(back.item.captionSource === "placeholder" && back.item.caption === item.caption, JSON.stringify(back.item));
+    const none = await postJson(`/api/items/${item.id}/edit`, { caption: "old words", captionSource: null });
+    assert(!("captionSource" in none.item), "null clears the source, so an old row reads as it did");
+    const odd = await postJson(`/api/items/${item.id}/edit`, { caption: "x", captionSource: "robot" });
+    assert(odd.item.captionSource === "human", "anything else counts as typed");
+  });
+  await check("v1.9 the caption voice is the space's own setting; empty means none; backfill opens older covers", async () => {
+    const before = await (await fetch(`${base}/api/settings/caption-voice`)).json();
+    assert(before.voice === "" && before.fillFrom > 0, JSON.stringify(before));
+    const set = await postJson(`/api/settings/caption-voice`, { voice: "  Warm and short.  " });
+    assert(set.voice === "Warm and short." && set.fillFrom === before.fillFrom, JSON.stringify(set));
+    assert(readFileSync(join(DATA, "settings.json"), "utf8").includes("Warm and short."), "the voice lives in the space's own data");
+    const item = await newItem("voiced.png");
+    const p = await (await fetch(`${base}/api/items/${item.id}/caption-prompt`)).json();
+    assert(p.voice === true && p.prompt.includes("Warm and short.") && !p.prompt.includes("One to eight words"), JSON.stringify(p));
+    const back = await postJson(`/api/settings/caption-voice`, { backfill: true });
+    assert(back.fillFrom === 0 && back.voice === "Warm and short.", JSON.stringify(back));
+    const cleared = await postJson(`/api/settings/caption-voice`, { voice: "" });
+    assert(cleared.voice === "" && cleared.fillFrom === 0, JSON.stringify(cleared));
   });
   await check("v1.4 a rating can be cleared, so undo can take back a first rating", async () => {
     const item = await newItem("quill-rate.png");

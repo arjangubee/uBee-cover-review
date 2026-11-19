@@ -11,6 +11,7 @@ This is the portable edition of the Cover Review app that started inside Arjang'
 - Every photo gets a quote from the uBee default pack, a song suggestion, and a caption draft.
 - Songs default to what is trending on Instagram. Connect Spotify and your own library goes first.
 - Captions draft in your voice once your Muse learns it from your previous Instagram captions, with your consent.
+- Where your Muse can draft with a model, new covers get a caption in your own voice before you see them, on topic of the text on the cover. A caption you typed is never replaced.
 
 ## Run it
 

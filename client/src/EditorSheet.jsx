@@ -20,13 +20,14 @@ export default function EditorSheet({ onDismiss, children }) {
   const lastDragEnd = useRef(0);
   const handleRef = useRef(null);
   const scrollRef = useRef(null);
+  const closeTimer = useRef(0);
 
   function dismiss() {
     if (closing.current) return;
     closing.current = true;
     if (reducedMotion()) { dismissRef.current(); return; }
     setPhase("closing");
-    setTimeout(() => dismissRef.current(), CLOSE_MS);
+    closeTimer.current = setTimeout(() => dismissRef.current(), CLOSE_MS);
   }
   const dismissFn = useRef(dismiss);
   dismissFn.current = dismiss;
@@ -121,7 +122,7 @@ export default function EditorSheet({ onDismiss, children }) {
     handleRef.current?.focus({ preventScroll: true }); // keyboard focus starts in the sheet
     const onKey = (e) => { if (e.key === "Escape") dismissFn.current(); };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => { window.removeEventListener("keydown", onKey); clearTimeout(closeTimer.current); };
   }, []);
 
   return (

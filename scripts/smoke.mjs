@@ -90,7 +90,11 @@ async function newItem(name) {
 }
 
 try {
-  await wait(900);
+  // Wait for the server to answer (up to 10 seconds) instead of guessing how long it takes to start.
+  for (let i = 0; i < 50; i++) {
+    try { if ((await fetch(`${base}/api/health`)).ok) break; } catch {}
+    await wait(200);
+  }
   await check("setup status responds, photos are the only requirement", async () => {
     const s = await (await fetch(`${base}/api/setup/status`)).json();
     assert(s.requirements.photos.required === true, "photos should be required");

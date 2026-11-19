@@ -200,6 +200,7 @@ img { max-width: 100%; }
 .editorSheet > * { pointer-events: auto; }
 .editorSheet.dragging { transition: none; }
 .editorSheet.closing { transform: translate(-50%, 100%); transition-timing-function: cubic-bezier(0.4, 0, 1, 1); }
+.editorSheet.closing > * { pointer-events: none; } /* sliding away: nothing in it answers, not even Save */
 @keyframes sheetUp { from { transform: translate(-50%, 100%); } }
 .sheetHandle { flex: none; display: grid; place-items: center; width: 100%; height: 30px; padding: 0; border: 0; background: none; cursor: grab; touch-action: none; }
 .sheetHandle::before { content: ""; width: 44px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.85); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }

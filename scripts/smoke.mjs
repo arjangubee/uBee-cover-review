@@ -354,6 +354,20 @@ try {
     const cleared = await postJson(`/api/settings/caption-voice`, { voice: "" });
     assert(cleared.voice === "" && cleared.fillFrom === 0, JSON.stringify(cleared));
   });
+  await check("v1.9.1 a custom color can be removed from her list; the 11 colors stay", async () => {
+    const item = await newItem("custom-remove.png");
+    await postJson(`/api/items/${item.id}/style`, { textColor: "#ABCDEF" });
+    const before = await (await fetch(`${base}/api/palette`)).json();
+    assert(before.customColors.includes("#ABCDEF"), JSON.stringify(before.customColors));
+    const removed = await postJson(`/api/palette/custom-colors/remove`, { hex: "#abcdef" });
+    assert(!removed.customColors.includes("#ABCDEF") && removed.palette.length === 11, JSON.stringify(removed));
+    const again = await postJson(`/api/palette/custom-colors/remove`, { hex: "#ABCDEF" });
+    assert(JSON.stringify(again.customColors) === JSON.stringify(removed.customColors), "removing it twice changes nothing");
+    const bad = await fetch(`${base}/api/palette/custom-colors/remove`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hex: "red" }) });
+    assert(bad.status === 400, `a bad color answers 400, got ${bad.status}`);
+    const cover = await (await fetch(`${base}/api/items?status=queue`)).json();
+    assert(cover.items.find((i) => i.id === item.id).textColor === "#ABCDEF", "covers keep their color");
+  });
   await check("v1.4 a rating can be cleared, so undo can take back a first rating", async () => {
     const item = await newItem("quill-rate.png");
     const r = await postJson(`/api/items/${item.id}/rate`, { songRating: 6 });

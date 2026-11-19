@@ -1,8 +1,7 @@
 {
-  "version": "1.9.0",
+  "version": "1.9.1",
   "date": "2026-11-19",
   "whatsNew": [
-    "Where your Muse can draft with a model, new captions draft in your own voice before you see the cover",
-    "A caption you typed is never replaced"
+    "Remove a custom color from your list: open Custom colors in the editor and tap Remove colors"
   ]
 }

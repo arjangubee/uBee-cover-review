@@ -283,6 +283,8 @@ textarea.field { resize: vertical; }
 .swatch.tool.on { border-color: var(--ring); color: var(--ring); box-shadow: none; }
 .swatch.rainbow { border: 0; background: conic-gradient(#ff3b30, #ffcc00, #34c759, #32ade6, #5856d6, #ff2d55, #ff3b30); }
 .swatch.rainbow svg { filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6)); }
+.swatch.removing { opacity: 0.85; }
+.removeDot { position: absolute; right: -4px; top: -4px; display: grid; place-items: center; width: 20px; height: 20px; border: 2px solid var(--bg); border-radius: 50%; background: #fff; color: #000; pointer-events: none; }
 .swatch input[type="color"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 /* The 50% presets: the tone at half strength over a checkerboard, so it reads as see-through. */
 .swatches.presets { margin-top: 10px; }

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Icon from "./icons.jsx";
 import { CONTRAST_MODES, FONT_LABELS, HALF_PRESETS, STYLE_DEFAULTS, autoLineCount, canvasMeasureAt, presetOn } from "./renderCover.js";
 
@@ -13,8 +13,11 @@ const ALIGNS = [["left", "L", "Left"], ["center", "C", "Center"], ["right", "R",
 
 export default function CoverEditor({
   draft, activeBox, setActiveBox, setBox, setItem, setImageEdit, palette, fonts, customColors, quotesUnlocked,
-  pickMode, setPickMode, onRemoveBox, onNewBox, onAddMosaic, canAddBox,
+  pickMode, setPickMode, onRemoveBox, onNewBox, onAddMosaic, canAddBox, onRemoveCustomColor,
 }) {
+  // Removing her own colors (1.9.1): Remove colors turns each custom swatch into a remove button until Done.
+  const [removing, setRemoving] = useState(false);
+  useEffect(() => { if (!customColors.length) setRemoving(false); }, [customColors.length]);
   const extras = draft.extraTexts || [];
   const box = { ...STYLE_DEFAULTS, ...(activeBox === -1 ? draft : extras[activeBox] || {}) };
   const isMain = activeBox === -1;
@@ -110,12 +113,24 @@ export default function CoverEditor({
       <details className="customColors">
         <summary><span>Custom colors</span><span className="countBadge">{customColors.length}</span></summary>
         {customColors.length ? (
-          <div className="swatches">
-            {customColors.map((hex) => (
-              <button type="button" key={hex} className={box.textColor === hex ? "swatch on" : "swatch"} style={{ background: hex }}
-                aria-label={`Custom ${hex}`} aria-pressed={box.textColor === hex} onClick={() => setBox({ textColor: hex })} />
-            ))}
-          </div>
+          <>
+            <div className="swatches">
+              {customColors.map((hex) => (removing ? (
+                <button type="button" key={hex} className="swatch removing" style={{ background: hex }}
+                  aria-label={`Remove custom ${hex}`} onClick={() => onRemoveCustomColor?.(hex)}>
+                  <span className="removeDot" aria-hidden="true"><Icon name="close" size={12} /></span>
+                </button>
+              ) : (
+                <button type="button" key={hex} className={box.textColor === hex ? "swatch on" : "swatch"} style={{ background: hex }}
+                  aria-label={`Custom ${hex}`} aria-pressed={box.textColor === hex} onClick={() => setBox({ textColor: hex })} />
+              )))}
+            </div>
+            <div className="rowEnd">
+              {removing
+                ? <button type="button" className="linkBtn" onClick={() => setRemoving(false)}>Done</button>
+                : <button type="button" className="linkBtn muted" onClick={() => setRemoving(true)}>Remove colors</button>}
+            </div>
+          </>
         ) : <p className="hint">Colors you pick yourself land here.</p>}
       </details>
 

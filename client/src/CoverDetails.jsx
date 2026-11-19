@@ -73,25 +73,55 @@ export function TitleRow({ item }) {
   );
 }
 
-export function CaptionRow({ item, onSave, onRedo, onDraft }) {
+// The comment call (1.10, Arjang #435): her ManyChat-style line leads the caption only when the switch is on.
+// Off by default. The switch sits under the label; with more than one call, she picks which under it.
+function CommentCall({ item, ctas, onCta }) {
+  const on = ctas.find((c) => c.keyword === String(item.cta || "").toUpperCase()) || null;
+  return (
+    <div className="commentCall">
+      <button type="button" role="switch" aria-checked={Boolean(on)} aria-label="Comment call" className="callSwitch"
+        onClick={() => onCta(on ? null : ctas[0].keyword)}>
+        <span className="track" aria-hidden="true"><span className="knob" /></span>
+        <span className="callLabel">Comment call</span>
+      </button>
+      {on && ctas.length > 1 && (
+        <div className="callKeys" role="group" aria-label="Which comment call">
+          {ctas.map((c) => (
+            <button key={c.keyword} type="button" className="callKey" aria-pressed={c.keyword === on.keyword}
+              onClick={() => c.keyword !== on.keyword && onCta(c.keyword)}>{c.keyword}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function CaptionRow({ item, ctas = [], onCta, onSave, onRedo, onDraft }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(item.caption || "");
   useEffect(() => { setText(item.caption || ""); setEditing(false); }, [item.id, item.caption]);
+  const call = ctas.find((c) => c.keyword === String(item.cta || "").toUpperCase()) || null;
   return (
     <div className="captionRow">
-      <span className="captionLabel">Instagram caption</span>
-      {editing ? (
-        <form className="captionEdit" onSubmit={(e) => { e.preventDefault(); onSave(text); setEditing(false); }}>
-          <textarea className="field" rows={3} value={text} onChange={(e) => { setText(e.target.value); onDraft?.(e.target.value); }} aria-label="Instagram caption" autoFocus />
-          <div className="rowEnd">
-            <button type="button" className="linkBtn muted" onClick={onRedo}><Icon name="refresh" size={18} /> New caption</button>
-            <button type="button" className="linkBtn muted" onClick={() => { setText(item.caption || ""); setEditing(false); onDraft?.(null); }}>Cancel</button>
-            <button type="submit" className="linkBtn">Save</button>
-          </div>
-        </form>
-      ) : (
-        <button type="button" className="captionText" onClick={() => setEditing(true)} aria-label="Edit the caption">{item.caption || "No caption yet"}</button>
-      )}
+      <div className="captionSide">
+        <span className="captionLabel">Instagram caption</span>
+        {ctas.length > 0 && onCta && <CommentCall item={item} ctas={ctas} onCta={onCta} />}
+      </div>
+      <div className="captionBody">
+        {call && <span className="captionCall">{call.line}</span>}
+        {editing ? (
+          <form className="captionEdit" onSubmit={(e) => { e.preventDefault(); onSave(text); setEditing(false); }}>
+            <textarea className="field" rows={3} value={text} onChange={(e) => { setText(e.target.value); onDraft?.(e.target.value); }} aria-label="Instagram caption" autoFocus />
+            <div className="rowEnd">
+              <button type="button" className="linkBtn muted" onClick={onRedo}><Icon name="refresh" size={18} /> New caption</button>
+              <button type="button" className="linkBtn muted" onClick={() => { setText(item.caption || ""); setEditing(false); onDraft?.(null); }}>Cancel</button>
+              <button type="submit" className="linkBtn">Save</button>
+            </div>
+          </form>
+        ) : (
+          <button type="button" className="captionText" onClick={() => setEditing(true)} aria-label="Edit the caption">{item.caption || "No caption yet"}</button>
+        )}
+      </div>
     </div>
   );
 }

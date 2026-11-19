@@ -12,6 +12,7 @@ This is the portable edition of the Cover Review app that started inside Arjang'
 - Songs default to what is trending on Instagram. Connect Spotify and your own library goes first.
 - Captions draft in your voice once your Muse learns it from your previous Instagram captions, with your consent.
 - Where your Muse can draft with a model, new covers get a caption in your own voice before you see them, on topic of the text on the cover, or about the photo when a cover has no text. A caption you typed is never replaced.
+- If you run comment keyword DMs, your Muse saves your calls ("Comment WORD and I'll send you ...") and each cover gets a switch under the caption, off by default. On, your call leads the caption that posts.
 
 ## Run it
 
@@ -114,7 +115,7 @@ Since 1.4.0 the cover is the screen, the way Quill's Cover Review looks. Since 1
 - Slides: swipe the cover or use the Slides stepper to move through them, add one with +, remove one with minus. Posts steps between covers.
 - Randomize layout picks one of the original's six layouts (centered hero, left pillar, right pillar, justified center, small left column, monoline) and keeps the whole text inside the safe zone for the cover's shape. It changes the layout only, never the color, the opacity, the font or the weight. Undo takes it back.
 - Tap the text (or the pencil) and the editor slides up from the bottom, nearly see-through, so the cover stays in view and stays live: New text box, Face mosaic, Text width and Text height (stretch), the quote, Lines (Auto, or any count), color (the 11 palette colors first, then Black 50% and White 50%, which set the color and the opacity together, plus custom colors she can remove, and an eyedropper), font (TikTok Sans by default, and new text starts at Regular), align (left, center, right, justify), weight, image contrast, size, opacity, position, and a note for the next revision. Every change saves as she goes, with no Save or Cancel, and each change is one step for undo. It rests at 56% of the screen: swipe it up to 88%, down to go back, and down again to close it. Tapping its handle, Escape or a tap anywhere off it closes it too, and nothing is lost.
-- Below: her note with Post, the title with the quote and version, the Instagram caption, the Compose check (QUOTE_IN_STOCK, SONG_IN_POOL, STEPS_VERIFIED; the quote check reads NOT NEEDED while the quote is off), Why it matches (once her Muse records it), Image info with photo swap, and star ratings.
+- Below: her note with Post, the title with the quote and version, the Instagram caption (with the comment call switch under its label when her calls are set), the Compose check (QUOTE_IN_STOCK, SONG_IN_POOL, STEPS_VERIFIED; the quote check reads NOT NEEDED while the quote is off), Why it matches (once her Muse records it), Image info with photo swap, and star ratings.
 - Story view is the only 9:16 in the app, with pan framing that saves.
 - Setup, the quote quiz, Pollen and "Something wrong?" sit behind the info button.
 - Fonts: TikTok Sans ships with the app (SIL Open Font License), so the text looks the same on every phone.

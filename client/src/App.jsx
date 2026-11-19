@@ -49,6 +49,7 @@ export default function App() {
   const [quotesStatus, setQuotesStatus] = useState(null);
   const [quizQuotes, setQuizQuotes] = useState([]);
   const [pollen, setPollen] = useState(null);
+  const [ctas, setCtas] = useState([]); // the space's comment calls (1.10); none means no switch under the caption
   const [toast, setToast] = useState(null);
   const [burst, setBurst] = useState(0); // the heart that pops on the cover when she likes it
   const [drawnId, setDrawnId] = useState(null); // the cover whose photo is on screen: only that one can be decided
@@ -72,9 +73,9 @@ export default function App() {
   }, [toast]);
 
   const load = useCallback(async () => {
-    const [s, q, qs, quiz, pc, pal] = await Promise.all([
+    const [s, q, qs, quiz, pc, pal, calls] = await Promise.all([
       api("/api/setup/status"), api(`/api/items?status=${list}`), api("/api/quotes/status"), api("/api/quiz/quotes"),
-      api("/api/pollen/channels").catch(() => null), api("/api/palette").catch(() => null),
+      api("/api/pollen/channels").catch(() => null), api("/api/palette").catch(() => null), api("/api/settings/caption-ctas").catch(() => null),
     ]);
     setStatus(s);
     setItems(q.items);
@@ -82,6 +83,7 @@ export default function App() {
     setQuizQuotes(quiz.quotes);
     setPollen(pc);
     if (pal) setPalette({ palette: pal.palette, fonts: pal.fonts, customColors: pal.customColors || [] });
+    setCtas(calls?.ctas || []);
     setLoads((n) => n + 1);
   }, [list]);
   useEffect(() => { load().catch((e) => say(e.message)); }, [load, say]);
@@ -270,6 +272,8 @@ export default function App() {
   // Undo puts a caption's source back with its words (1.9), so a placeholder she typed over is a placeholder again.
   const captionOf = (item) => ({ caption: item.caption || "", captionSource: item.captionSource ?? null });
   const saveCaption = (caption) => attempt(() => { setPending(current.id, "caption", null); return record("Caption", current.id, { edit: captionOf(current) }, { edit: { caption } }); });
+  // The comment call switch (1.10): a keyword turns it on, null turns it off; undo steps back like any edit.
+  const setCta = (keyword) => attempt(() => record("Comment call", current.id, { edit: { cta: current.cta ?? null } }, { edit: { cta: keyword } }));
   async function regenerate(kind) {
     const before = kind === "caption" ? captionOf(current) : { song: current.song || "", songPreviewUrl: current.songPreviewUrl || "" };
     await attempt(async () => {
@@ -506,7 +510,7 @@ export default function App() {
                 <NoteComposer item={current} onPost={postNote} onDraft={(v) => setPending(current.id, "note", v)} inputRef={noteRef} />
                 <TitleRow item={current} />
                 {list === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}
-                <CaptionRow item={current} onSave={saveCaption} onRedo={() => regenerate("caption")} onDraft={(v) => setPending(current.id, "caption", v)} />
+                <CaptionRow item={current} ctas={ctas} onCta={setCta} onSave={saveCaption} onRedo={() => regenerate("caption")} onDraft={(v) => setPending(current.id, "caption", v)} />
                 <ComposeCheck item={current} onRecheck={recheck} busy={busy} />
                 <WhyMatches why={current.why} />
                 <ImageInfo item={current} onSwap={swapPhoto} onRestore={restorePhoto} searchPhotos={searchPhotos} />

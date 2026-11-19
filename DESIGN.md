@@ -284,6 +284,7 @@ Icons are authored on a 24 px grid with a 1.75 stroke, round caps and round join
 - **Focus:** The border lifts to Muted Gray. The note row is an underline field whose hairline lifts the same way.
 - **Sliders:** 5 px track filled Slider Cyan up to the value, with a white 34 by 24 px pill thumb.
 - **Switches:** 54 by 32 px, Strong Hairline off, Check Green on, with a sliding white knob.
+- **Comment call switch:** The same switch with its "Comment call" label beside it, in the label column under "Instagram caption". When it's on, her call's line sits above the caption in Secondary Text, and with more than one call the keywords sit under the switch as 44 px pills, the chosen one outlined in Check Green.
 
 ### Navigation
 - **Header:** Sticky 56 px row on 94% black with blur and a hairline under it. All icon buttons 44 px, the bee a 26 px mark at the right end. The cover count is muted, 13 px and right aligned; when the row is tight it drops the word Cover ("12 of 172").

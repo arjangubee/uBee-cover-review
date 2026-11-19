@@ -132,7 +132,19 @@ img { max-width: 100%; }
 .titleRow .state { grid-column: 1 / -1; }
 .captionRow { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line); }
 .captionLabel { color: var(--text-2); font-size: 15px; font-weight: 700; line-height: 1.45; white-space: nowrap; }
-.captionBody { display: flex; align-items: flex-start; gap: 4px; }
+/* The comment call switch (1.10): under the label, off by default; her call leads the caption only when it's on. */
+.captionSide, .commentCall { display: grid; gap: 4px; justify-items: start; align-content: start; }
+.callSwitch { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0; border: 0; background: none; color: var(--text-2); font-size: 14px; font-weight: 600; }
+.callSwitch .track { position: relative; flex: none; width: 54px; height: 32px; border-radius: 999px; background: var(--line-strong); transition: background 0.2s; }
+.callSwitch .knob { position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.callSwitch[aria-checked="true"] { color: #fff; }
+.callSwitch[aria-checked="true"] .track { background: var(--green-solid); }
+.callSwitch[aria-checked="true"] .knob { transform: translateX(22px); }
+.callKeys { display: flex; flex-wrap: wrap; gap: 6px; }
+.callKey { min-width: 44px; min-height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 999px; background: none; color: var(--text-2); font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+.callKey[aria-pressed="true"] { border-color: var(--green-solid); color: #fff; }
+.captionBody { display: grid; gap: 6px; min-width: 0; }
+.captionCall { color: var(--text-2); font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; }
 .captionText { flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: #fff; font-size: 16px; line-height: 1.4; text-align: left; overflow-wrap: anywhere; }
 .captionEdit { display: grid; gap: 4px; }
 .rowEnd { display: flex; justify-content: flex-end; gap: 12px; }

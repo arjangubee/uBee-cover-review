@@ -4,6 +4,7 @@ import { generateCaption, loadQuotes } from "./services.js";
 import { DATA_DIR, LIBRARY_DIR, store } from "./store.js";
 import { nextOpacity } from "./styleRules.js";
 import { canDraft, captionPrompt, captionState, draftProblems, needsDescription } from "./captionDrafts.js";
+import { cleanCtas } from "./captionCtas.js";
 
 // Full Cover Review feature set, ported from the Muse original.
 // The original server/src/actions.ts (5,020 lines) maps onto these endpoints.
@@ -421,7 +422,7 @@ export function registerFull(app, upload) {
     if (!canDraft(item, draftOpts(item))) return res.json({ saved: false, reason: "locked", item });
     if (String(item.caption ?? "") !== String(req.body?.basedOn ?? "")) return res.json({ saved: false, reason: "changed", item });
     if (needsDescription(item, captionVoice())) return res.json({ saved: false, reason: "no-description", item }); // say what the photo shows first (1.9.2)
-    const problems = draftProblems(draft, { voice: captionVoice() });
+    const problems = draftProblems(draft, { voice: captionVoice(), ctas: store.settings.captionCtas || [] });
     if (problems.length) return res.json({ saved: false, reason: "rules", problems, item });
     item.caption = draft;
     item.captionSource = "model";
@@ -450,6 +451,16 @@ export function registerFull(app, upload) {
     if (b.backfill === true) store.settings.captionFillFrom = 0;
     store.saveSettings();
     res.json(voiceState());
+  });
+  // The space's comment calls (1.10, Arjang #435): her Muse sets them, they stay in this copy's data. Upstream has
+  // none. Each cover's switch under the caption picks one, off by default; an empty list clears them.
+  app.get("/api/settings/caption-ctas", (_req, res) => res.json({ ctas: store.settings.captionCtas || [] }));
+  app.post("/api/settings/caption-ctas", (req, res) => {
+    const { ctas, error } = cleanCtas(req.body?.ctas);
+    if (error) return res.status(400).json({ error });
+    store.settings.captionCtas = ctas;
+    store.saveSettings();
+    res.json({ ctas });
   });
 
   // Why it matches: her Muse records why the photo, quote and song belong together. v1.4.

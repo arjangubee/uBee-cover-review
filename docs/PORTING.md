@@ -12,6 +12,67 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.10.0: the comment call switch
+
+Arjang's #435, Quill's #438. A ManyChat-style comment call ("Comment WORD and I'll send you ...") used to get written
+into the caption itself. Now it's a switch, off by default:
+
+1. **Her calls live in her space.** A new setting, captionCtas: a list of { keyword, line }, set by her Muse. Upstream
+   ships none, so nothing of hers is in this repo. Each keyword is one word (kept in capitals), each line has to say
+   its keyword and pass Pollen's caption rules, one line per keyword, six at most. An empty list clears them.
+2. **A switch on every cover.** A new field, cta: the keyword whose line leads the caption, or nothing (off, the
+   default). The switch sits in the empty space under "Instagram caption". With more than one call she picks which
+   one under the switch. A space with no calls shows no switch.
+3. **The caption is stored without the call.** What posts is the call's line, a space, then the caption. Pollen gets
+   that, and the 2,200 limit and the caption rules check that. A cover switched to a keyword that has since left her
+   list posts its caption alone.
+4. **No call in a draft.** caption-draft refuses a draft with a comment call in it (one of her lines, "Comment
+   KEYWORD" for one of her keywords, or "Comment WORD" in capitals at the start), so the switch stays the only way in.
+5. **The photo, always.** With a voice, the prompt now always carries what the photo shows and asks the caption to
+   allude to it, text covers included, and to leave the call out. So a voiced draft needs the description on every
+   cover: needsDescription no longer skips covers that show text. The no-voice prompt stays the original's.
+
+### New setting
+
+| Setting | Type | Default | What it is |
+| --- | --- | --- | --- |
+| captionCtas | list of { keyword, line } | none (empty list) | Her comment calls. Adds one settings row once her Muse sets it |
+
+### New field on each cover (photos table)
+
+| Field | Type | Default | What it is |
+| --- | --- | --- | --- |
+| cta | text or empty | empty (off) | The keyword of the call that leads this cover's caption |
+
+### Actions
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| GET /api/settings/caption-ctas | New. Answers { ctas } |
+| POST /api/settings/caption-ctas | New. { ctas: [{ keyword, line }] } sets the list. A bad list answers 400 with the reason and changes nothing |
+| POST /api/items/:id/edit | Takes cta: a keyword on her list turns the switch on (any case), null turns it off. A keyword not on her list answers 400 and the whole edit is refused. Undo sends the old value back the same way |
+| POST /api/pollen/check | Checks what posts, and answers with it as caption |
+| POST /api/pollen/schedule | Sends what posts: the call's line, then the caption |
+| GET /api/items/:id/caption-prompt | The voiced prompt carries the photo on every cover; needsDescription holds whenever a voice is set and the description is empty |
+| POST /api/items/:id/caption-draft | Refuses a draft with a comment call in it, with reason rules |
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| App.jsx | Loads the calls with the rest; the switch is a recorded edit ("Comment call"), so undo and redo step through it |
+| CoverDetails.jsx | CaptionRow: the switch and the keyword picks under the label, and the call's line above the caption when it's on |
+| ScheduleSheet.jsx | Shows the caption as it posts, from the Pollen check |
+| styles.css | The switch, the keyword picks and the call's line |
+
+Captions written before this release with a call already in them keep it, since nothing rewrites stored captions. A
+redraft writes them without it, and her switch adds it back where she wants one.
+
+Checks after the port: with no calls set, no switch shows. Her Muse sets her calls; a cover's switch is off until she
+turns it on; on, the line leads the caption on screen and in the Schedule sheet; undo turns it back off; a draft with
+a call in it is refused; a cover that shows text and has no description asks for one before a voiced draft. Then the
+counts (one more settings row once her calls are set).
+
 ## 1.9.2: a cover with no text gets a caption about its photo
 
 Quill's #327. In 1.9.0 a cover that showed no text fell back to its hidden quote as the caption's topic, so captions

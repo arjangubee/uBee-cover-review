@@ -34,7 +34,7 @@ export default function ScheduleSheet({ items, quotesUnlocked, api, post, onClos
     (async () => {
       const check = await post("/api/pollen/check", { itemIds: items.map((i) => i.id) }).catch(() => ({ items: [] }));
       if (!alive) return;
-      for (const c of check.items) patchRow(c.itemId, { problems: c.problems, hasSlides: c.hasSlides });
+      for (const c of check.items) patchRow(c.itemId, { problems: c.problems, hasSlides: c.hasSlides, caption: c.caption });
       for (const item of items) {
         if (!alive) return; // the sheet was closed: stop drawing
         try {
@@ -132,7 +132,7 @@ export default function ScheduleSheet({ items, quotesUnlocked, api, post, onClos
             <div key={r.item.id} className="sheetCover">
               {r.thumb ? <img src={r.thumb} alt="" /> : <span className="ph" />}
               <div className="meta">
-                <span className="cap">{r.item.caption || "No caption"}</span>
+                <span className="cap">{(r.caption ?? r.item.caption) || "No caption"}</span>
                 {status(r)}
               </div>
             </div>

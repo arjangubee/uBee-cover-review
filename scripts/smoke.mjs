@@ -275,7 +275,33 @@ try {
     assert(voiced.includes("slow mornings") && voiced.includes("part two") && voiced.includes("Ends with two exclamation marks.") && !voiced.includes("One to eight words"), voiced);
     const hidden = captionPrompt({ ...cover, showQuote: false, extraTexts: [{ quote: "only this" }] }, "warm");
     assert(hidden.includes("only this") && !hidden.includes("slow mornings"), "the quote isn't on the cover, so the box text is the topic");
-    assert(captionPrompt({ ...cover, showQuote: false }, "warm").includes("slow mornings"), "with no text on the cover, the quote is the topic");
+    assert(voiced.includes("first person"), "with a voice, the caption is written as her");
+  });
+  await check("v1.9.2 a cover that shows no text gets a caption about its photo, never its hidden quote", async () => {
+    // Quill #327: when nothing shows, the photo governs; the hidden quote is not visible text and not her words.
+    const cover = { quote: "slow mornings", description: "a woman laughing on a sunlit balcony", showQuote: false, extraTexts: [] };
+    const photo = captionPrompt(cover, "warm");
+    assert(!photo.includes("slow mornings"), `the hidden quote must stay out: ${photo}`);
+    assert(photo.includes("no text on this cover") && photo.includes("a woman laughing on a sunlit balcony"), photo);
+    const noVoice = captionPrompt(cover, "");
+    assert(noVoice.includes("Cover quote: slow mornings") && noVoice.includes("Image description: a woman laughing"), "the no-voice prompt stays the original's");
+    const item = await newItem("photo-only.png");
+    await postJson(`/api/settings/caption-voice`, { voice: "Warm and short." });
+    try {
+      const before = await (await fetch(`${base}/api/items/${item.id}/caption-prompt`)).json();
+      assert(before.needsDescription === true && before.imageUrl === item.imageUrl && !before.prompt.includes(item.quote || "@@"), JSON.stringify(before));
+      const early = await postJson(`/api/items/${item.id}/caption-draft`, { caption: "Yayyy a red door!!", basedOn: before.basedOn });
+      assert(early.saved === false && early.reason === "no-description", `a draft needs what the photo shows first: ${JSON.stringify(early)}`);
+      const described = await postJson(`/api/items/${item.id}/description`, { text: "  a red door in the rain  " });
+      assert(described.item.description === "a red door in the rain", JSON.stringify(described.item.description));
+      const after = await (await fetch(`${base}/api/items/${item.id}/caption-prompt`)).json();
+      assert(after.needsDescription === false && after.prompt.includes("a red door in the rain"), JSON.stringify(after));
+      await postJson(`/api/items/${item.id}/style`, { extraTexts: [{ quote: "a box line" }] });
+      const onText = await (await fetch(`${base}/api/items/${item.id}/caption-prompt`)).json();
+      assert(onText.needsDescription === false && onText.prompt.includes("a box line") && !onText.prompt.includes("a red door"), "with text showing, the text is the topic");
+    } finally {
+      await postJson(`/api/settings/caption-voice`, { voice: "" });
+    }
   });
   await check("v1.9 a model draft is checked like the original's output with no voice; with a voice only Pollen's rules apply", async () => {
     assert(draftProblems("slow coffee wins", { voice: "" }).length === 0, "a good short draft");

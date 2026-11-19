@@ -12,6 +12,41 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.9.2: a cover with no text gets a caption about its photo
+
+Quill's #327. In 1.9.0 a cover that showed no text fell back to its hidden quote as the caption's topic, so captions
+were about text nobody sees, and often about lines that aren't hers. Now:
+
+1. **Only text that shows counts.** overlaidText returns the quote when it's turned on, then her text boxes, and
+   nothing else. A hidden quote is never a caption's topic.
+2. **No text, so the photo.** With a voice and no text on the cover, captionPrompt has the caption reflect on what the
+   photo shows, from the cover's description, in her voice. With text showing, the text stays the topic.
+3. **Written as her.** With a voice, the prompt says to write as her, in the first person, so her words and her story
+   stay hers instead of landing on the reader.
+4. **The description.** A new field, description: what the photo shows, in plain words, recorded by her Muse. A voiced
+   caption for a cover with no text needs it: caption-prompt says needsDescription, and caption-draft refuses with
+   reason no-description until it's there. caption-prompt also returns the photo's address (imageUrl).
+
+The no-voice prompt stays the original's, word for word (it reads the quote and the image description, as the
+original does).
+
+### New field on each cover (photos table)
+
+| Field | Type | Default | What it is |
+| --- | --- | --- | --- |
+| description | text | "" | What the photo shows, in plain words, from her Muse. At most 1,000 characters |
+
+### Actions
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| POST /api/items/:id/description | New. { text } sets the description |
+| GET /api/items/:id/caption-prompt | Adds imageUrl, description and needsDescription |
+| POST /api/items/:id/caption-draft | Refuses with reason no-description while needsDescription holds |
+
+Checks after the port: a cover with no text and a voice set asks for a description first; once it has one, its prompt
+is about the photo and never shows its quote; a cover with text showing keeps the text as the topic. Then the counts.
+
 ## 1.9.1: remove a custom color
 
 Arjang's yes to #282. Her custom colors can come off her list: in the editor, open Custom colors, tap Remove colors,

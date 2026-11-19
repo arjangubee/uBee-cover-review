@@ -64,6 +64,7 @@ Caption voice, for drafting with a model (1.9):
 1. Write their caption voice as plain text: how they write, how long their captions run, their own spellings, the words they reach for and the ones they never use. Get it from their own writing, and let them read it.
 2. Save it with `POST /api/settings/caption-voice` as `{ "voice": "..." }`. It stays in this copy's data. Send an empty voice to remove it.
 3. New covers start with the quote as a placeholder caption. If your space can call a model, draft placeholders and blank captions with `GET /api/items/:id/caption-prompt`, then save each draft with `POST /api/items/:id/caption-draft` and the basedOn it gave you. A caption they typed is never replaced.
+   A cover with no text on it gets a caption about its photo. When the prompt says needsDescription, look at the photo (imageUrl) and record what it shows with `POST /api/items/:id/description` first. Never write about a hidden quote.
 4. Covers already in the deck keep their captions. Only redraft those (`{ "backfill": true }`) when the owner says to.
 
 ## 5b. uBee clients save in the uBee shared Drive (client mode)

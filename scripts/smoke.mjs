@@ -172,9 +172,19 @@ try {
     const item = await newItem("quill-style.png");
     const st = await postJson(`/api/items/${item.id}/style`, { lineCount: 2, textWidth: 60, textHeight: 120, textAlign: "justify" });
     assert(st.item.lineCount === 2 && st.item.textWidth === 60 && st.item.textHeight === 120 && st.item.textAlign === "justify", JSON.stringify(st.item).slice(0, 300));
-    const wild = await postJson(`/api/items/${item.id}/style`, { lineCount: 9, textWidth: 500, textHeight: 5, textAlign: "diagonal" });
-    assert(wild.item.lineCount === 4 && wild.item.textWidth === 100 && wild.item.textHeight === 60 && wild.item.textAlign === "justify", `clamps: ${wild.item.lineCount} ${wild.item.textWidth} ${wild.item.textHeight} ${wild.item.textAlign}`);
+    const wild = await postJson(`/api/items/${item.id}/style`, { lineCount: 500, textWidth: 500, textHeight: 5, textAlign: "diagonal" });
+    assert(wild.item.lineCount === 99 && wild.item.textWidth === 100 && wild.item.textHeight === 60 && wild.item.textAlign === "justify", `clamps: ${wild.item.lineCount} ${wild.item.textWidth} ${wild.item.textHeight} ${wild.item.textAlign}`);
     assert(item.textWidth === 84 && item.textHeight === 100 && Array.isArray(item.extraTexts) && item.extraTexts.length === 0, "new covers get the defaults");
+  });
+  await check("v1.5 style: Text width and height stretch (10 to 50, default 30) and Lines past 4 save", async () => {
+    const item = await newItem("v15-stretch.png");
+    assert(item.widthScale === 30 && item.heightScale === 30, `new covers start unstretched: ${item.widthScale} ${item.heightScale}`);
+    const st = await postJson(`/api/items/${item.id}/style`, { widthScale: 45, heightScale: 12, lineCount: 7 });
+    assert(st.item.widthScale === 45 && st.item.heightScale === 12 && st.item.lineCount === 7, JSON.stringify(st.item).slice(0, 300));
+    const wild = await postJson(`/api/items/${item.id}/style`, { widthScale: 80, heightScale: 2 });
+    assert(wild.item.widthScale === 50 && wild.item.heightScale === 10, `clamps: ${wild.item.widthScale} ${wild.item.heightScale}`);
+    const boxes = await postJson(`/api/items/${item.id}/style`, { extraTexts: [{ quote: "x", widthScale: 40, heightScale: 99 }] });
+    assert(boxes.item.extraTexts[0].widthScale === 40 && boxes.item.extraTexts[0].heightScale === 50, JSON.stringify(boxes.item.extraTexts[0]));
   });
   await check("v1.4 colors: a custom color saves and joins her custom colors; palette colors don't", async () => {
     const item = await newItem("quill-color.png");

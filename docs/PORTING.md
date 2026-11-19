@@ -12,6 +12,31 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.5.3: the original's fit
+
+The text block now fits and stretches exactly like the original (SafeQuote fitInsideSafeZone in Quill's
+client/src/App.tsx). Client only: coverLayout and drawCover in client/src/renderCover.js. No new fields, no server change.
+
+1. Measure the block unstretched: its natural width is the column (textWidth, 84% by default) or its widest row,
+   whichever is wider; its natural height is rows times line height.
+2. Fit: scale = min(1, available width / (natural width x widthScale/30), available height / (natural height x
+   heightScale/30)). Available is the photo less 2 px on each side, at the 494 px preview width (it scales with
+   the image).
+3. Clamp the center by the stretched half-extents: it stays at least half the stretched block plus 2 px from each edge.
+4. Draw: scale(fit x widthScale/30, fit x heightScale/30) around that center. The letters themselves stretch.
+
+This runs at 30/30 too, so some existing covers move:
+- With the default 84% column, the column's center can only sit between about 42% and 58% across. A Horizontal
+  outside that draws at the nearest end. Randomize layout picks Horizontal from 30 to 70, so covers it placed
+  off-center move toward the middle.
+- A block near the top or bottom pulls in to sit 2 px inside the photo, and a block taller than the photo shrinks.
+  Before, those ran off the edge.
+- A Text width above about 36 makes the stretched column wider than the photo, so the whole block shrinks to fit.
+  This matches the original.
+
+Checks after the port: the screen and the posted image still match. Covers whose Horizontal sits between 42 and 58,
+with text inside the photo, draw exactly as before. Count the covers that moved, and post one before and after.
+
 ## 1.5.2: covers with the quote off skip the stock check
 
 One deliberate change from the original, ruled by Quill: a cover with its quote off draws no quote, so the Compose

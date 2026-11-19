@@ -36,20 +36,18 @@ img { max-width: 100%; }
 .iconBtn:active:not(:disabled) { transform: scale(0.94); }
 .iconBtn:disabled { color: var(--off); }
 /* The pill tucks 4px under the back button's empty edge: both go to all covers. */
-.queuePill { flex: none; display: inline-flex; align-items: center; height: 44px; margin-left: -4px; padding: 0; border: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 600; white-space: nowrap; }
-.queuePill .pillFace { display: inline-flex; align-items: center; gap: 5px; height: 36px; padding: 0 9px 0 8px; border-radius: 999px; background: var(--surface); }
+.queuePill { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 44px; margin-left: -4px; padding: 0; border: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.queuePill .pillFace { display: inline-flex; align-items: center; gap: 5px; height: 36px; padding: 0 8px 0 7px; border-radius: 999px; background: var(--surface); }
 .queuePill:active:not(:disabled) .pillFace { background: var(--surface-2); }
 .queuePill:disabled { color: var(--off); }
 .queuePill:disabled .dot { background: var(--off); }
 .queuePill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
 .queuePill.approved .dot { background: var(--accent); }
 .queuePill.rejected .dot { background: var(--red); }
-/* The count may run 6px into the info button's empty right edge; taps there still reach info. */
-.coverCount { flex: 1; min-width: 0; margin-left: -6px; pointer-events: none; text-align: right; padding-right: 0; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+/* The count may run 6px into info's empty right edge and 4px into undo's empty left edge; taps there still reach those buttons. */
+.coverCount { flex: 1; min-width: 0; margin: 0 -4px 0 -6px; pointer-events: none; text-align: right; padding-right: 0; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .coverCount.short .word { display: none; }
-/* Undo and redo keep 44px boxes that overlap by 10px, so the pair sits close like Quill's. */
-.iconBtn.small + .iconBtn.small { margin-left: -10px; }
-.topbar .bee { flex: none; width: 26px; height: 26px; margin: 0 8px 0 0; object-fit: contain; }
+.topbar .bee { flex: none; width: 26px; height: 26px; margin: 0 6px 0 0; object-fit: contain; }
 @media (max-width: 389px) { .queuePill .pillWords { display: none; } }
 
 /* ---------- Review deck | Story view, and the song row ---------- */

@@ -103,14 +103,14 @@ Every AI follows the same rule before any push: pull first, run `npm test`, neve
 
 ## The review screen
 
-Since 1.4.0 the cover is the screen, the way Quill's Cover Review looks:
+Since 1.4.0 the cover is the screen, the way Quill's Cover Review looks. Since 1.5.0 the editor works like the original's too:
 
 - Header: back to all covers, the queue count, setup and help, "Cover 1 of 17", undo and redo.
 - The cover as it will post, in a 4:5 frame. The screen and the posted image are drawn by the same code, so what she approves is what posts.
-- Icons under the cover: like (approve), repost (remix into a new version), download, dislike (pass), note, edit.
+- Icons under the cover: like (approve), dislike (pass), download, repost (remix into a new version), note, edit.
 - Slides: swipe the cover or use the Slides stepper to move through them, add one with +, remove one with minus. Posts steps between covers.
 - Randomize layout tries a fresh look from her palette and fonts. Undo takes it back.
-- Tap the text (or the pencil) and the editor opens on the cover: text width and height, the quote, Lines 1 to 4, color (the 11 palette colors first, plus custom colors and an eyedropper), font, align (left, center, right, justify), weight, image contrast, size, opacity, position, a note for the next revision, then Cancel or Save. New text box adds her own text; Face mosaic hides a face.
+- Tap the text (or the pencil) and the editor slides up from the bottom, nearly see-through, so the cover stays in view and stays live: New text box, Face mosaic, Text width and Text height (stretch), the quote, Lines (Auto, or any count), color (the 11 palette colors first, plus custom colors and an eyedropper), font, align (left, center, right, justify), weight, image contrast, size, opacity, position, a note for the next revision, then Cancel or Save. Dragging it down, tapping its handle or tapping outside it closes it without saving.
 - Below: her note with Post, the title with the quote and version, the Instagram caption, the Compose check (QUOTE_IN_STOCK, SONG_IN_POOL, STEPS_VERIFIED), Why it matches (once her Muse records it), Image info with photo swap, and star ratings.
 - Story view is the only 9:16 in the app, with pan framing that saves.
 - Setup, the quote quiz, Pollen and "Something wrong?" sit behind the info button.

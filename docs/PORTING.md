@@ -12,6 +12,51 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.5.0: the original's editor
+
+The editor is a sheet like the original's, the two stretch sliders are back, Lines has no cap, and Auto-detect AI
+text is archived from the editor. Dislike moves to second and repost to fourth in the icon row. Server changes are
+small and additive.
+
+### New fields on each cover (photos table)
+
+| Field | Type | Default | What it is |
+| --- | --- | --- | --- |
+| widthScale | number, 10 to 50 | 30 | Text width: stretches the text sideways. 30 is no stretch, lower squeezes, higher widens |
+| heightScale | number, 10 to 50 | 30 | Text height: stretches the text up and down, the same way |
+
+Each box in extraTexts takes the same two fields. An old row without them reads 30 and draws exactly as before.
+textWidth (wrap width) and textHeight (line spacing) stay as they are; the editor no longer shows them.
+
+Fields that already existed but now take more values:
+
+- lineCount: 0 is still Auto. Any count up to 99 saves (it was capped at 4). The editor's stepper shows Auto's
+  estimate as "N lines · auto", writes the estimate plus or minus one on the first tap, never goes below 1 or past
+  the word count, and never writes 0.
+
+### Actions
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| POST /api/items/:id/style | Also takes widthScale and heightScale (10 to 50), on the cover and in each extraTexts box. lineCount clamps to 0 to 99 instead of 0 to 4 |
+| New covers (server/store.js) | Start with widthScale 30 and heightScale 30 |
+
+POST /api/items/:id/embedded-text stays, but the editor no longer calls it.
+
+### Client
+
+New file: EditorSheet.jsx. Changed: App.jsx, CoverEditor.jsx, CoverStage.jsx, CoverDetails.jsx, renderCover.js,
+styles.css. drawCover in renderCover.js applies the stretch, so the screen and the posted image still match; never
+stretch with CSS.
+
+The sheet: bottom-anchored, at most 56% of the screen tall, at most 760 px wide, background rgba(0, 0, 0, 0.015).
+A transparent layer behind it closes it like Cancel when tapped; the cover sits above that layer and stays live.
+Dragging the handle down past max(96 px, 16% of the screen), a tap on the handle, Escape and Cancel all close it
+without saving; Save is the only way to keep edits. New text box and Face mosaic sit at the top of the sheet.
+
+Checks after the port: an old cover opens with Text width and Text height at 30 and looks the same; stretching
+the text and saving posts the same image the screen shows; dragging the sheet down keeps nothing.
+
 ## 1.4.0: the Quill look
 
 The review screen is new: the cover is the screen, the editor opens on the cover, and the screen and the posted

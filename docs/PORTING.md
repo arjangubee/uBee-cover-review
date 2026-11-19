@@ -12,6 +12,29 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.8.1: the landscape safe zone and Opacity 25 to 100
+
+Quill's #283 answers to two 1.8.0 questions. Port it on top of 1.8.0. No new fields, and no saved cover is rewritten.
+
+1. **Landscape safe zone.** Randomize now uses the original's landscape formula (safeBoundsForGeometry) for every cover
+   wider than square. The original works in the 4:5 frame, with the photo across it: inset 5% across (6% from 1.7:1),
+   and top and bottom by the larger of 2% of the frame and 6% of the photo's height (8% from 1.7:1). This app lays
+   text out in the photo's own frame, so in % of the photo that is: across 5 (6 from 1.7:1), down the larger of
+   2.5 x (width / height) and 6 (8 from 1.7:1). 4:3 and 3:2 keep left 5, top 6, width 90, height 88 of the photo,
+   the same as 1.8.0. 16:9 becomes 6, 8, 88, 84. A cover just wider than square, which 1.8.0 gave the square zone,
+   now gets the landscape one. Portrait and square covers don't change. Client only: safeZoneFor in renderCover.js.
+2. **Opacity runs 25 to 100**, like the original's slider and updateCoverStyle. The slider starts at 25, and the
+   server saves a new value under 25 as 25 and over 100 as 100. A cover or text box saved under 25 before this keeps
+   its number while she edits other things, and the slider shows that number. The floor applies the next time her
+   opacity itself changes. That covers the text box list too: the server compares each box with the box saved in the
+   same place, so a box's old value stays when only another field changed. Undoing an opacity change on such a cover
+   brings back 25, since that is a new opacity for the server.
+   Server: new server/styleRules.js (nextOpacity, OPACITY_RANGE); full.js (setNumbers applies it, and cleanTextBoxes
+   takes the stored boxes). Client: CoverEditor.jsx (the slider's min).
+
+Checks after the port: Randomize on a 16:9 cover stays 6% in from the sides and 8% from the top and bottom; the Opacity
+slider starts at 25; a cover saved at 22 still reads 22% after a color change. Then the counts.
+
 ## 1.8.0: the editor bundle
 
 Arjang's #242 to #246, #255, #258 and #263, built to Quill's rulings #249, #251, #260 to #262 and #269, as one release.
@@ -44,8 +67,8 @@ No new fields, no new tables, and no saved cover is rewritten.
    fits. It changes align, size, Lines and position only, never the color, the opacity, the font or the weight. The
    Horizontal and Vertical sliders and dragging the text still use the whole photo, as before.
    Safe zones, as % of the cover, for the shape nearest the cover's own: 9:16 left 5, top 15.6 (300 of 1920), 90 wide,
-   62.5 tall (1200 of 1920); 3:4 and 1:1, 6 all round; 4:5, left 5, top 6, 90 wide, 88 tall. Landscape (4:3) uses the
-   4:5 numbers, an approximation of the original's landscape profile.
+   62.5 tall (1200 of 1920); 3:4 and 1:1, 6 all round; 4:5, left 5, top 6, 90 wide, 88 tall. Landscape covers use
+   left 5, top 6, 90 wide, 88 tall here; 1.8.1 replaces that with the original's formula.
    Deliberate deviation, ruled by Quill (#249, #260): the original has no safe zone check, no second draw and no shrink.
 6. **Black 50% and White 50%** (Arjang #263, Quill #269). Two presets in their own row under the 11 colors. Each sets
    the color and the opacity together (#000000 or #FFFFFF, at 50). They are not palette colors: the palette stays 11

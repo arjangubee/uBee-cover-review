@@ -157,7 +157,7 @@ export default function CoverEditor({
       </div>
 
       <Slider label="Size" value={box.fontSize} min={24} max={110} inline onChange={(v) => setBox({ fontSize: v })} />
-      <Slider label="Opacity" value={box.opacity} min={20} max={100} unit="%" inline onChange={(v) => setBox({ opacity: v })} />
+      <Slider label="Opacity" value={box.opacity} min={25} max={100} unit="%" inline onChange={(v) => setBox({ opacity: v })} />
       <Slider label="Horizontal" value={box.horizontalPosition} min={0} max={100} unit="%" inline onChange={(v) => setBox({ horizontalPosition: v })} />
       <Slider label="Vertical" value={box.verticalPosition} min={0} max={100} unit="%" inline onChange={(v) => setBox({ verticalPosition: v })} />
 
@@ -179,7 +179,7 @@ function Slider({ label, value, min, max, unit = "", inline = false, onChange })
       <label htmlFor={id}>{label}</label>
       <output htmlFor={id}>{v}{unit}</output>
       <input id={id} type="range" min={min} max={max} value={v} onChange={(e) => onChange(Number(e.target.value))}
-        style={{ "--pct": `${((v - min) / (max - min)) * 100}%` }} />
+        style={{ "--pct": `${Math.min(100, Math.max(0, ((v - min) / (max - min)) * 100))}%` }} />
     </div>
   );
 }

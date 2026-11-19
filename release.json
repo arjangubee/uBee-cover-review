@@ -1,9 +1,8 @@
 {
-  "version": "1.8.0",
+  "version": "1.8.1",
   "date": "2026-11-19",
   "whatsNew": [
-    "The text editor saves as you go, with no Save button, and swipes up taller",
-    "Randomize layout keeps your color and font and stays inside the safe zone",
-    "New text starts in TikTok Sans Regular, and Black 50% and White 50% sit under the colors"
+    "Randomize layout stays inside the safe zone on wide photos too",
+    "Opacity runs from 25 to 100, like the original"
   ]
 }

@@ -59,6 +59,7 @@ export const store = {
       fontSize: 58, fontWeight: 500, opacity: 100,
       horizontalPosition: 50, verticalPosition: 50, lineCount: 0,
       textWidth: 84, textHeight: 100, extraTexts: [], // v1.4: wrap box %, line spacing %, her own text boxes
+      widthScale: 30, heightScale: 30, // v1.5: Text width and Text height stretch the text (30 = none)
       barColor: "#000000", textNegative: false,
       qualityRating: null, songRating: null, quoteRating: null, ratingUpdatedAt: null,
       slides: [], storyPanX: 50, storyPanY: 50,

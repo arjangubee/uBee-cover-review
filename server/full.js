@@ -28,7 +28,7 @@ export function styleDefaults() {
     textColor: "#FFFFFF", textFont: "tiktok", textAlign: "center",
     fontSize: 58, fontWeight: 500, opacity: 100,
     horizontalPosition: 50, verticalPosition: 50, lineCount: 0,
-    textWidth: 84, textHeight: 100, extraTexts: [],
+    textWidth: 84, textHeight: 100, widthScale: 30, heightScale: 30, extraTexts: [],
     barColor: "#000000", textNegative: false,
   };
 }
@@ -40,8 +40,9 @@ export const CONTRASTS = ["normal", "high", "bw"];
 const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v)));
 const isNum = (v) => v != null && v !== "" && Number.isFinite(Number(v));
 // Ranges for the number fields a text box carries. Old fields keep their old (open) handling.
-const BOX_RANGES = { lineCount: [0, 4], textWidth: [20, 100], textHeight: [60, 200] };
-const BOX_NUMBERS = ["fontSize", "fontWeight", "opacity", "horizontalPosition", "verticalPosition", "lineCount", "textWidth", "textHeight"];
+// v1.5: Lines has no real cap (99 is a sanity bound); widthScale and heightScale stretch the text, 30 is neutral.
+const BOX_RANGES = { lineCount: [0, 99], textWidth: [20, 100], textHeight: [60, 200], widthScale: [10, 50], heightScale: [10, 50] };
+const BOX_NUMBERS = ["fontSize", "fontWeight", "opacity", "horizontalPosition", "verticalPosition", "lineCount", "textWidth", "textHeight", "widthScale", "heightScale"];
 
 function setNumbers(target, src) {
   for (const k of BOX_NUMBERS) {

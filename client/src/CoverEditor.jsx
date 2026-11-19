@@ -1,27 +1,29 @@
-import { useState } from "react";
+import { useMemo } from "react";
 import Icon from "./icons.jsx";
-import { CONTRAST_MODES, FONT_LABELS, STYLE_DEFAULTS } from "./renderCover.js";
-import { displayTitle } from "./reviewMath.js";
+import { CONTRAST_MODES, FONT_LABELS, STYLE_DEFAULTS, autoLineCount, canvasMeasureAt } from "./renderCover.js";
 
 // The text editor that opens on the cover. Every change shows on the cover right away; nothing saves
 // until Save, and Cancel puts the cover back the way it was.
 
-const LINE_STEPS = [0, 1, 2, 3, 4];
-const lineWords = (n) => (n === 0 ? "Auto" : n === 1 ? "1 line" : `${n} lines`);
+// Lines works like the original: on Auto it shows how many rows it draws; the first tap either way picks a number,
+// fewer stops at 1, more has no cap but the word count (a row needs a word).
+const lineWords = (n) => (n === 1 ? "1 line" : `${n} lines`);
 const WEIGHTS = [[400, "Regular"], [500, "Medium"], [700, "Bold"]];
 const ALIGNS = [["left", "L", "Left"], ["center", "C", "Center"], ["right", "R", "Right"], ["justify", "J", "Justify"]];
 
 export default function CoverEditor({
   draft, activeBox, setActiveBox, setBox, setItem, setImageEdit, palette, fonts, customColors, quotesUnlocked,
-  pickMode, setPickMode, onRemoveBox, onCancel, onSave, saving, copyText,
+  pickMode, setPickMode, onRemoveBox, onCancel, onSave, saving,
 }) {
-  const [asked, setAsked] = useState(false);
   const extras = draft.extraTexts || [];
   const box = { ...STYLE_DEFAULTS, ...(activeBox === -1 ? draft : extras[activeBox] || {}) };
   const isMain = activeBox === -1;
   const text = isMain ? draft.quote || "" : box.quote || "";
-  const found = draft.embeddedText;
-  const askLine = `Check the photo on my cover "${displayTitle(draft.title)}" for text and record what you find.`;
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const measure = typeof document !== "undefined" ? canvasMeasureAt(box) : null;
+  const autoRows = useMemo(() => (measure ? autoLineCount({ ...box, quote: text }, measure) : Math.max(1, Math.min(words, Math.ceil(text.length / 20)))),
+    [text, box.fontSize, box.textFont, box.fontWeight, box.textWidth]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lines = box.lineCount > 0 ? box.lineCount : autoRows;
 
   function eyedropper() {
     if (typeof window !== "undefined" && window.EyeDropper) {
@@ -44,8 +46,8 @@ export default function CoverEditor({
       )}
 
       <div className="twoUp">
-        <Slider label="Text width" value={box.textWidth} min={20} max={100} onChange={(v) => setBox({ textWidth: v })} />
-        <Slider label="Text height" value={box.textHeight} min={60} max={200} onChange={(v) => setBox({ textHeight: v })} />
+        <Slider label="Text width" value={box.widthScale} min={10} max={50} onChange={(v) => setBox({ widthScale: v })} />
+        <Slider label="Text height" value={box.heightScale} min={10} max={50} onChange={(v) => setBox({ heightScale: v })} />
       </div>
 
       <label className="fieldLabel" htmlFor="quoteField">{isMain ? "Quote" : "Text"}</label>
@@ -61,32 +63,15 @@ export default function CoverEditor({
             </button>
           </div>
           {!quotesUnlocked && <p className="hint">Locked until the quotes are yours. Take the quote quiz behind the info button.</p>}
-          <button type="button" className="outlineBtn wide" onClick={() => setAsked(true)}><Icon name="sparkle" size={20} /> Auto-detect AI text</button>
-          {asked && (found?.checkedAt ? (
-            <div className="detectBox" role="status">
-              {found.hasText && found.text ? (
-                <>
-                  <p>Text in the photo: <strong>{found.text}</strong></p>
-                  <button type="button" className="linkBtn" onClick={() => setItem({ quote: found.text })}>Use it as the quote</button>
-                </>
-              ) : <p>No text found in the photo.</p>}
-            </div>
-          ) : (
-            <div className="detectBox" role="status">
-              <p>Your Muse reads the photo for this. Send it this line, then tap Auto-detect again:</p>
-              <div className="askLine small">{askLine}</div>
-              <button type="button" className="linkBtn" onClick={() => copyText(askLine)}><Icon name="copy" size={18} /> Copy it</button>
-            </div>
-          ))}
         </>
       )}
 
       <div className="rowBetween">
         <span className="fieldLabel inline">Lines</span>
         <div className="linesPicker" role="group" aria-label="Lines">
-          <button type="button" aria-label="Fewer lines" disabled={box.lineCount <= 0} onClick={() => setBox({ lineCount: LINE_STEPS[Math.max(0, LINE_STEPS.indexOf(box.lineCount) - 1)] })}><Icon name="arrowLeft" /></button>
-          <span aria-live="polite">{lineWords(box.lineCount)}</span>
-          <button type="button" aria-label="More lines" disabled={box.lineCount >= 4} onClick={() => setBox({ lineCount: LINE_STEPS[Math.min(4, LINE_STEPS.indexOf(box.lineCount) + 1)] })}><Icon name="arrowRight" /></button>
+          <button type="button" aria-label="Fewer lines" disabled={!words || lines <= 1} onClick={() => setBox({ lineCount: Math.max(1, lines - 1) })}><Icon name="arrowLeft" /></button>
+          <span aria-live="polite">{words ? lineWords(lines) : "No text"}{box.lineCount > 0 || !words ? "" : " \u00b7 auto"}</span>
+          <button type="button" aria-label="More lines" disabled={!words || lines >= words} onClick={() => setBox({ lineCount: Math.min(words, lines + 1) })}><Icon name="arrowRight" /></button>
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 // Client logic checked without a browser: the layout math that puts the quote on the posted cover where
 // the review deck shows it, the words the Approved grid uses, and the new-version check for hosted copies.
 // Run: node scripts/render-test.mjs
-import { PREVIEW_WIDTH, STYLE_DEFAULTS, balanceLines, contrastPixel, coverLayout, drawCover, mosaicRects, textBoxes, textHitBoxes, wrapText } from "../client/src/renderCover.js";
+import { PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, contrastPixel, coverLayout, drawCover, mosaicRects, textBoxes, textHitBoxes, wrapText } from "../client/src/renderCover.js";
 import { createHistory } from "../client/src/undo.js";
 import { changedFields, displayTitle, parseSong, randomLayout, starsFor, storyCrop, valueForStars } from "../client/src/reviewMath.js";
 import { LOCKED, badgeFor, formatDay, selectable } from "../client/src/pollenView.js";
@@ -168,6 +168,11 @@ check("the drawn text and the tap box agree when the text is stretched", () => {
 check("a stretched block that would spill off the photo slides back on", () => {
   const b = hit(stretchItem({ quote: "golden hour", horizontalPosition: 92, widthScale: 50 }));
   assert(b.right <= 1000 + 1e-6 && b.left >= -1e-6, `spills: ${b.left}..${b.right}`);
+});
+check("Lines on Auto reports the rows it draws, never more than the words, none for an empty quote", () => {
+  const box = { ...base, quote: "the light knows my name and it waits for me" };
+  assert(autoLineCount(box, atPx) === coverLayout({ ...box, lineCount: 0 }, PREVIEW_WIDTH, PREVIEW_WIDTH * 1.25, atPx).rows.length, "estimate differs from the drawn rows");
+  assert(autoLineCount({ ...base, quote: "hi" }, atPx) === 1 && autoLineCount({ ...base, quote: "  " }, atPx) === 0, "edge cases");
 });
 check("Lines has no cap at 4: six lines make six rows when there are six words", () => {
   const L = coverLayout({ ...base, quote: "one two three four five six seven", lineCount: 6 }, 1000, 1250, atPx);

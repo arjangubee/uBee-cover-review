@@ -412,7 +412,7 @@ export default function App() {
               {draft ? (
                 <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
                   palette={palette.palette} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
-                  pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox} onCancel={closeEditor} onSave={saveDraft} saving={saving} copyText={copyText} />
+                  pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox} onCancel={closeEditor} onSave={saveDraft} saving={saving} />
               ) : (
                 <>
                   <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={remix} onDownload={download}

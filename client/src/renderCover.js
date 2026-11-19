@@ -200,6 +200,14 @@ export function coverLayout(box, width, height, measureAt) {
     color: s.textColor, font: s.textFont, weight: s.fontWeight, sx, sy, anchorX, anchorY, bounds };
 }
 
+/** How many rows Lines on Auto draws for this box. The stepper shows it, and its first tap starts from it. */
+export function autoLineCount(box, measureAt) {
+  const words = String(box.quote || "").split(/\s+/).filter(Boolean).length;
+  if (!words) return 0;
+  const L = coverLayout({ ...box, lineCount: 0 }, PREVIEW_WIDTH, PREVIEW_WIDTH * 1.25, measureAt);
+  return Math.max(1, Math.min(words, L.rows.length));
+}
+
 /** The text boxes a cover draws: the quote when it's on, then her extra boxes, which always draw. */
 export function textBoxes(item, quoteOn) {
   const boxes = [];
@@ -243,6 +251,14 @@ export function mosaicRects(list, width, height) {
 }
 
 const fontString = (box, px) => `${box.fontWeight || 500} ${px}px ${FONT_CSS[box.textFont] || FONT_CSS.tiktok}`;
+
+let measureCtx = null;
+/** Measures a box's font at any size on one shared canvas (the editor's Lines estimate). Null without a DOM. */
+export function canvasMeasureAt(box) {
+  if (typeof document === "undefined") return null;
+  measureCtx ||= document.createElement("canvas").getContext("2d");
+  return (px) => { measureCtx.font = fontString(box, px); return (t) => measureCtx.measureText(t).width; };
+}
 
 /** Loads every font the cover's text uses, so canvas measures and draws with the real face. */
 export async function ensureFonts(item, quoteOn = true) {

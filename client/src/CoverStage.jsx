@@ -12,7 +12,7 @@ const TAP = 8; // a press that moves less than this many pixels is a tap
 
 export default function CoverStage({
   item, quoteOn, slides, slide, setSlide, story, editing, activeBox, onStartEdit, onSelectBox, onMoveBox,
-  pickMode, onPick, onNewBox, onAddMosaic, onMosaicsChange, canAddBox, burst = 0, onDrawn,
+  pickMode, onPick, onMosaicsChange, burst = 0, onDrawn,
 }) {
   const [showBurst, setShowBurst] = useState(false);
   useEffect(() => {
@@ -144,12 +144,6 @@ export default function CoverStage({
                 : <img src={s.mediaUrl} alt={`Slide ${i + 2}`} draggable={false} />}
             </div>
           ))}
-        </div>
-      )}
-      {editing && (
-        <div className="stageTools">
-          <button type="button" className="toolBtn" onClick={onNewBox} disabled={!canAddBox}><Icon name="text" size={20} /> New text box</button>
-          <button type="button" className="toolBtn" onClick={onAddMosaic}><Icon name="mosaic" size={20} /> Face mosaic</button>
         </div>
       )}
       {pickMode && <p className="pickHint" role="status">Tap the photo to pick a color</p>}

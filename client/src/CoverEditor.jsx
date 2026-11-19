@@ -13,7 +13,7 @@ const ALIGNS = [["left", "L", "Left"], ["center", "C", "Center"], ["right", "R",
 
 export default function CoverEditor({
   draft, activeBox, setActiveBox, setBox, setItem, setImageEdit, palette, fonts, customColors, quotesUnlocked,
-  pickMode, setPickMode, onRemoveBox, onCancel, onSave, saving,
+  pickMode, setPickMode, onRemoveBox, onCancel, onSave, saving, onNewBox, onAddMosaic, canAddBox,
 }) {
   const extras = draft.extraTexts || [];
   const box = { ...STYLE_DEFAULTS, ...(activeBox === -1 ? draft : extras[activeBox] || {}) };
@@ -36,6 +36,11 @@ export default function CoverEditor({
 
   return (
     <section className="editor" aria-label="Edit the text on this cover">
+      {/* Top of the sheet, like the original: these sit over the lower part of the photo. */}
+      <div className="editorTools">
+        <button type="button" className="toolBtn" onClick={onNewBox} disabled={!canAddBox}><Icon name="text" size={20} /> New text box</button>
+        <button type="button" className="toolBtn" onClick={onAddMosaic}><Icon name="mosaic" size={20} /> Face mosaic</button>
+      </div>
       {extras.length > 0 && (
         <div className="boxTabs" role="tablist" aria-label="Text boxes">
           <button role="tab" aria-selected={isMain} className={isMain ? "on" : ""} onClick={() => setActiveBox(-1)}>Quote</button>

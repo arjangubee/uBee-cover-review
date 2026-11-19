@@ -84,7 +84,6 @@ img { max-width: 100%; }
 .slideItem { flex: none; display: flex; align-items: center; justify-content: center; height: 100%; scroll-snap-align: center; scroll-snap-stop: always; }
 .slideItem img, .slideItem video { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
 .slideCount { position: absolute; top: 12px; right: 14px; z-index: 2; padding: 4px 10px; border-radius: 999px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
-.stageTools { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 3; display: flex; gap: 10px; }
 .toolBtn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 14px;
   background: rgba(0, 0, 0, 0.62); color: #fff; font-size: 16px; font-weight: 500; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .toolBtn:disabled { opacity: 0.45; }
@@ -188,8 +187,33 @@ img { max-width: 100%; }
 .brandFoot .rule { width: 72px; height: 1px; background: #55761a; }
 .brandFoot .wordmark { height: 34px; object-fit: contain; }
 
-/* ---------- The editor on the cover ---------- */
-.editor { margin-top: 12px; }
+/* ---------- The editor sheet, like the original ----------
+   Bottom-anchored, at most 56% of the screen, a 1.5% black background so the review screen shows through.
+   A transparent layer behind it catches taps outside (Cancel); the cover sits above that layer and stays live. */
+.behind { display: contents; }
+.sheetLayer { position: fixed; inset: 0; z-index: 40; touch-action: none; }
+.app.editing .stage { z-index: 45; }
+.app.editing .topbar { z-index: 46; }
+.editorSheet { position: fixed; left: 50%; bottom: 0; z-index: 50; display: flex; flex-direction: column; width: min(760px, 100%); max-height: 56svh;
+  background: rgba(0, 0, 0, 0.015); border-radius: 20px 20px 0 0; pointer-events: none; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+  transform: translate(-50%, var(--drag, 0px)); transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1); animation: sheetUp 0.26s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.editorSheet > * { pointer-events: auto; }
+.editorSheet.dragging { transition: none; }
+.editorSheet.closing { transform: translate(-50%, 100%); transition-timing-function: cubic-bezier(0.4, 0, 1, 1); }
+@keyframes sheetUp { from { transform: translate(-50%, 100%); } }
+.sheetHandle { flex: none; display: grid; place-items: center; width: 100%; height: 30px; padding: 0; border: 0; background: none; cursor: grab; touch-action: none; }
+.sheetHandle::before { content: ""; width: 44px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.85); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
+.sheetHandle:active { cursor: grabbing; }
+.sheetHandle:focus-visible { outline: none; }
+.sheetHandle:focus-visible::before { box-shadow: 0 0 0 3px var(--ring); }
+.sheetScroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px; }
+.editorSheet .field, .editorSheet .primaryBtn, .editorSheet .secondaryBtn, .editorSheet select { text-shadow: none; }
+.editorSheet .editorActions { bottom: 0; padding-bottom: calc(12px + var(--host-bar) + env(safe-area-inset-bottom)); }
+.editorTools { display: flex; gap: 10px; margin: 2px 0 4px; }
+@media (prefers-reduced-motion: reduce) { .editorSheet { animation: none; transition: none; } }
+
+/* ---------- The editor ---------- */
+.editor { margin-top: 0; }
 .boxTabs { display: flex; gap: 8px; overflow-x: auto; margin-bottom: 8px; }
 .boxTabs button { flex: none; height: 38px; padding: 0 16px; border: 1px solid transparent; border-radius: 999px; background: var(--surface); color: var(--text-2); font-size: 15px; font-weight: 600; }
 .boxTabs button.on { border-color: #fff; background: var(--bg); color: #fff; }

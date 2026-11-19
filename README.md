@@ -111,7 +111,7 @@ Since 1.4.0 the cover is the screen, the way Quill's Cover Review looks. Since 1
 - Slides: swipe the cover or use the Slides stepper to move through them, add one with +, remove one with minus. Posts steps between covers.
 - Randomize layout tries a fresh look from her palette and fonts. Undo takes it back.
 - Tap the text (or the pencil) and the editor slides up from the bottom, nearly see-through, so the cover stays in view and stays live: New text box, Face mosaic, Text width and Text height (stretch), the quote, Lines (Auto, or any count), color (the 11 palette colors first, plus custom colors and an eyedropper), font, align (left, center, right, justify), weight, image contrast, size, opacity, position, a note for the next revision, then Cancel or Save. Dragging it down, tapping its handle or tapping outside it closes it without saving.
-- Below: her note with Post, the title with the quote and version, the Instagram caption, the Compose check (QUOTE_IN_STOCK, SONG_IN_POOL, STEPS_VERIFIED), Why it matches (once her Muse records it), Image info with photo swap, and star ratings.
+- Below: her note with Post, the title with the quote and version, the Instagram caption, the Compose check (QUOTE_IN_STOCK, SONG_IN_POOL, STEPS_VERIFIED; the quote check reads NOT NEEDED while the quote is off), Why it matches (once her Muse records it), Image info with photo swap, and star ratings.
 - Story view is the only 9:16 in the app, with pan framing that saves.
 - Setup, the quote quiz, Pollen and "Something wrong?" sit behind the info button.
 - Fonts: TikTok Sans ships with the app (SIL Open Font License), so the text looks the same on every phone.

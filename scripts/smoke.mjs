@@ -151,7 +151,7 @@ try {
     const rated = await (await fetch(`${base}/api/items/${item.id}/rate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ qualityRating: 8, songRating: 7, quoteRating: 9 }) })).json();
     assert(rated.item.quoteRating === 9, "per-part ratings should save");
     const verified = await (await fetch(`${base}/api/items/${item.id}/verify`, { method: "POST" })).json();
-    assert(verified.beacons.QUOTE_IN_STOCK === true, "default pack quote should verify in stock");
+    assert(verified.beacons.QUOTE_IN_STOCK === null, "a new cover has its quote off, so the stock check doesn't apply (1.5.2)");
     const slideForm = new FormData();
     slideForm.append("slide", new Blob([png], { type: "image/png" }), "slide1.png");
     const withSlide = await (await fetch(`${base}/api/items/${item.id}/slides`, { method: "POST", body: slideForm })).json();
@@ -285,6 +285,23 @@ try {
     const empty = await fetch(`${base}/api/quotes/connect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quotes: [], replace: true }) });
     assert(empty.status === 400, `an empty replace must be refused, not wipe her list: ${empty.status}`);
     assert((await (await fetch(`${base}/api/quotes/status`)).json()).creatorQuoteCount === 3, "a refused replace changes nothing");
+  });
+  await check("v1.5.2 a cover with the quote off doesn't need a quote in stock; flipping the quote rechecks a checked cover", async () => {
+    const item = await newItem("quote-off.png");
+    await postJson(`/api/items/${item.id}/edit`, { quote: "i just logged onto instagram" });
+    const off = (await postJson(`/api/items/${item.id}/verify`)).beacons;
+    assert(off.QUOTE_IN_STOCK === null, `quote off: the stock check doesn't apply: ${JSON.stringify(off)}`);
+    assert(off.STEPS_VERIFIED === (off.SONG_IN_POOL === true), `quote off: the steps rest on the image and the song: ${JSON.stringify(off)}`);
+    const on = (await postJson(`/api/items/${item.id}/quote-toggle`, { showQuote: true })).item;
+    assert(on.beacons?.QUOTE_IN_STOCK === false && on.beacons.STEPS_VERIFIED === false, `turning the quote on rechecks it: ${JSON.stringify(on.beacons)}`);
+    const stock = (await (await fetch(`${base}/api/quotes`)).json()).quotes[0].text;
+    await postJson(`/api/items/${item.id}/edit`, { quote: stock });
+    assert((await postJson(`/api/items/${item.id}/verify`)).beacons.QUOTE_IN_STOCK === true, "quote on and from her list: in stock");
+    const back = (await postJson(`/api/items/${item.id}/quote-toggle`, { showQuote: false })).item;
+    assert(back.beacons?.QUOTE_IN_STOCK === null, `turning the quote off rechecks it too: ${JSON.stringify(back.beacons)}`);
+    const fresh = await newItem("never-checked.png");
+    const flipped = (await postJson(`/api/items/${fresh.id}/quote-toggle`, { showQuote: true })).item;
+    assert(flipped.beacons == null && flipped.composeAttestedAt == null, "a cover nobody checked stays unchecked when its quote flips");
   });
   await check("ubee client workspace plan", async () => {
     await fetch(`${base}/api/workspace/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "ubee_shared", clientName: "Test Creator" }) });

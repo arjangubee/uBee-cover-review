@@ -12,6 +12,20 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.5.2: covers with the quote off skip the stock check
+
+One deliberate change from the original, ruled by Quill: a cover with its quote off draws no quote, so the Compose
+check no longer asks for a quote in stock. No new fields.
+
+| Where | Change |
+| --- | --- |
+| verifyItem (server/full.js) | With showQuote off, QUOTE_IN_STOCK is null (not applicable) instead of true or false. STEPS_VERIFIED then needs only the image and the song: QUOTE_IN_STOCK not false, SONG_IN_POOL, and an image |
+| POST /api/items/:id/quote-toggle | Re-runs the check when the cover was already checked, so its beacons match the new toggle. A cover nobody checked stays unchecked |
+| Client (CoverDetails.jsx, styles.css) | The Compose card shows a null beacon as NOT NEEDED, with "The quote is off on this cover." |
+
+Checks after the port: re-run verify on every cover that was checked before. Quote-off covers then read NOT NEEDED
+for the quote instead of CHECK, and nothing else about them changes.
+
 ## 1.5.1: replace her quote list
 
 Connecting quotes could only add to her list. Now it can replace it. No new fields, no client change.

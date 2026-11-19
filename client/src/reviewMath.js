@@ -57,3 +57,13 @@ export function randomLayout(rand, palette, fonts) {
     verticalPosition: between(rand, 20, 80),
   };
 }
+
+/**
+ * The original's spotifyEmbedUrl: a track or episode link (open.spotify.com, with or without an intl-xx part, or a
+ * spotify: URI) becomes https://open.spotify.com/embed/<type>/<id>. Anything else gets no player, so the iframe
+ * can only ever load Spotify's own embed.
+ */
+export function spotifyEmbedUrl(link) {
+  const m = String(link ?? "").trim().match(/^(?:https:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}(?:-[a-z]{2})?\/)?|spotify:)(track|episode)[/:]([A-Za-z0-9]{22})(?:[?#][^"'<>\s]*)?$/);
+  return m ? `https://open.spotify.com/embed/${m[1]}/${m[2]}` : null;
+}

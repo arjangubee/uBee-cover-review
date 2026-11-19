@@ -231,6 +231,20 @@ try {
     const shuffled = await postJson(`/api/items/${item.id}/edit`, { song: "Someone - Else" });
     assert(shuffled.item.songPreviewUrl === "", "a typed song drops the old preview");
   });
+  await check("v1.6 a song's Spotify link travels with it from the pool; a typed song drops it; her Muse can attach one", async () => {
+    const link = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC";
+    await postJson(`/api/trending/refresh`, { songs: [{ title: "Linked Song", artist: "Tester", spotifyUrl: link }], source: "smoke" });
+    const item = await newItem("spotify-song.png");
+    assert(item.song === "Tester - Linked Song" && item.songSpotifyUrl === link, `${item.song} ${item.songSpotifyUrl}`);
+    const typed = await postJson(`/api/items/${item.id}/edit`, { song: "Someone - Else" });
+    assert(typed.item.songSpotifyUrl === "", "a typed song drops the old link");
+    const attached = await postJson(`/api/items/${item.id}/edit`, { songSpotifyUrl: link });
+    assert(attached.item.songSpotifyUrl === link && attached.item.song === "Someone - Else", "a link can be attached without changing the song");
+    await postJson(`/api/connectors/spotify/sync-library`, { tracks: [{ title: "Lib Song", artist: "Her", spotifyUrl: link }] });
+    const shuffled = await postJson(`/api/items/${item.id}/edit`, { shuffleSong: true });
+    assert(shuffled.item.song === "Her - Lib Song" && shuffled.item.songSpotifyUrl === link, `${shuffled.item.song} ${shuffled.item.songSpotifyUrl}`);
+    await postJson(`/api/connectors/spotify/sync-library`, { tracks: [] });
+  });
   await check("v1.4 a rating can be cleared, so undo can take back a first rating", async () => {
     const item = await newItem("quill-rate.png");
     const r = await postJson(`/api/items/${item.id}/rate`, { songRating: 6 });

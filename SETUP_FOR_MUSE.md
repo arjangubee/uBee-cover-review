@@ -44,14 +44,14 @@ On yes:
 Ask if they want songs from their own Spotify. On yes:
 1. Walk them through connecting "Spotify" in Muse "Settings" > "Connectors".
 2. Set SPOTIFY_CLIENT_ID and related values in .env from the app they create at developer.spotify.com, send them to `GET /api/connectors/spotify/auth-url`, and finish the OAuth with them.
-3. Pull their saved tracks or their chosen playlists through your Spotify connector and send them with `POST /api/connectors/spotify/sync-library` as tracks with title and artist.
+3. Pull their saved tracks or their chosen playlists through your Spotify connector and send them with `POST /api/connectors/spotify/sync-library` as tracks with title and artist, plus spotifyUrl (the track's open.spotify.com link) so the play button can open Spotify's player.
 4. From then on, song suggestions come from their library first.
 
 ## 5. Instagram: trending by default, captions only with consent
 
 Trending, no consent needed:
 1. Through your Instagram connector, check what songs are trending on Instagram right now for their niche.
-2. Send them with `POST /api/trending/refresh` as songs with title and artist, plus a source note. Refresh this about weekly, or when they ask what is trending.
+2. Send them with `POST /api/trending/refresh` as songs with title and artist, plus a source note. Add spotifyUrl when you can find the song on Spotify, so the play button works. Refresh this about weekly, or when they ask what is trending.
 3. Until your first refresh lands, the app uses the seed file and says so honestly.
 
 Voice profile, consent required:

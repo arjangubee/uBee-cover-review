@@ -1,7 +1,7 @@
 {
-  "version": "1.5.3",
+  "version": "1.6.0",
   "date": "2026-11-19",
   "whatsNew": [
-    "Text sits and stretches exactly like the original: it fits inside the photo, and text near an edge pulls in instead of running off"
+    "The play button opens Spotify's own player for the cover's song, like the original"
   ]
 }

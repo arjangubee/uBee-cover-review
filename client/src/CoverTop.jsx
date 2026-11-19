@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Icon from "./icons.jsx";
-import { displayTitle, parseSong } from "./reviewMath.js";
+import { displayTitle, parseSong, spotifyEmbedUrl } from "./reviewMath.js";
 
 // The top of the review screen: the header row that stays put, the Review deck | Story view switch,
 // and the song row.
@@ -49,18 +49,24 @@ export function ModeSwitch({ story, setStory, disabled }) {
   );
 }
 
+// The play button works like the original's: with a Spotify link it opens Spotify's own player for this cover's
+// song, and she taps play inside it (that keeps iOS happy about audio). Closing it, or moving to another cover,
+// removes the player, so playback stops. A song with only a preview plays the preview, as in 1.4.
 export function SongRow({ item, onShuffle, onSetSong, onDraft }) {
   const { artist, title } = parseSong(item.song);
+  const embed = spotifyEmbedUrl(item.songSpotifyUrl);
   const [playing, setPlaying] = useState(false);
+  const [playerOpen, setPlayerOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(item.song || "");
   const audio = useRef(null);
   useEffect(() => {
     setPlaying(false);
+    setPlayerOpen(false);
     setEditing(false);
     setText(item.song || "");
     audio.current?.pause();
-  }, [item.id, item.song]);
+  }, [item.id, item.song, item.songSpotifyUrl]);
 
   function toggle() {
     const a = audio.current;
@@ -70,6 +76,7 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft }) {
   }
 
   return (
+    <>
     <div className="songRow">
       <div className="songMeta">
         <strong className="songOwner">{displayTitle(item.title)}</strong>
@@ -84,7 +91,10 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft }) {
           </button>
         )}
       </div>
-      {item.songPreviewUrl ? (
+      {embed ? (
+        <button type="button" className={playerOpen ? "playBtn open" : "playBtn"} onClick={() => setPlayerOpen((o) => !o)} aria-expanded={playerOpen}
+          aria-label={playerOpen ? "Close the Spotify player" : "Play the song on Spotify"}><Icon name={playerOpen ? "pause" : "play"} size={26} /></button>
+      ) : item.songPreviewUrl ? (
         <>
           <button type="button" className="playBtn" onClick={toggle} aria-label={playing ? "Pause the song preview" : "Play the song preview"}><Icon name={playing ? "pause" : "play"} size={26} /></button>
           <audio ref={audio} src={item.songPreviewUrl} preload="none" onEnded={() => setPlaying(false)} />
@@ -92,5 +102,10 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft }) {
       ) : null}
       <button type="button" className="iconBtn" onClick={onShuffle} aria-label="Shuffle the song"><Icon name="shuffle" /></button>
     </div>
+    {embed && playerOpen && (
+      <iframe key={`${item.id}-${embed}`} className="spotifyEmbed" src={embed} title={`Spotify player for ${item.song || "this song"}`}
+        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" />
+    )}
+    </>
   );
 }

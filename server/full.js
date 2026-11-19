@@ -174,12 +174,14 @@ export function quotesStatus() {
 export function registerFull(app, upload) {
   app.get("/api/quotes/status", (_req, res) => res.json(quotesStatus()));
 
-  // Connect your own quotes: unlocks the overlay toggle.
+  // Connect your own quotes: unlocks the overlay toggle. By default they join her list; with replace: true
+  // (v1.5.1) her list becomes exactly the quotes sent. Quiz verdicts stay. An empty list is refused either way.
   app.post("/api/quotes/connect", (req, res) => {
     const texts = (Array.isArray(req.body.quotes) ? req.body.quotes : []).map(String).map((s) => s.trim()).filter(Boolean);
     if (!texts.length) return res.status(400).json({ error: "quotes array is empty" });
+    const replace = [true, "true"].includes(req.body.replace);
     store.settings.quotesSource = "connected";
-    saveCreatorQuotes([...new Set([...creatorQuotes(), ...texts])]);
+    saveCreatorQuotes([...new Set(replace ? texts : [...creatorQuotes(), ...texts])]);
     store.settings.quotesUnlocked = true;
     store.saveSettings();
     res.json({ ok: true, ...quotesStatus() });

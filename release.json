@@ -1,9 +1,7 @@
 {
-  "version": "1.5.0",
-  "date": "2026-11-18",
+  "version": "1.5.1",
+  "date": "2026-11-19",
   "whatsNew": [
-    "The editor slides up like the original: nearly see-through, drag it down or tap outside to close without saving",
-    "Text width and Text height stretch the text like the original, and Lines has no cap",
-    "Dislike sits second and repost fourth under the cover; Auto-detect AI text is archived from the editor"
+    "Her Muse can replace her whole quote list in one step, not only add to it"
   ]
 }

@@ -12,6 +12,20 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.5.1: replace her quote list
+
+Connecting quotes could only add to her list. Now it can replace it. No new fields, no client change.
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| POST /api/quotes/connect | Takes replace: true. With it, her list becomes exactly the quotes sent (trimmed, duplicates dropped, in the order sent). Without it, quotes still join her list as before. Quiz verdicts and the quote unlock stay as they are. An empty list is refused either way, so nothing gets wiped by accident |
+
+Covers that already carry a quote that's no longer on her list will fail QUOTE_IN_STOCK in the Compose check until
+their quote changes. POST /api/items/:id/edit with shuffleQuote: true picks a new one from the current list.
+
+Checks after the port: back up her quote list first. After a replace, the quote count equals the number of distinct
+quotes sent, and the quiz verdicts count hasn't moved.
+
 ## 1.5.0: the original's editor
 
 The editor is a sheet like the original's, the two stretch sliders are back, Lines has no cap, and Auto-detect AI

@@ -1,9 +1,9 @@
 {
-  "version": "1.4.0",
+  "version": "1.5.0",
   "date": "2026-11-18",
   "whatsNew": [
-    "The cover is the screen now, like Quill's: like, repost, download, pass, note and edit right under it",
-    "Tap the text to edit it on the cover: Lines, width, height, colors, fonts, align, contrast and a face mosaic",
-    "Slides sit in a strip you swipe through, and undo and redo cover your edits and decisions"
+    "The editor slides up like the original: nearly see-through, drag it down or tap outside to close without saving",
+    "Text width and Text height stretch the text like the original, and Lines has no cap",
+    "Dislike sits second and repost fourth under the cover; Auto-detect AI text is archived from the editor"
   ]
 }

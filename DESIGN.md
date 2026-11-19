@@ -229,7 +229,7 @@ A near monochrome dark interface where every saturated color carries a platform 
 
 One centered column, at most 560 px wide, with a 16 px gutter. The cover stage breaks out of the gutter to run edge to edge, and its height is always five fourths of its width. The header is a sticky 56 px row: back, queue pill, info, cover count, undo, redo, bee. Under the cover sits the six icon action row, then the Slides stepper and the Posts row, then the note, title, caption, compose check, reasons and ratings as hairline rows.
 
-The editor docks its Cancel and Save bar to the bottom of the screen above the host app's tab bar (92 px on touch screens). Toasts float above that bar.
+The editor is a sheet on the bottom edge, at most 56% of the screen tall and 760 px wide, with a 1.5% black background so the review screen shows through it, the way the original does. Its top carries a drag handle, then New text box and Face mosaic, then the stretch sliders, all over the lower part of the cover. Its Cancel and Save bar docks to its bottom above the host app's tab bar (92 px on touch screens). Toasts float above that bar.
 
 The header fits a 375 px phone with the bee and every 44 px target, and no control ever shares its box with another that does something else: the queue pill tucks 4 px under the back button's empty edge (both open all covers), and the cover count may run 6 px into info's empty right edge and 4 px into undo's empty left edge while letting taps through to them. Undo and redo sit side by side, 44 px apart. Below 420 px the font and align controls stack. Below 390 px the queue pill drops its words and keeps the dot and count. Grids go from three to four columns at 520 px. Sheets rise from the bottom on a phone and center at 700 px and up.
 
@@ -240,7 +240,7 @@ The header fits a 375 px phone with the bee and every 44 px target, and no contr
 
 ## Elevation & Depth
 
-The system is flat. Depth comes from tone (black ground, gray pills) and from hairlines. Shadows appear only on things that float over content: the toast, the selection bar, slider thumbs and the like burst. The header and the on-cover tool buttons use backdrop blur so the cover stays visible underneath.
+The system is flat. Depth comes from tone (black ground, gray pills) and from hairlines. Shadows appear only on things that float over content: the toast, the selection bar, slider thumbs and the like burst. The header and the editor's tool buttons use backdrop blur so the cover stays visible underneath. Text in the see-through editor sheet carries a soft shadow (`0 1px 3px rgba(0, 0, 0, 0.75)`) so labels read over a bright photo.
 
 ### Shadow Vocabulary
 - **Float** (`box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55)`): The toast and the selection bar.
@@ -294,7 +294,10 @@ Icons are authored on a 24 px grid with a 1.75 stroke, round caps and round join
 The signature row under the cover: like, repost, download, dislike, comment, edit, in that order, as 28 px line icons in 44 px targets set side by side with no gap, so the row stays a tight cluster at the left like Instagram's. No labels on screen, full labels for screen readers. Like fills Heart Red when the cover is approved.
 
 ### Cover Stage
-The 4:5 canvas drawn by the posting renderer, with a dark translucent 1/N counter pill in the top right. While editing, two glass tool buttons (New text box, Face mosaic) sit on the bottom of the cover, and dragging moves the text directly.
+The 4:5 canvas drawn by the posting renderer, with a dark translucent 1/N counter pill in the top right. While editing it sits above the sheet's outside-tap layer, so dragging moves the text directly and taps pick boxes, mosaics and colors.
+
+### Editor Sheet
+Bottom-anchored, one open stop, slides up and out in 260 ms (none with reduced motion). The handle is a 44 by 5 px white bar in a full-width 30 px strip. A short drag snaps back; a drag past max(96 px, 16% of the screen), a tap on the handle, a tap outside or Escape closes it like Cancel. The review screen behind it is inert while it is open.
 
 ## Do's and Don'ts
 

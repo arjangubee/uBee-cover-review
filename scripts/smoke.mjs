@@ -273,6 +273,19 @@ try {
     const on = await (await fetch(`${base}/api/items/${id}/quote-toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ showQuote: true }) })).json();
     assert(on.item.showQuote === true, "toggle should save once unlocked");
   });
+  await check("v1.5.1 connect merges by default; with replace her list becomes exactly the quotes sent", async () => {
+    const before = await (await fetch(`${base}/api/quotes/status`)).json();
+    const merged = await postJson("/api/quotes/connect", { quotes: ["Old line one", "Old line two"] });
+    assert(merged.creatorQuoteCount === before.creatorQuoteCount + 2, `connect without replace should still merge: ${merged.creatorQuoteCount}`);
+    const replaced = await postJson("/api/quotes/connect", { quotes: ["New line A", "New line B", " New line C ", "New line B"], replace: true });
+    assert(replaced.creatorQuoteCount === 3, `replace should leave exactly the 3 distinct quotes sent: ${replaced.creatorQuoteCount}`);
+    const list = (await (await fetch(`${base}/api/quotes`)).json()).quotes.map((q) => q.text);
+    assert(JSON.stringify(list) === JSON.stringify(["New line A", "New line B", "New line C"]), `her list should be only the new quotes, in order: ${list}`);
+    assert(replaced.unlocked === true && replaced.quizRemaining === before.quizRemaining, "replace leaves the quiz verdicts and the unlock as they were");
+    const empty = await fetch(`${base}/api/quotes/connect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quotes: [], replace: true }) });
+    assert(empty.status === 400, `an empty replace must be refused, not wipe her list: ${empty.status}`);
+    assert((await (await fetch(`${base}/api/quotes/status`)).json()).creatorQuoteCount === 3, "a refused replace changes nothing");
+  });
   await check("ubee client workspace plan", async () => {
     await fetch(`${base}/api/workspace/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "ubee_shared", clientName: "Test Creator" }) });
     const plan = await (await fetch(`${base}/api/drive/plan`)).json();

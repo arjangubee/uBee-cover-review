@@ -81,7 +81,7 @@ components:
     textColor: "{colors.text}"
     rounded: "{rounded.pill}"
     height: "36px"
-    padding: "0 9px 0 8px"
+    padding: "0 8px 0 7px"
   mode-switch:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.muted}"
@@ -231,7 +231,7 @@ One centered column, at most 560 px wide, with a 16 px gutter. The cover stage b
 
 The editor docks its Cancel and Save bar to the bottom of the screen above the host app's tab bar (92 px on touch screens). Toasts float above that bar.
 
-The header fits a 375 px phone with the bee and every 44 px target: the queue pill tucks 4 px under the back button's empty edge (both open all covers), undo and redo overlap their boxes by 10 px, and the cover count may run 6 px into the info button's empty edge while letting taps through to it. Below 420 px the font and align controls stack. Below 390 px the queue pill drops its words and keeps the dot and count. Grids go from three to four columns at 520 px. Sheets rise from the bottom on a phone and center at 700 px and up.
+The header fits a 375 px phone with the bee and every 44 px target, and no control ever shares its box with another that does something else: the queue pill tucks 4 px under the back button's empty edge (both open all covers), and the cover count may run 6 px into info's empty right edge and 4 px into undo's empty left edge while letting taps through to them. Undo and redo sit side by side, 44 px apart. Below 420 px the font and align controls stack. Below 390 px the queue pill drops its words and keeps the dot and count. Grids go from three to four columns at 520 px. Sheets rise from the bottom on a phone and center at 700 px and up.
 
 ### Named Rules
 **The Cover Is The Screen Rule.** The cover takes the full width at 4:5 and nothing covers it except the slide counter and, while editing, its own tools.

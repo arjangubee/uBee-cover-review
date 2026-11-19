@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { captionProblems } from "./captionRules.js";
+import { postedCaption } from "./captionCtas.js";
 import { DATA_DIR, LIBRARY_DIR, UPLOAD_DIR, store } from "./store.js";
 
 export const BEE_HIVE_URL = process.env.COVER_REVIEW_BEE_HIVE_URL || "https://ubeeofm.com/api/public/cover-review";
@@ -122,7 +123,8 @@ async function scheduleOne(id, picked) {
   if (item.pollen && LOCKED.includes(item.pollen.status)) {
     return { itemId: id, status: item.pollen.status, bookedDay: item.pollen.bookedDay || null };
   }
-  const problems = captionProblems(item.caption);
+  const caption = postedCaption(item, store.settings.captionCtas); // the comment call, when on, posts first (1.10)
+  const problems = captionProblems(caption);
   if (problems.length) return { itemId: id, status: "refused", error: problems.join(" ") };
   const render = item.pollenRender;
   if (!render || !existsSync(join(RENDER_DIR, render.file))) return { itemId: id, status: "refused", error: "Render the cover first." };
@@ -141,7 +143,7 @@ async function scheduleOne(id, picked) {
         body: readFileSync(join(RENDER_DIR, render.file)), signal: AbortSignal.timeout(120000) });
     } catch { throw new HiveError(OFFLINE, 0); }
     if (!put.ok) throw new HiveError(`The cover didn't upload (${put.status}). Try again.`, put.status);
-    const sub = await hive("submit", { client_key: clientKey, caption: item.caption || "", image_path: up.path,
+    const sub = await hive("submit", { client_key: clientKey, caption: caption || "", image_path: up.path,
       width: render.width, height: render.height, channel_ids: picked, has_slides: (item.slides || []).some((s) => !s.deletedAt) });
     Object.assign(item.pollen, { requestId: sub.request.id, status: sub.request.status, updatedAt: Date.now() });
     store.saveDb();
@@ -253,7 +255,8 @@ export function registerPollen(app) {
     const ids = Array.isArray(req.body?.itemIds) ? req.body.itemIds.map(Number) : [];
     res.json({ items: ids.map((id) => {
       const item = store.getItem(id);
-      return { itemId: id, problems: item ? captionProblems(item.caption) : ["That cover is gone."],
+      const caption = item ? postedCaption(item, store.settings.captionCtas) : "";
+      return { itemId: id, caption, problems: item ? captionProblems(caption) : ["That cover is gone."],
         hasSlides: Boolean(item && (item.slides || []).some((s) => !s.deletedAt)), pollen: item?.pollen || null };
     }) });
   });

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { CONNECTORS, createDriveFolders, drivePlan, sortLocalDump, spotifyAuthUrl } from "./connectors.js";
 import { buildVoiceProfile, generateCaption, loadQuotes, loadTrending, saveTrending, suggestQuote, suggestSong } from "./services.js";
 import { getImportStatus, registerFull } from "./full.js";
+import { ctaFor } from "./captionCtas.js";
 import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
 import { DATA_DIR, LIBRARY_DIR, UPLOAD_DIR, store } from "./store.js";
 import { createUpdater } from "./update.js";
@@ -157,6 +158,9 @@ app.post("/api/items/:id/decide", (req, res) => {
 app.post("/api/items/:id/edit", (req, res) => {
   const item = store.getItem(req.params.id);
   if (!item) return res.status(404).json({ error: "item not found" });
+  // Checked before anything changes, so a refused switch leaves the whole edit undone.
+  const cta = req.body.cta == null || req.body.cta === "" ? null : ctaFor({ cta: req.body.cta }, store.settings.captionCtas || []);
+  if (req.body.cta != null && req.body.cta !== "" && !cta) return res.status(400).json({ error: "That comment call isn't on your list. Ask your Muse to add it." });
   for (const key of ["quote", "song", "caption", "note"]) if (req.body[key] != null) item[key] = String(req.body[key]);
   // A typed caption is hers and is never redrafted (1.9). Undo sends the source back with the words: one of the three
   // sources, or null for a row saved before sources existed.
@@ -169,6 +173,8 @@ app.post("/api/items/:id/edit", (req, res) => {
   if (req.body.song != null) { item.songPreviewUrl = String(req.body.songPreviewUrl || ""); item.songSpotifyUrl = String(req.body.songSpotifyUrl || ""); }
   else if (req.body.songSpotifyUrl != null) item.songSpotifyUrl = String(req.body.songSpotifyUrl);
   if (req.body.regenerateCaption) { item.caption = generateCaption(item, store.settings.voiceProfile); item.captionSource = "placeholder"; }
+  // The comment call switch (1.10): a keyword on the space's list turns it on, null turns it off.
+  if (req.body.cta !== undefined) { if (cta) item.cta = cta.keyword; else delete item.cta; }
   if (req.body.shuffleSong) Object.assign(item, suggestSong({ ...item, id: item.id + Math.floor(Math.random() * 7) + 1 }));
   if (req.body.shuffleQuote) item.quote = suggestQuote({ ...item, id: item.id + Math.floor(Math.random() * 13) + 1 }, loadQuotes());
   store.saveDb();

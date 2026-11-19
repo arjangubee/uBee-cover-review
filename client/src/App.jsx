@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, post, upload } from "./api.js";
 import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, ImageInfo, NoteComposer, Ratings, Steppers, StoryControls, TitleRow, WhyMatches } from "./CoverDetails.jsx";
 import CoverEditor from "./CoverEditor.jsx";
+import EditorSheet from "./EditorSheet.jsx";
 import { imageUrlFor, loadImage } from "./CoverCanvas.jsx";
 import CoverStage from "./CoverStage.jsx";
 import { CoverHeader, ModeSwitch, SongRow } from "./CoverTop.jsx";
@@ -277,6 +278,16 @@ export default function App() {
     draftBase.current = JSON.parse(JSON.stringify(current));
     setDraft(JSON.parse(JSON.stringify({ ...current, ...effectiveStyle(current), imageEdit: { contrast: "normal", mosaics: [], ...(current.imageEdit || {}) } })));
     setActiveBox(box);
+    // The sheet covers the lower part of the screen, like the original. If the cover's top is hidden under
+    // the header, bring it down into view; otherwise the page stays where she left it.
+    requestAnimationFrame(() => {
+      const stage = document.querySelector(".stage")?.getBoundingClientRect();
+      const bar = document.querySelector(".topbar")?.getBoundingClientRect();
+      if (stage && bar && stage.top < bar.bottom - 1) {
+        const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        window.scrollBy({ top: stage.top - bar.bottom, behavior: reduce ? "auto" : "smooth" });
+      }
+    });
   }
   function closeEditor() {
     draftBase.current = null;
@@ -335,9 +346,6 @@ export default function App() {
     setPickMode(false);
     if (hex) setBox({ textColor: hex });
     else say("Couldn't read that color. Try another spot.");
-  }
-  async function copyText(text) {
-    try { await navigator.clipboard.writeText(text); say("Copied."); } catch { say("Couldn't copy. Select the line and copy it."); }
   }
 
   // ---------- Library, info and setup ----------
@@ -403,33 +411,39 @@ export default function App() {
             </div>
           ) : (
             <>
-              {!draft && <ModeSwitch story={story} setStory={setStory} />}
-              {!draft && <SongRow item={current} onShuffle={() => regenerate("song")} onSetSong={setSong} onDraft={(v) => setPending(current.id, "song", v)} />}
+              {/* While the editor sheet is open, the review screen stays behind it, seen but not reachable. */}
+              <div className="behind" inert={draft ? true : undefined}>
+                <ModeSwitch story={story} setStory={setStory} />
+                <SongRow item={current} onShuffle={() => regenerate("song")} onSetSong={setSong} onDraft={(v) => setPending(current.id, "song", v)} />
+              </div>
               <CoverStage item={shown} quoteOn={quoteOn} slides={activeSlides} slide={slide} setSlide={setSlide} story={story && !draft}
                 editing={Boolean(draft)} activeBox={activeBox} onStartEdit={(box) => startEdit(box)} onSelectBox={setActiveBox} onMoveBox={moveBox}
-                pickMode={pickMode} onPick={onPick} onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={Boolean(draft) && draft.extraTexts.length < MAX_BOXES}
-                onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} burst={burst} onDrawn={setDrawnId} />
-              {draft ? (
-                <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
-                  palette={palette.palette} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
-                  pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox} onCancel={closeEditor} onSave={saveDraft} saving={saving} />
-              ) : (
-                <>
-                  <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={remix} onDownload={download}
-                    onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)} />
-                  {story && <StoryControls item={current} onPan={pan} onPanDone={panDone} />}
-                  <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={addSlide} onRemoveSlide={removeSlide}
-                    canPrevPost={index > 0} canNextPost={index < items.length - 1} onPrevPost={() => goTo(index - 1)} onNextPost={() => goTo(index + 1)} />
-                  <button type="button" className="outlineBtn wide" onClick={randomize}><Icon name="sparkle" size={20} /> Randomize layout</button>
-                  <NoteComposer item={current} onPost={postNote} onDraft={(v) => setPending(current.id, "note", v)} inputRef={noteRef} />
-                  <TitleRow item={current} />
-                  {list === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}
-                  <CaptionRow item={current} onSave={saveCaption} onRedo={() => regenerate("caption")} onDraft={(v) => setPending(current.id, "caption", v)} />
-                  <ComposeCheck item={current} onRecheck={recheck} busy={busy} />
-                  <WhyMatches why={current.why} />
-                  <ImageInfo item={current} onSwap={swapPhoto} onRestore={restorePhoto} searchPhotos={searchPhotos} />
-                  <Ratings item={current} onRate={rate} />
-                </>
+                pickMode={pickMode} onPick={onPick} onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} burst={burst} onDrawn={setDrawnId} />
+              <div className="behind" inert={draft ? true : undefined}>
+                <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={remix} onDownload={download}
+                  onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)} />
+                {story && <StoryControls item={current} onPan={pan} onPanDone={panDone} />}
+                <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={addSlide} onRemoveSlide={removeSlide}
+                  canPrevPost={index > 0} canNextPost={index < items.length - 1} onPrevPost={() => goTo(index - 1)} onNextPost={() => goTo(index + 1)} />
+                <button type="button" className="outlineBtn wide" onClick={randomize}><Icon name="sparkle" size={20} /> Randomize layout</button>
+                <NoteComposer item={current} onPost={postNote} onDraft={(v) => setPending(current.id, "note", v)} inputRef={noteRef} />
+                <TitleRow item={current} />
+                {list === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}
+                <CaptionRow item={current} onSave={saveCaption} onRedo={() => regenerate("caption")} onDraft={(v) => setPending(current.id, "caption", v)} />
+                <ComposeCheck item={current} onRecheck={recheck} busy={busy} />
+                <WhyMatches why={current.why} />
+                <ImageInfo item={current} onSwap={swapPhoto} onRestore={restorePhoto} searchPhotos={searchPhotos} />
+                <Ratings item={current} onRate={rate} />
+              </div>
+              {draft && (
+                <EditorSheet onDismiss={closeEditor}>
+                  {(dismiss) => (
+                    <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
+                      palette={palette.palette} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
+                      pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox} onCancel={dismiss} onSave={saveDraft} saving={saving}
+                      onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={draft.extraTexts.length < MAX_BOXES} />
+                  )}
+                </EditorSheet>
               )}
             </>
           )}

@@ -9,15 +9,16 @@ import { displayTitle, parseSong, starsFor } from "./reviewMath.js";
 
 export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onComment, onEdit, busy }) {
   return (
+    // Order from the original, with dislike and repost swapped (Arjang, Nov 18): like, dislike, download, repost, comment, edit.
     <div className="actionRow" role="toolbar" aria-label="Cover actions">
       <button type="button" className={item.status === "approved" ? "iconBtn act liked" : "iconBtn act"} onClick={onLike} disabled={busy} aria-label="Like: approve this cover" aria-pressed={item.status === "approved"}>
         <Icon name="heart" size={28} filled={item.status === "approved"} />
       </button>
-      <button type="button" className="iconBtn act" onClick={onRemix} disabled={busy} aria-label="Repost: remix this cover as a new version"><Icon name="repost" size={28} /></button>
-      <button type="button" className="iconBtn act" onClick={onDownload} disabled={busy} aria-label="Download this cover as it will post"><Icon name="download" size={28} /></button>
       <button type="button" className={item.status === "rejected" ? "iconBtn act passed" : "iconBtn act"} onClick={onDislike} disabled={busy} aria-label="Dislike: pass on this cover" aria-pressed={item.status === "rejected"}>
         <Icon name="dislike" size={28} filled={item.status === "rejected"} />
       </button>
+      <button type="button" className="iconBtn act" onClick={onDownload} disabled={busy} aria-label="Download this cover as it will post"><Icon name="download" size={28} /></button>
+      <button type="button" className="iconBtn act" onClick={onRemix} disabled={busy} aria-label="Repost: remix this cover as a new version"><Icon name="repost" size={28} /></button>
       <button type="button" className="iconBtn act" onClick={onComment} aria-label="Write a note for the next revision"><Icon name="comment" size={28} /></button>
       <button type="button" className="iconBtn act" onClick={onEdit} aria-label="Edit the text on the cover"><Icon name="edit" size={28} /></button>
     </div>

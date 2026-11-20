@@ -1,14 +1,60 @@
-import React from "react";
+import React, { Suspense, lazy, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App.jsx";
+import UpdateBanner from "./UpdateBanner.jsx";
+import { useAnyBusy } from "./busy.js";
+import { BUILT_VERSION } from "./release.js";
 // TikTok Sans (SIL Open Font License), served from this app so the cover text looks the same everywhere.
 import "@fontsource/tiktok-sans/latin-400.css";
 import "@fontsource/tiktok-sans/latin-500.css";
 import "@fontsource/tiktok-sans/latin-700.css";
 import "./styles.css";
+// The Chats screen's styles apply only inside .dm-root (1.14).
+import "./dm/dm-tw.css";
+import "./dm/dm.css";
+
+const queryClient = new QueryClient();
+// Chats loads the first time she opens it, so the review screen loads as fast as before.
+const ChatsApp = lazy(() => import("./dm/App.jsx").then((m) => ({ default: m.App })));
+
+// The page (1.14): Covers, the review screen, and Chats, the DM reply simulator, with the switch between them.
+// Once open, both stay mounted, so neither loses its place when she switches. The version and the update notes sit
+// above both (1.13.10): the version small at the top right, the notes over the switch.
+function Shell() {
+  const busy = useAnyBusy();
+  const [screen, setScreen] = useState("covers");
+  const [chatsOpened, setChatsOpened] = useState(false);
+  const show = (id) => { setScreen(id); if (id === "chats") setChatsOpened(true); };
+  const tab = (id, label) => (
+    <button type="button" className={screen === id ? "on" : ""} aria-pressed={screen === id} onClick={() => show(id)}>{label}</button>
+  );
+  return (
+    <>
+      <p className="versionTag"><span className="srOnly">Version </span>{BUILT_VERSION}</p>
+      <div className="shellTop"><UpdateBanner inUse={busy} /></div>
+      <nav className="screenSwitch" aria-label="Covers or Chats">
+        {tab("covers", "Covers")}
+        {tab("chats", "Chats")}
+      </nav>
+      <div hidden={screen !== "covers"}>
+        <App />
+      </div>
+      <div hidden={screen !== "chats"} className="dm-root">
+        {chatsOpened && (
+          <Suspense fallback={<p className="hint" style={{ padding: 24, textAlign: "center" }}>Loading Chats…</p>}>
+            <ChatsApp />
+          </Suspense>
+        )}
+      </div>
+    </>
+  );
+}
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <Shell />
+    </QueryClientProvider>
   </React.StrictMode>,
 );

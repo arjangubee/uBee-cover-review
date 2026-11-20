@@ -124,6 +124,17 @@ Since 1.4.0 the cover is the screen, the way Quill's Cover Review looks. Since 1
 - Setup, the quote quiz, Pollen and "Something wrong?" sit behind the info button.
 - Fonts: TikTok Sans ships with the app (SIL Open Font License), so the text looks the same on every phone.
 
+## Chats
+
+Since 1.14.0 a switch above the review screen opens Chats, where she practices replies to her Instagram DMs and comments.
+
+- The inbox looks like Instagram's. A DM opens as a chat with the thread so far, and a comment opens a review card.
+- Draft asks her Muse for a reply in her voice. It shows up as draft bubbles: she taps the ones she likes to approve them, edits or types her own, and taps Send.
+- Send hands only the texts she approved to her Muse, which sends them word for word and reports back. Nothing sends without her tap.
+- Blind tests: a message she already answered can come in sealed, so the draft is written without seeing her real reply, which opens once she saves her own.
+- Training exports every reviewed answer, and the Voice tab is her written voice, which every draft follows.
+- It starts empty, and her Muse sets it up (SETUP_FOR_MUSE.md, section 8).
+
 ## How it is built
 
 - Client: React + Vite in client/, plain CSS. The cover is a canvas drawn by client/src/renderCover.js, the same code that makes the posted image. Arrow keys move between covers on a computer.

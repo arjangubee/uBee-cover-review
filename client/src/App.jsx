@@ -17,8 +17,7 @@ import { coverSongEdit } from "./songs/songsData.js";
 import SongsView from "./songs/SongsView.jsx";
 import { createHistory } from "./undo.js";
 import { globalHide, ownQuote, quoteShown } from "./quoteOverlay.js";
-import UpdateBanner from "./UpdateBanner.jsx";
-import { BUILT_VERSION } from "./release.js";
+import { setBusy as setScreenBusy } from "./busy.js";
 
 const STYLE_KEYS = Object.keys(STYLE_DEFAULTS);
 const MAX_BOXES = 5;
@@ -198,6 +197,10 @@ export default function App() {
   }, [pollenPending, sheet, load]);
 
   const current = items[index] || null;
+  // An editor or a sheet open means she's busy: the update notes above both screens wait for a quiet minute (1.13.10, 1.14).
+  const inUse = Boolean(draft) || infoOpen || Boolean(sheet);
+  useEffect(() => { setScreenBusy("covers", inUse); }, [inUse]);
+  useEffect(() => () => setScreenBusy("covers", false), []);
   const shown = draft && current && draft.id === current.id ? draft : current;
   const quoteOn = Boolean(quoteShown(shown, quotesStatus?.quoteOverlay) && quotesStatus?.unlocked); // 1.13.9: global hide, else the post's own (on by default)
   const activeSlides = useMemo(() => (shown?.slides || []).map((s, at) => ({ ...s, at }))
@@ -648,10 +651,6 @@ export default function App() {
   const counts = status?.counts;
   return (
     <div ref={appRef} className={draft ? "app editing" : "app"}>
-      {/* The version this page was built from, small at the top right of every screen (1.13.10, Quill #703). */}
-      <p className="versionTag"><span className="srOnly">Version </span>{BUILT_VERSION}</p>
-      {/* An editor or a sheet open means she's busy: a git copy waits for a quiet minute to update itself (1.13.10). */}
-      <UpdateBanner inUse={Boolean(draft) || infoOpen || Boolean(sheet)} />
       {view === "songs" ? (
         <SongsView forCover={songsFrom === "cover" ? current : null} closeLabel={songsFrom === "cover" ? "Back to the cover" : "Back to all covers"}
           onClose={closeSongs} onUse={putSongOnCover} />

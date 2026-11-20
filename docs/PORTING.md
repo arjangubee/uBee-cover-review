@@ -12,6 +12,87 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.14.0: Chats, the DM reply simulator
+
+Arjang's #570 and #575, Quill's #581 and #584, built from Rose's #580 scrub spec, rebased onto 1.13.10, with the
+standalone simulator's fixes folded in (Quill #725, Rose #738 and #770). The Reply Practice Simulator is
+upstream now: a Covers or Chats switch above both screens, and the Chats screen with its inbox, chat view, Ready to
+Publish, Add, Training and Voice tabs. Upstream ships it empty: no voice, offers, people, photos or messages. Her Muse
+fills them in.
+
+1. **The routes.** One `POST /api/dm/<name>` per action, with the same names, arguments and answers as a space's dm_
+   actions (listitems, createitem, generatedraft, savereview, publishitem, confirmpublish, revealactual, deleteitem,
+   exporttraining, getvoiceprofile, savevoiceprofile, resetvoiceprofile). The space's seed and one-thread fix actions
+   held its own messages, so they aren't here.
+2. **No model.** generatedraft marks the item as waiting (`draft_wanted` on the item, `wanted: true` in the answer),
+   and her Muse drafts it through draftswanted and savedraft. A space with a model drafts in generatedraft as before:
+   it never sets draft_wanted, and the screen reads a missing draft_wanted as false.
+3. **Send hands off.** publishitem saves her answer and marks it publishing, like the space's action, without starting
+   anything. Her Muse sends it through publishwanted and reports with confirmpublish. A space that hands the text to
+   its own agent in publishitem keeps doing that.
+4. **Her voice is data.** The condensed rules and the Voice tab's starting sections live in settings (savevoicesource,
+   getvoicesource), empty by default. A space whose rules are constants in its code keeps them there.
+5. **The account.** getaccount answers the handle the Ready to Publish screen names, from the Instagram connector, or
+   null.
+6. **The client.** client/src/dm/App.jsx is the space's dm/App.tsx without its types, its calls go through
+   client/src/dm/dmApi.js, and client/src/main.jsx is the switch shell. The Chats screen's Tailwind classes are
+   compiled into client/src/dm/dm-tw.css (scripts/dm-css.mjs, Tailwind 4.1.13), scoped to .dm-root. Chats loads the
+   first time it's opened. No profile photos ship: avatars are the monogram, and profiles are empty.
+7. **The version and the update notes sit above both screens** (1.13.10's, moved up into main.jsx's switch), so Chats
+   shows the version and the notes too. Covers says when its editor or a sheet is open through client/src/busy.js; a
+   text box with the cursor in it counts as busy on either screen.
+8. **The voice's version.** Each draft is stamped with the version of her voice it was written under
+   (draftVoiceVersion): djb2 over JSON.stringify of the Voice tab's sections as saved (else the starting profile),
+   written v plus 8 hex (voiceVersion in server/dmRules.js). Items answer draft_voice_version and voice_stale.
+9. **Drafted again on opening, once.** openthread `{ id }` answers `{ item, regenerated, wanted }`. A pending,
+   unpublished draft written under an older voice is drafted again in her voice as it is now: here her Muse is asked
+   (draft_wanted, variant fresh) and the old draft shows until the new one lands; a space with a model redrafts at
+   once and answers regenerated: true. Approved, edited and published drafts never change on their own: the chat
+   shows "Voice changed since this draft", and Again in Advanced redrafts one on purpose. The inbox never drafts.
+10. **The ending cap.** A draft's endings are held to the !! rule her voice states (bangRuleOf and capEndings in
+   server/dmRules.js), when the draft is saved (savedraft here; generatedraft in a space with a model). The first line
+   holding "!!" is the rule, "N in M" on it the rate (1 in 5 when none is given). An ending is a run of two or more !,
+   or with a rule, a run of emoji after words. floor(lines x N / M) of them keep their mark, never every line of a
+   longer draft, the earliest first; the rest lose the mark with nothing in its place. With no rule, every !! ending
+   goes and emoji stay. Her own revisions and sent texts are never changed.
+11. **Story replies.** When the last message from them is a story reply with words, those words are the incoming
+   message. With no words and "replied to your story" as the message, the item is flagged story_reply_not_captured:
+   the chat shows "They replied to your story. The words of that reply weren't captured when this chat was imported,
+   so there is no message text to show here." in place of the bubble, and the draft prompt says the words weren't
+   captured instead of passing the placeholder off as theirs. updatethread `{ id, thread_messages }` takes a later
+   import, which recovers the words when it carries them. The standalone's note has a long dash; here it's two
+   sentences, by the house rule.
+
+For a space that already has the simulator, its bridge maps `/api/dm/<name>` to `dm_<name>` with one rule, and the
+dm/ client files come over whole like the rest of client/src. Its own people (profile photos, profiles, the handle the
+screen names) are its data and stay space-only as a standing adaptation. Its dm_ tables and their rows don't change.
+
+### Actions
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| POST /api/dm/listitems ... resetvoiceprofile | New. The twelve actions above, the same arguments and answers. Items also carry `draft_wanted` |
+| POST /api/dm/getaccount | New. `{ handle }`, the Instagram connector's handle without the @, or null |
+| POST /api/dm/getvoicesource, savevoicesource | New. Her condensed rules and the Voice tab's starting sections, for her Muse |
+| POST /api/dm/draftswanted, savedraft | New. Drafts waiting for her Muse, with the exact system and prompt text, and her Muse's draft back |
+| POST /api/dm/publishwanted | New. Approved texts waiting for her Muse to send, the order she tapped Send |
+| POST /api/dm/openthread | New. `{ id }`, called when a chat opens; answers `{ item, regenerated, wanted }` |
+| POST /api/dm/updatethread | New. `{ id, thread_messages }`, a later import of a thread, for her Muse |
+| POST /api/dm/savedraft, createitem, listitems | savedraft caps endings and stamps the voice; createitem keeps a story reply's words; items carry draft_voice_version, voice_stale, story_reply_not_captured |
+
+### Data
+
+| Where | Change |
+| --- | --- |
+| data/db.json | New dmItems (the items) and dmNextId; items gain draftVoiceVersion and storyReplyNotCaptured |
+| data/settings.json | New dmVoice (rules and starting sections) and dmVoiceProfile (her Voice tab edits) |
+
+Checks after the port: the counts don't change, the switch shows Covers first, Chats lists her items as before, a
+draft and a send work end to end, and the Voice tab shows her saved sections. For a space that already has the
+simulator, its dm_ items gain the two fields at their defaults (no stamp reads as stale, so her pending drafts are drafted
+again as she opens them); report how many pending drafts are stale before and after, and that approved, edited and
+published drafts are unchanged.
+
 ## 1.13.10: the app updates itself, and the version shows at the top
 
 Arjang's #729, Quill's #703, #733, #745 and #746. No new fields, settings or tables. One new action and client changes.

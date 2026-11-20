@@ -2,7 +2,7 @@
 // Run with the server stopped: node scripts/smoke.mjs
 import { execFileSync, spawn } from "node:child_process";
 import http from "node:http";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { captionProblems } from "../server/captionRules.js";
@@ -10,6 +10,7 @@ import { nextOpacity } from "../server/styleRules.js";
 import { canDraft, captionPrompt, draftProblems, needsDescription } from "../server/captionDrafts.js";
 import { bakedCta, cleanCtas, ctaFor, plainCaption, postedCaption } from "../server/captionCtas.js";
 import * as sharedCall from "../client/src/captionCall.js";
+import { bangRuleOf, capEndings, storyCapture, voiceVersion } from "../server/dmRules.js";
 
 // Smoke runs in a throwaway data folder, so it never touches a creator's real photos,
 // decisions, workspace or settings.
@@ -1420,6 +1421,255 @@ try {
     assert(nextChunk.created.length === 1, "next chunk should create its item");
     const setup = await (await fetch(`${base}/api/setup/status`)).json();
     assert(setup.import && typeof setup.import.importState === "string", "setup status should carry import state");
+  });
+  // The Chats simulator (1.14, Arjang #570 and #575, Quill #581 and #584): practice replies to DMs and comments, her Muse
+  // drafts and sends. One POST route per action under /api/dm/, the same names and answers as a Muse space's dm_ actions.
+  const dm = (name, body) => postJson(`/api/dm/${name}`, body || {});
+  async function dmFails(name, body, status, words) {
+    const r = await fetch(`${base}/api/dm/${name}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+    const text = await r.text();
+    assert(r.status === status, `${name} ${JSON.stringify(body)} answered ${r.status}: ${text.slice(0, 200)}`);
+    if (words) assert(JSON.parse(text).error.includes(words), `${name}: ${text.slice(0, 200)}`);
+  }
+  const dmItem = async (id) => (await dm("listitems")).items.find((i) => i.id === id);
+  await check("v1.14 the Chats simulator starts empty: no items, no voice, no account, nothing waiting for her Muse", async () => {
+    const list = await dm("listitems");
+    assert(list.items.length === 0, `items: ${list.items.length}`);
+    assert(JSON.stringify(list.stats) === JSON.stringify({ total: 0, pending: 0, reviewed: 0, approved: 0, edited: 0, needs_work: 0, ready: 0, published: 0 }), `stats: ${JSON.stringify(list.stats)}`);
+    const voice = await dm("getvoiceprofile");
+    assert(Array.isArray(voice.sections) && voice.sections.length === 0 && voice.is_custom === false, `voice: ${JSON.stringify(voice)}`);
+    const source = await dm("getvoicesource");
+    assert(JSON.stringify(source) === JSON.stringify({ rules: { voice: "", listening: "", deterrence: "", dm: "", offers: "" }, starting_profile: [] }), `voice source: ${JSON.stringify(source)}`);
+    assert((await dm("draftswanted")).items.length === 0 && (await dm("publishwanted")).items.length === 0, "nothing wanted");
+  });
+  const dmIds = {};
+  await check("v1.14 items are added, listed oldest first, and a holdout's real reply stays sealed", async () => {
+    dmIds.live = (await dm("createitem", { kind: "dm", sender: "@test.person", incoming_text: "  hi there, how do I start?  ", thread_id: "t-1",
+      thread_messages: [{ from: "them", text: "first message" }, { from: "me", kind: "reaction" }, { from: "them", kind: "share_reel", url: "https://example.com/r/1", at: "2026-11-20T01:00:00-08:00" },
+        { from: "them", kind: "text", text: "   " }, { from: "them", kind: "made-up", text: "kept as text", reply_to: "story" }] })).id;
+    dmIds.holdout = (await dm("createitem", { kind: "dm", sender: "other", incoming_text: "old message", source: "holdout", actual_reply: "What I really said" })).id;
+    dmIds.comment = (await dm("createitem", { kind: "comment", incoming_text: "love this post", context_text: "post caption", media_id: "m-1", comment_id: "c-1", actual_reply: "ignored, not a holdout" })).id;
+    assert(dmIds.live < dmIds.holdout && dmIds.holdout < dmIds.comment, `ids: ${JSON.stringify(dmIds)}`);
+    const list = await dm("listitems");
+    assert(list.items.map((i) => i.id).join(",") === [dmIds.live, dmIds.holdout, dmIds.comment].join(","), "oldest first");
+    const live = list.items[0];
+    assert(live.incoming_text === "hi there, how do I start?" && live.sender === "@test.person" && live.source === "live" && live.verdict === "pending", `live: ${JSON.stringify(live).slice(0, 300)}`);
+    assert(live.publish_status === "unpublished" && live.has_target === true && live.draft_text === null && live.draft_wanted === false, "a fresh live item");
+    assert(JSON.stringify(live.thread_messages) === JSON.stringify([
+      { from: "them", kind: "text", text: "first message", url: null, reply_to: null, at: null },
+      { from: "me", kind: "reaction", text: null, url: null, reply_to: null, at: null },
+      { from: "them", kind: "share_reel", text: null, url: "https://example.com/r/1", reply_to: null, at: "2026-11-20T01:00:00-08:00" },
+      { from: "them", kind: "text", text: "kept as text", url: null, reply_to: "story", at: null }]), `thread: ${JSON.stringify(live.thread_messages)}`);
+    const holdout = list.items[1];
+    assert(holdout.has_actual === true && holdout.actual_reply === null && holdout.revealed === false, `holdout: ${JSON.stringify(holdout).slice(0, 300)}`);
+    const comment = list.items[2];
+    assert(comment.has_actual === false && comment.sender === "" && comment.context_text === "post caption", "a comment keeps no real reply unless it's a holdout");
+    assert(list.stats.total === 3 && list.stats.pending === 3 && list.stats.ready === 0, `stats: ${JSON.stringify(list.stats)}`);
+    assert((await dm("listitems", { filter: "comment" })).items.length === 1 && (await dm("listitems", { filter: "dm" })).items.length === 2, "kind filters");
+    await dmFails("createitem", { kind: "dm", incoming_text: "   " }, 400);
+    await dmFails("createitem", { kind: "story", incoming_text: "hi" }, 400);
+    await dmFails("createitem", { kind: "dm", incoming_text: "x".repeat(4001) }, 400);
+    await dmFails("listitems", { filter: "nope" }, 400);
+    await dmFails("nosuchaction", {}, 404);
+  });
+  await check("v1.14 Draft asks her Muse: the item is marked waiting, the prompt never holds a sealed reply, and her Muse's draft lands", async () => {
+    await dm("savevoicesource", { rules: { voice: "VOICE-RULES", listening: "LISTEN-RULES", deterrence: "DETER-RULES", dm: "DM-RULES", offers: "OFFERS-LIST" } });
+    const asked = await dm("generatedraft", { id: dmIds.holdout, mode: "listening" });
+    assert(asked.wanted === true && asked.draft_text === "" && asked.draft_mode === "dm", `a DM always drafts in dm mode: ${JSON.stringify(asked)}`);
+    assert((await dmItem(dmIds.holdout)).draft_wanted === true, "the item shows it's waiting for a draft");
+    await dm("generatedraft", { id: dmIds.comment, mode: "deterrence", variant: "sharper" });
+    const wanted = (await dm("draftswanted")).items;
+    assert(wanted.map((w) => w.id).join(",") === [dmIds.holdout, dmIds.comment].join(","), `wanted: ${JSON.stringify(wanted).slice(0, 200)}`);
+    const h = wanted[0], c = wanted[1];
+    assert(h.mode === "dm" && h.variant === "fresh" && c.mode === "deterrence" && c.variant === "sharper", "mode and variant");
+    assert(h.prompt.includes("Their message: old message") && h.prompt.includes("From: @other") && !h.prompt.includes("What I really said") && !h.system.includes("What I really said"), "the sealed reply never reaches the prompt");
+    assert(h.system.includes("VOICE-RULES") && h.system.includes("DM-RULES") && h.system.includes("OFFERS-LIST") && !h.system.includes("LISTEN-RULES"), `a DM's system: ${h.system.slice(0, 200)}`);
+    assert(c.system.includes("LISTEN-RULES") && c.system.includes("DETER-RULES") && !c.system.includes("OFFERS-LIST"), "a comment's deterrence system");
+    assert(c.prompt.includes("Context (post caption or thread so far): post caption") && c.prompt.includes("SHARPER"), `comment prompt: ${c.prompt}`);
+    await dmFails("savedraft", { id: dmIds.holdout, draft_text: "   " }, 400);
+    await dmFails("generatedraft", { id: 99999 }, 404, "no longer exists");
+    // A draft follows the !! rule in her voice profile (1.14, Rose #770): this copy's profile has none, so it ends with none.
+    const landed = await dm("savedraft", { id: dmIds.holdout, draft_text: "  Something tells me you started already!!  " });
+    assert(landed.draft_text === "Something tells me you started already" && landed.draft_mode === "dm", `landed: ${JSON.stringify(landed)}`);
+    const item = await dmItem(dmIds.holdout);
+    assert(item.draft_text === "Something tells me you started already" && item.draft_wanted === false, "the draft is on the item and nothing waits");
+    assert((await dm("draftswanted")).items.map((w) => w.id).join(",") === String(dmIds.comment), "only the comment still waits");
+    await dm("generatedraft", { id: dmIds.live });
+    const live = (await dm("draftswanted")).items.find((w) => w.id === dmIds.live);
+    assert(live.prompt.includes("Thread so far, oldest first:\nThem: first message\nthe creator: [reacted to a message]\nThem: [shared a reel]\nThem: kept as text"), `thread in the prompt: ${live.prompt}`);
+    assert(live.prompt.includes("Do not start your reply the same way as these recent drafts: Something tells"), "recent openings");
+    await dm("savedraft", { id: dmIds.live, draft_text: "Yayyy welcome in!!" });
+  });
+  await check("v1.14 review: approving with no edit keeps the draft word for word, and a sealed reply opens only after", async () => {
+    await dmFails("revealactual", { id: dmIds.holdout }, 409, "Save your revision first");
+    await dmFails("savereview", { id: dmIds.comment, verdict: "approved" }, 409, "no draft to approve");
+    await dmFails("savereview", { id: dmIds.holdout, verdict: "maybe" }, 400);
+    assert((await dm("savereview", { id: dmIds.holdout, verdict: "approved", feedback: " good " })).ok === true, "saved");
+    const saved = await dmItem(dmIds.holdout);
+    assert(saved.revision_text === "Something tells me you started already" && saved.verdict === "approved" && saved.feedback === "good" && saved.reviewed_at, `saved: ${JSON.stringify(saved).slice(0, 300)}`);
+    const opened = await dm("revealactual", { id: dmIds.holdout });
+    assert(opened.actual_reply === "What I really said", "the real reply");
+    const after = await dmItem(dmIds.holdout);
+    assert(after.revealed === true && after.actual_reply === "What I really said", "it stays open");
+    await dmFails("revealactual", { id: dmIds.live }, 409, "no actual reply stored");
+    await dm("savereview", { id: dmIds.live, revision_text: "Yayyy welcome in", verdict: "edited" });
+    assert((await dmItem(dmIds.live)).verdict === "approved", "an unchanged draft counts as approved");
+  });
+  await check("v1.14 Send hands the approved text to her Muse, and only her Muse's report marks it sent", async () => {
+    await dmFails("publishitem", { id: dmIds.holdout }, 409, "blind holdout");
+    await dmFails("publishitem", { id: dmIds.comment, verdict: "approved" }, 409, "nothing to publish yet");
+    const sent = await dm("publishitem", { id: dmIds.live, revision_text: "Yayyy welcome in!!\nLemme know how it lands", verdict: "edited" });
+    assert(sent.ok === true && sent.status === "publishing" && sent.text === "Yayyy welcome in!!\nLemme know how it lands", `sent: ${JSON.stringify(sent)}`);
+    await dmFails("publishitem", { id: dmIds.live }, 409, "already on its way");
+    const wanted = (await dm("publishwanted")).items;
+    assert(wanted.length === 1 && wanted[0].id === dmIds.live && wanted[0].text === sent.text && wanted[0].kind === "dm" && wanted[0].sender === "@test.person" && wanted[0].thread_id === "t-1", `wanted: ${JSON.stringify(wanted)}`);
+    assert(wanted[0].incoming_text === "hi there, how do I start?" && !("actual_reply" in wanted[0]), "what to find, and nothing sealed");
+    await dm("confirmpublish", { id: dmIds.live, ok: false, detail: "thread not found" });
+    let item = await dmItem(dmIds.live);
+    assert(item.publish_status === "publish_failed" && item.publish_error === "thread not found", `failed: ${JSON.stringify(item).slice(0, 300)}`);
+    assert((await dm("listitems", { filter: "ready" })).items.map((i) => i.id).join(",") === String(dmIds.live), "a failed send is ready to try again");
+    assert((await dm("publishwanted")).items.length === 0, "nothing waits after a report");
+    await dm("publishitem", { id: dmIds.live, revision_text: "Yayyy welcome in!!\nLemme know how it lands", verdict: "edited" });
+    await dm("confirmpublish", { id: dmIds.live, ok: true });
+    item = await dmItem(dmIds.live);
+    assert(item.publish_status === "published" && item.published_text === "Yayyy welcome in!!\nLemme know how it lands" && item.published_at && item.publish_error === null, "published");
+    await dmFails("publishitem", { id: dmIds.live }, 409, "already published");
+    const stats = (await dm("listitems")).stats;
+    assert(stats.published === 1 && stats.reviewed === 2 && stats.ready === 0, `stats: ${JSON.stringify(stats)}`);
+    await dmFails("confirmpublish", { id: 99999, ok: true }, 404);
+  });
+  await check("v1.14 training export, the voice tab, the account and delete", async () => {
+    const out = await dm("exporttraining");
+    assert(out.count === 2 && out.items.map((i) => i.id).join(",") === [dmIds.live, dmIds.holdout].join(",") && out.exported_at, `export: ${JSON.stringify(out).slice(0, 300)}`);
+    assert(out.items[1].actual_reply === "What I really said" && out.items[0].actual_reply === null, "only an opened holdout gives its real reply");
+    await dm("savevoicesource", { starting_profile: [{ title: "Openers", body: "Warm guess first" }] });
+    let voice = await dm("getvoiceprofile");
+    assert(voice.sections.length === 1 && voice.sections[0].title === "Openers" && voice.is_custom === false, `starting profile: ${JSON.stringify(voice)}`);
+    await dmFails("savevoiceprofile", { sections: [{ title: " ", body: "x" }] }, 400);
+    await dmFails("savevoiceprofile", { sections: [] }, 400);
+    await dm("savevoiceprofile", { sections: [{ title: "Openers", body: "Warm guess first\nNo pet names" }, { title: "Closers", body: "!! at the end" }] });
+    voice = await dm("getvoiceprofile");
+    assert(voice.is_custom === true && voice.sections.length === 2, "her edits");
+    await dm("generatedraft", { id: dmIds.comment });
+    const c = (await dm("draftswanted")).items.find((w) => w.id === dmIds.comment);
+    assert(c.system.includes("## Closers\n!! at the end") && c.system.includes("her notes win"), `notes in the system: ${c.system.slice(-300)}`);
+    const reset = await dm("resetvoiceprofile");
+    assert(reset.ok === true && reset.sections.length === 1 && reset.sections[0].title === "Openers", "back to the starting profile");
+    assert((await dm("getvoiceprofile")).is_custom === false, "no edits after a reset");
+    assert((await dm("getaccount")).handle === null || typeof (await dm("getaccount")).handle === "string", "an account handle or none");
+    await postJson("/api/connectors/instagram/consent", { captionConsent: true, handle: "@smoke.creator" });
+    assert((await dm("getaccount")).handle === "smoke.creator", "the account comes from the Instagram connector");
+    assert((await dm("deleteitem", { id: dmIds.comment })).ok === true && !(await dmItem(dmIds.comment)), "deleted");
+    assert((await dm("draftswanted")).items.length === 0, "a deleted item waits for nothing");
+    const db = JSON.parse(readFileSync(join(DATA, "db.json"), "utf8"));
+    assert(db.dmItems.length === 2 && db.dmItems.every((i) => i.id && i.kind), "the items are in this copy's own data");
+  });
+  // ---------- v1.14: the standalone simulator's fixes, folded in (Quill #725, Rose #738 and #770) ----------
+  await check("v1.14 the voice version stamps each draft, Muse's drafts follow the profile's !! rule, a stale pending draft is asked for again when its thread opens, and story replies keep their own words", async () => {
+    assert(voiceVersion([]) === "v0059765d" && voiceVersion([{ title: "Punctuation and emoji", body: "Hardly any commas." }]) === "v84161010", "djb2 over the saved sections, v plus 8 hex");
+    const rule = [{ title: "Punctuation and emoji", body: "Hardly any commas.\n~1 in 5 replies end with !! or one matching emoji" }];
+    assert(bangRuleOf([{ title: "A", body: "No pet names" }]) === null, "no line with !! means no rule");
+    assert(JSON.stringify(bangRuleOf(rule)) === '{"per":1,"outOf":5}' && JSON.stringify(bangRuleOf([{ title: "P", body: "2 in 3 end with !!" }])) === '{"per":2,"outOf":3}', "the fraction on the !! line");
+    assert(JSON.stringify(bangRuleOf([{ title: "P", body: "Replies end with !! about 1 time in 5" }])) === '{"per":1,"outOf":5}', "stated with no fraction it reads 1 in 5");
+    assert(capEndings("Thank you!!", rule) === "Thank you", "one line: floor(1 x 1 / 5) is 0");
+    const ten = Array.from({ length: 10 }, (_, i) => `Line ${i + 1}!!`).join("\n");
+    assert(capEndings(ten, rule) === ["Line 1!!", "Line 2!!", ...Array.from({ length: 8 }, (_, i) => `Line ${i + 3}`)].join("\n"), `ten lines keep two, the earliest: ${capEndings(ten, rule)}`);
+    assert(capEndings("Hi!\nSo good \u{1F602}\n\u{1F602}", rule) === "Hi!\nSo good\n\u{1F602}", "a single ! isn't a mark, an emoji ending is, a lone emoji is content");
+    assert(capEndings("Yesss!!!\nAmazing \u{1F483}\u{1F483}", [{ title: "A", body: "No pet names" }]) === "Yesss\nAmazing \u{1F483}\u{1F483}", "no rule: every !! goes and an emoji stays");
+    assert(capEndings("A!!\nB!!\nC!!", [{ title: "P", body: "1 in 1 end with !!" }]) === "A!!\nB!!\nC", "never on every line of a longer draft");
+    assert(capEndings("Wow!!\n\nOkay!!", rule) === "Wow\n\nOkay", "empty lines stay and don't count");
+    const story = (text) => [{ from: "them", kind: "share_story", reply_to: "story", text }];
+    assert(JSON.stringify(storyCapture(story("So good"), "replied to your story")) === '{"incomingText":"So good","notCaptured":false}', "the reply's own words");
+    assert(JSON.stringify(storyCapture(story(null), " Replied to your story ")) === '{"incomingText":" Replied to your story ","notCaptured":true}', "no words and the placeholder: not captured");
+    assert(storyCapture([{ from: "them", kind: "text", text: "hey" }], "replied to your story").notCaptured === false, "only a story reply counts");
+
+    await dm("savevoiceprofile", { sections: rule });
+    const id = (await dm("createitem", { kind: "dm", sender: "voice.test", incoming_text: "How do you stay so calm?" })).id;
+    await dm("generatedraft", { id });
+    const drafted = await dm("savedraft", { id, draft_text: "Breathing first!!\nThen tea!!" });
+    assert(drafted.draft_text === "Breathing first\nThen tea", `two lines at 1 in 5 keep none: ${drafted.draft_text}`);
+    let it = await dmItem(id);
+    assert(it.draft_voice_version === voiceVersion(rule) && it.voice_stale === false, `stamped with the voice it was drafted under: ${JSON.stringify(it).slice(0, 300)}`);
+    const calm = [{ title: "Punctuation and emoji", body: "Hardly any commas." }];
+    await dm("savevoiceprofile", { sections: calm });
+    it = await dmItem(id);
+    assert(it.voice_stale === true && it.draft_wanted === false, "the voice changed: the draft is stale, and listing asks for nothing");
+    const opened = await dm("openthread", { id });
+    assert(opened.regenerated === false && opened.wanted === true && opened.item.draft_wanted === true && opened.item.draft_text === "Breathing first\nThen tea",
+      `pending and stale: her Muse is asked once, and the old draft shows until the new one lands: ${JSON.stringify(opened).slice(0, 300)}`);
+    const asked = (await dm("draftswanted")).items.filter((w) => w.id === id);
+    assert(asked.length === 1 && asked[0].variant === "fresh" && asked[0].mode === "dm", `asked for a fresh draft: ${JSON.stringify(asked).slice(0, 200)}`);
+    const twice = await dm("openthread", { id });
+    assert(twice.wanted === true && (await dm("draftswanted")).items.filter((w) => w.id === id)[0].asked_at === asked[0].asked_at, "opening it again asks nothing new");
+    await dm("savedraft", { id, draft_text: "Breathing first then tea" });
+    it = await dmItem(id);
+    assert(it.voice_stale === false && it.draft_voice_version === voiceVersion(calm), "the new draft carries the new voice");
+    await dm("savereview", { id, verdict: "approved" });
+    await dm("savevoiceprofile", { sections: rule });
+    const kept = await dm("openthread", { id });
+    assert(kept.wanted === false && kept.item.voice_stale === true && kept.item.verdict === "approved" && kept.item.draft_text === "Breathing first then tea" && !kept.item.draft_wanted,
+      `approved: never redrafted on its own, only marked: ${JSON.stringify(kept).slice(0, 300)}`);
+
+    const caught = (await dm("createitem", { kind: "dm", sender: "story.fan", incoming_text: "replied to your story", thread_messages: story("This made my whole morning") })).id;
+    let s = await dmItem(caught);
+    assert(s.incoming_text === "This made my whole morning" && s.story_reply_not_captured === false, `a story reply keeps its own words: ${JSON.stringify(s).slice(0, 300)}`);
+    const lost = (await dm("createitem", { kind: "dm", sender: "story.fan2", incoming_text: "Replied to your story", thread_messages: story(null) })).id;
+    s = await dmItem(lost);
+    assert(s.story_reply_not_captured === true, "no words captured: flagged");
+    await dm("generatedraft", { id: lost });
+    const p = (await dm("draftswanted")).items.find((w) => w.id === lost);
+    assert(!p.prompt.includes("Their message: Replied to your story") && p.prompt.includes("weren't captured") && p.prompt.includes("Don't invent"), `the prompt never passes the placeholder off as her words: ${p.prompt}`);
+    const back = await dm("updatethread", { id: lost, thread_messages: story("Where was this taken?") });
+    s = await dmItem(lost);
+    assert(back.ok === true && s.incoming_text === "Where was this taken?" && s.story_reply_not_captured === false, `a later import with the words recovers them: ${JSON.stringify(s).slice(0, 300)}`);
+    await dmFails("openthread", { id: 99999 }, 404);
+    await dmFails("updatethread", { id: lost, thread_messages: "nope" }, 400);
+  });
+  await check("v1.14 every class the Chats screen uses has a rule in its stylesheet (after changing classes: node scripts/dm-css.mjs)", async () => {
+    const dir = new URL("../client/src/dm/", import.meta.url).pathname;
+    const css = readFileSync(join(dir, "dm-tw.css"), "utf8") + readFileSync(join(dir, "dm.css"), "utf8");
+    const have = new Set([...css.matchAll(/\.((?:\\.|[\w-])+)/g)].map((m) => m[1].replace(/\\(.)/g, "$1")));
+    // The words inside className="..." and the strings inside className={...}, template literals included.
+    const used = new Set();
+    const add = (text) => { for (const t of text.split(/\s+/)) if (t) used.add(t); };
+    for (const f of readdirSync(dir).filter((n) => n.endsWith(".jsx"))) {
+      const src = readFileSync(join(dir, f), "utf8");
+      for (let i = src.indexOf("className="); i !== -1; i = src.indexOf("className=", i)) {
+        i += 10;
+        if (src[i] === '"') { const end = src.indexOf('"', i + 1); add(src.slice(i + 1, end)); i = end + 1; continue; }
+        if (src[i] !== "{") continue;
+        let depth = 0, j = i;
+        for (; j < src.length; j++) {
+          const c = src[j];
+          if (c === '"' || c === "'") { const end = src.indexOf(c, j + 1); add(src.slice(j + 1, end)); j = end; continue; }
+          if (c === "`") {
+            let k = j + 1, chunk = "";
+            while (k < src.length && src[k] !== "`") {
+              if (src[k] === "$" && src[k + 1] === "{") {
+                add(chunk); chunk = "";
+                let d = 1; k += 2;
+                while (d > 0) {
+                  const ch = src[k];
+                  if (ch === "{") d++;
+                  else if (ch === "}") d--;
+                  else if (ch === '"' || ch === "'") { const end = src.indexOf(ch, k + 1); add(src.slice(k + 1, end)); k = end; }
+                  k++;
+                }
+                continue;
+              }
+              chunk += src[k]; k++;
+            }
+            add(chunk); j = k; continue;
+          }
+          if (c === "{") depth++;
+          else if (c === "}" && --depth === 0) break;
+        }
+        i = j + 1;
+      }
+    }
+    const missing = [...used].filter((t) => !have.has(t));
+    assert(used.size > 200, `found only ${used.size} classes`);
+    assert(!missing.length, `classes with no rule: ${missing.join(" ")}`);
   });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);

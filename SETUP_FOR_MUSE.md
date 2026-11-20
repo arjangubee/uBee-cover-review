@@ -109,3 +109,32 @@ Most creators save in their own Drive. A uBee client is different:
 - When the creator approves in the app, mirror approved photos into the Drive "Approved" folder if Drive is connected.
 - Keep trending fresh, keep the voice profile current as they post, and surface their saved notes back to them when they edit. A note like a body note or a crop note is an instruction for the edit, keep it attached to that photo.
 - Report in short messages. One topic per message.
+
+## 8. Chats: practice replies to her DMs and comments (1.14)
+
+The Chats screen is where she practices replies. You draft them in her voice, she edits and approves them, and the
+texts she approves go out only when she taps Send. Every call is `POST /api/dm/<name>` with a JSON body.
+
+Her voice, before your first draft:
+1. Write her rules as plain text from her own writing and let her read them: `savevoicesource` with `{ "rules": { "voice": "...", "listening": "...", "deterrence": "...", "dm": "...", "offers": "..." } }`. "listening" is for comment replies, "deterrence" for comments that need a boundary, "dm" for DMs, and "offers" lists only what her public site offers right now, checked on the site.
+2. Give the Voice tab its starting sections with `{ "starting_profile": [{ "title": "...", "body": "..." }] }`. She edits them there, and Restore puts yours back.
+3. They stay in this copy's data. `getvoicesource` reads them back.
+
+Her messages, only with her yes to reading her DMs and comments:
+1. Add each one still waiting for a reply with `createitem`: kind ("dm" or "comment"), sender, incoming_text, and the ids that find it again (thread_id for a DM, media_id and comment_id for a comment). For a DM, add the thread so far as thread_messages, oldest first, at most the last 10.
+2. For a blind test, add a message she already answered with source "holdout" and her real reply as actual_reply. It stays sealed until she saves her own answer, and it can't be sent.
+
+Drafts:
+1. When she taps Draft, the message waits for you. Check `draftswanted` every minute or so while she's in Chats.
+2. Each one carries `system` and `prompt`: write one reply that follows them, and nothing else. Never look up a holdout's real reply.
+3. Save it with `savedraft` as `{ "id": ..., "draft_text": "..." }`. It shows up in her chat on its own.
+
+Sending, only what she tapped Send on:
+1. Check `publishwanted`. Each one has the exact text she approved, who it's for, their message, and the ids you stored.
+2. Send the text word for word through her Instagram connection: no rewording, no emoji, no fixed punctuation. For a DM, send each line that isn't empty as its own message, in order, to that thread. For a comment, reply to that comment.
+3. Use the stored ids. Without them, find the thread or comment by the sender and their message. If you can't find exactly one, don't guess.
+4. Never retry a send whose outcome you're unsure of.
+5. Report every one with `confirmpublish`: `{ "id": ..., "ok": true }`, or `{ "id": ..., "ok": false, "detail": "the reason, in plain words" }`. A failed one goes back to her Ready to Publish list to try again.
+6. Send nothing else, and never send on your own.
+
+The Ready to Publish screen names her account from the Instagram connector's handle (section 5).

@@ -1,9 +1,8 @@
 {
-  "version": "1.17.0",
+  "version": "1.17.1",
   "date": "2026-11-20",
   "whatsNew": [
-    "Remix opens a menu: New quote, New song or both, each with an optional prompt for what you want",
-    "The new quote comes from your own quotes and the new song from your list, never one you hid",
-    "Keep reviewing while it's made: the remix comes next, right after the cover you're on"
+    "A quote counts as one of yours even with different capitals, curly quotes, punctuation or extra spaces, the way the original checks it",
+    "A remix of a remix keeps one (remix) in its name"
   ]
 }

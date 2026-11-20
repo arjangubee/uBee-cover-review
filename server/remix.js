@@ -6,7 +6,7 @@
 // background while she reviews, and the page puts a finished remix right after the cover she's on. A remix that can't pick
 // lands nothing and leaves a note on the cover it came from. A space with a model may make the same pick with it, under the
 // same stock, pool and hidden rules and the same gate.
-import { quoteInStock, revisionOf, songInPool } from "./full.js";
+import { normalizeForStockCheck, quoteInStock, revisionOf, songInPool } from "./full.js";
 import { pickable } from "./music.js";
 import { generateCaption, loadQuotes, loadTrending } from "./services.js";
 import { downloadedSongs, songFields } from "./songs.js";
@@ -50,10 +50,12 @@ function best(cands, texts, seed) {
 }
 
 function pickQuote(src, prompt, seed) {
+  // Her stock, each quote once and never the cover's own, read the way the stock check reads them (1.17.1).
+  const now = normalizeForStockCheck(src.quote);
   const stock = new Map();
   for (const q of loadQuotes()) {
-    const text = String(q?.text ?? "").trim();
-    if (text && !same(text, src.quote) && !stock.has(text.toLowerCase())) stock.set(text.toLowerCase(), text);
+    const text = String(q?.text ?? "").trim(), key = normalizeForStockCheck(text);
+    if (key && key !== now && !stock.has(key)) stock.set(key, text);
   }
   const hit = best([...stock.values()].map((text) => ({ text })), [[3, prompt], [2, src.description], [1, src.quote]], seed);
   return hit ? { quote: hit.text } : { error: "Your quote list has no other quote to pick from." };
@@ -133,7 +135,9 @@ function finish(id) {
   }
   // The new cover is the old remix's copy (the photo, its layout, style and color, slides and photo edits, her note) with
   // the new picks. What explained or rated the old quote or song doesn't carry: why it matches, and that part's stars.
-  const copy = { ...revisionOf(src), status: "queue", parentId: src.id, revision: (src.revision || 1) + 1, title: `${src.title} (remix)`,
+  // A remix of a remix keeps one " (remix)" on its title (Quill #826 item 4).
+  const title = String(src.title ?? "").endsWith(" (remix)") ? src.title : `${src.title} (remix)`;
+  const copy = { ...revisionOf(src), status: "queue", parentId: src.id, revision: (src.revision || 1) + 1, title,
     createdAt: rec.finishedAt, why: null, ...out.fields };
   delete copy.lastRemix;
   if (rec.quote.on) {

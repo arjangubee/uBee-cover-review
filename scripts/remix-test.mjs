@@ -214,6 +214,45 @@ try {
       assert(beacons.QUOTE_IN_STOCK === true, `the compose check agrees: ${JSON.stringify(beacons)}`);
     });
   });
+
+  await check("v1.17.1 the quote stock check reads quotes the original's way: case, curly quotes, punctuation and runs of spaces don't matter", async () => {
+    await withCopy(4185, async (api) => {
+      // Quill #826: the original's normalizeForStockCheck lowercases, makes curly quotes straight, turns anything but a-z,
+      // 0-9 and spaces into a space, collapses runs of spaces, then trims.
+      writeFileSync(join(api.dir, "quotes.json"), JSON.stringify([{ text: "The ocean  remembers every wave" }, { text: "Don\u2019t stop now" },
+        { text: "Slow mornings, a love language." }, { text: "Coffee first then the world" }]));
+      for (const [quote, inStock] of [["The ocean remembers every wave", true], ["Don't stop now", true], ["slow mornings a love language", true],
+        ["  COFFEE   first then the world!! ", true], ["Coffee first, then the whole world", false]]) {
+        const c = await cover(api, "a.png", { quote });
+        const { beacons } = await api.post(`/api/items/${c.id}/verify`);
+        assert(beacons.QUOTE_IN_STOCK === inStock, `"${quote}" should read ${inStock ? "in" : "not in"} stock: ${JSON.stringify(beacons)}`);
+      }
+    });
+  });
+
+  await check("v1.17.1 a remix never picks the quote the cover already has, however it's written", async () => {
+    await withCopy(4185, async (api) => {
+      writeFileSync(join(api.dir, "quotes.json"), JSON.stringify([{ text: "Don\u2019t stop now" }, { text: "The ocean remembers every wave" }]));
+      const c = await cover(api, "a.png", { quote: "don't stop now" });
+      for (let i = 0; i < 3; i++) {
+        const { remix } = await api.post(`/api/items/${c.id}/remix`, { quote: { on: true, prompt: "stop now" } });
+        const n = await itemOf(api, (await finished(api, remix.id)).itemId);
+        assert(n.quote === "The ocean remembers every wave", `the same quote came back: ${n.quote}`);
+      }
+    });
+  });
+
+  await check("v1.17.1 a remix of a remix keeps one (remix) on its title", async () => {
+    await withCopy(4185, async (api) => {
+      const c = await cover(api, "a.png", { quote: QUOTES[0] });
+      let { remix } = await api.post(`/api/items/${c.id}/remix`, { quote: { on: true } });
+      const first = await itemOf(api, (await finished(api, remix.id)).itemId);
+      ({ remix } = await api.post(`/api/items/${first.id}/remix`, { quote: { on: true } }));
+      const second = await itemOf(api, (await finished(api, remix.id)).itemId);
+      assert(first.title === "a.png (remix)" && second.title === "a.png (remix)", `titles: ${first.title} / ${second.title}`);
+      assert(second.parentId === first.id && second.revision === 3, `still the next version of its parent: ${second.parentId} v${second.revision}`);
+    });
+  });
 } finally {
   for (const d of [...dirs, SONGS]) rmSync(d, { recursive: true, force: true });
 }

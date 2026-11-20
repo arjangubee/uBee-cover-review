@@ -1,7 +1,7 @@
 {
-  "version": "1.13.2",
+  "version": "1.13.3",
   "date": "2026-11-20",
   "whatsNew": [
-    "Symphony's hook clips play in every copy of the app, including a Muse space"
+    "Quote on all covers: one switch in the editor shows or hides the quote on every cover at once"
   ]
 }

@@ -12,6 +12,42 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.13.3: one switch for every cover's quote
+
+Arjang's #621 and #630, Quill's #624. The quote switch in the editor shows or hides the quote on every cover at once.
+It starts unset, so landing it changes nothing on screen until she uses it.
+
+1. **The setting.** quoteOverlay: true, false, or not set. `GET /api/quotes/status` answers it as quoteOverlay, null
+   when it isn't set.
+2. **What shows.** Set, it decides for every cover. Not set, each cover's own showQuote decides, with 1.13.0's
+   carry-over default underneath, unchanged. The rule is quoteShown(item, overlay) in client/src/quoteOverlay.js,
+   used by the review screen, the editor and the schedule sheet (so a cover posts the way it shows).
+3. **The switch.** "Quote on all covers" in the editor posts `POST /api/settings/quote-overlay` with `{ on }`. Undo and
+   redo step it back and forth, and undo from its first use takes it back to not set.
+4. **Her covers stay hers.** The switch never writes showQuote or showQuoteSet. While it's set, a `from: "default"`
+   toggle changes no cover. Unsetting it brings every cover's own choice back exactly.
+5. **The checks follow it.** The compose check (QUOTE_IN_STOCK) and the caption prompt read the same rule. A change
+   reruns the check on covers that already have one. Only a cover whose result changes is saved and sent back, and a
+   cover that stays verified keeps its composeAttestedAt.
+
+### Actions
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| POST /api/settings/quote-overlay | New. `{ on: true \| false \| null }`. Answers the quote status plus `items`, the covers whose check changed. 403 when quotes are locked and on is true, 400 for anything else |
+| GET /api/quotes/status | Adds quoteOverlay |
+| POST /api/items/:id/quote-toggle | `from: "default"` applies nothing while the switch is set |
+| POST /api/items/:id/verify, GET /api/items/:id/caption-prompt | Read the switch, then the cover's own choice |
+
+### Data
+
+| Where | Change |
+| --- | --- |
+| data/settings.json | New quoteOverlay, only once she uses the switch. Nothing else is written until then |
+
+Checks after the port: with the switch not set, every cover shows as before and the counts don't change. Set it on and
+off once on one cover, check the other covers follow, check no cover's showQuote changed, then undo back to not set.
+
 ## 1.13.2: a clip plays from the address the server gives
 
 Rose's #594, Symphony's #595, Claude's #597 and #618. A space's host may serve only its page, assets, blobs and

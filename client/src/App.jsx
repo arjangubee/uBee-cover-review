@@ -16,6 +16,7 @@ import ScheduleSheet from "./ScheduleSheet.jsx";
 import { coverSongEdit } from "./songs/songsData.js";
 import SongsView from "./songs/SongsView.jsx";
 import { createHistory } from "./undo.js";
+import { quoteShown } from "./quoteOverlay.js";
 import UpdateBanner from "./UpdateBanner.jsx";
 
 const STYLE_KEYS = Object.keys(STYLE_DEFAULTS);
@@ -133,7 +134,7 @@ export default function App() {
 
   const current = items[index] || null;
   const shown = draft && current && draft.id === current.id ? draft : current;
-  const quoteOn = Boolean(shown?.showQuote && quotesStatus?.unlocked);
+  const quoteOn = Boolean(quoteShown(shown, quotesStatus?.quoteOverlay) && quotesStatus?.unlocked); // 1.13.3: the one switch, else the cover's own
   const activeSlides = useMemo(() => (shown?.slides || []).map((s, at) => ({ ...s, at }))
     .filter((s) => !s.deletedAt).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)), [shown]);
   useEffect(() => { setSlide(0); setPickMode(false); }, [current?.id]);
@@ -141,9 +142,9 @@ export default function App() {
   // on, since a new cover starts with it off, and a cover she has set keeps its own choice. It isn't a step for undo.
   useEffect(() => {
     const c = current;
-    if (!c || draft || quotesStatus?.quoteDefault !== true || !quotesStatus?.unlocked || c.showQuote || c.showQuoteSet) return;
+    if (!c || draft || quotesStatus?.quoteOverlay != null || quotesStatus?.quoteDefault !== true || !quotesStatus?.unlocked || c.showQuote || c.showQuoteSet) return;
     post(`/api/items/${c.id}/quote-toggle`, { from: "default" }).then((r) => { if (r?.applied) patchItem(r.item); }).catch(() => {});
-  }, [current?.id, quotesStatus?.quoteDefault]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [current?.id, quotesStatus?.quoteDefault, quotesStatus?.quoteOverlay]); // eslint-disable-line react-hooks/exhaustive-deps
   // The editor belongs to one cover: if that cover leaves the screen, the editor closes with it.
   useEffect(() => { if (draft && current?.id !== draft.id) finishEdit(); }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setZoom(null); }, [current?.id, view]); // another cover starts unzoomed, like the original
@@ -168,6 +169,13 @@ export default function App() {
       const r = await post(`/api/items/${itemId}/quote-toggle`, { showQuote: ch.showQuote, from: "switch" });
       item = r.item;
       setQuotesStatus((s) => (s ? { ...s, quoteDefault: r.quoteDefault ?? null } : s));
+    }
+    if (ch.quoteAll !== undefined) {
+      // The one switch for every cover (1.13.3): true, false, or null (unset) when undo takes it back to unset.
+      const r = await post("/api/settings/quote-overlay", { on: ch.quoteAll });
+      const { items: rechecked = [], ...qs } = r;
+      setQuotesStatus(qs);
+      for (const i of rechecked) patchItem(i);
     }
     if (ch.slide) item = (await post(`/api/items/${itemId}/slides/${ch.slide.at}/${ch.slide.state === "removed" ? "remove" : "restore"}`)).item;
     if (ch.status) {
@@ -564,6 +572,8 @@ export default function App() {
                 <EditorSheet onDismiss={finishEdit} status={saveState} dismissRef={sheetDismiss}>
                   <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
                     palette={palette.palette} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
+                    quoteAll={quoteShown(draft, quotesStatus?.quoteOverlay)}
+                    onQuoteAll={(on) => record("Quote on all covers", draft.id, { quoteAll: quotesStatus?.quoteOverlay ?? null }, { quoteAll: on }).catch((e) => say(`Couldn't change that: ${e.message}`))}
                     pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox}
                     onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={draft.extraTexts.length < MAX_BOXES} onRemoveCustomColor={removeCustomColor} />
                 </EditorSheet>
@@ -599,7 +609,7 @@ export default function App() {
       )}
 
       {sheet && (
-        <ScheduleSheet items={sheet.items} ctas={ctas} quotesUnlocked={Boolean(quotesStatus?.unlocked)} api={api} post={post}
+        <ScheduleSheet items={sheet.items} ctas={ctas} quotesUnlocked={Boolean(quotesStatus?.unlocked)} quoteOverlay={quotesStatus?.quoteOverlay ?? null} api={api} post={post}
           onClose={() => { setSheet(null); load().catch(() => {}); }}
           onDone={() => { sheet.stop(); setSheet(null); load().catch(() => {}); }} />
       )}

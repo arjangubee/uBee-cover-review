@@ -793,6 +793,13 @@ try {
     const kept = (await getJson("/api/items?status=queue")).items.find((i) => i.id === symCover.id);
     assert(kept.songFile === "symphony:sym-a--song-one", "nothing stored is rewritten");
   });
+  await check("v1.13.1 undo can put back a song source a ported space keeps, such as manual", async () => {
+    const item = await newItem("source-manual.png");
+    const back = (await postJson(`/api/items/${item.id}/edit`, { song: "Someone - Else", songPreviewUrl: "", songSpotifyUrl: "", songFile: null, songHook: null, songSource: "manual" })).item;
+    assert(back.songSource === "manual", `manual comes back with undo: ${back.songSource}`);
+    const odd = (await postJson(`/api/items/${item.id}/edit`, { song: "Someone - Else", songSource: "made-up" })).item;
+    assert(odd.songSource === "manual", `a source that isn't known is ignored: ${odd.songSource}`);
+  });
   await check("v1.4 a rating can be cleared, so undo can take back a first rating", async () => {
     const item = await newItem("quill-rate.png");
     const r = await postJson(`/api/items/${item.id}/rate`, { songRating: 6 });

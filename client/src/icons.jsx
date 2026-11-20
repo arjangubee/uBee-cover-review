@@ -51,6 +51,9 @@ const PATHS = {
   sort: <><path d="M8 4.5v15" /><path d="M4.5 8L8 4.5 11.5 8" /><path d="M16 19.5v-15" /><path d="M12.5 16l3.5 3.5 3.5-3.5" /></>,
   video: <><rect x="3.5" y="5.5" width="17" height="13" rx="2.5" /><path d="M10.2 9.4v5.2l4.4-2.6z" fill="currentColor" stroke="none" /></>,
   clip: <><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none" /><path d="M12 7v7.2" stroke="#000" strokeWidth="2" /><path d="M8.8 11.4L12 14.6l3.2-3.2" stroke="#000" strokeWidth="2" /></>,
+  // The Beeline screen (1.16): attach, and a file in the room.
+  attach: <path d="M20.5 11.6l-8.2 8.2a5.3 5.3 0 0 1-7.5-7.5l8.2-8.2a3.5 3.5 0 0 1 5 5l-8.2 8.2a1.8 1.8 0 0 1-2.5-2.5l7.6-7.6" />,
+  file: <><path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-10z" /><path d="M14 3.5v5h5" /></>,
 };
 
 /** An icon by name. Decorative by default; give it a label when it stands alone. */

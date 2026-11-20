@@ -11,6 +11,8 @@ import { canDraft, captionPrompt, draftProblems, needsDescription } from "../ser
 import { bakedCta, cleanCtas, ctaFor, plainCaption, postedCaption } from "../server/captionCtas.js";
 import * as sharedCall from "../client/src/captionCall.js";
 import { bangRuleOf, capEndings, storyCapture, voiceVersion } from "../server/dmRules.js";
+import { askCss, fmt, pokeReach, why } from "../client/src/beeline/beelineText.js";
+import { cleanKey, fileUrl, forgetDevice, looksLikeKey, saveDevice, savedDevice } from "../client/src/beeline/beelineApi.js";
 
 // Smoke runs in a throwaway data folder, so it never touches a creator's real photos,
 // decisions, workspace or settings.
@@ -1698,6 +1700,94 @@ try {
     }
     const missing = [...used].filter((t) => !have.has(t));
     assert(used.size > 200, `found only ${used.size} classes`);
+    assert(!missing.length, `classes with no rule: ${missing.join(" ")}`);
+  });
+  // The Beeline screen (1.16): its text rules, its key handling and its styles. The screen itself is checked in a
+  // browser against a stand-in Beeline; these hold the rules that don't need one.
+  await check("v1.16 Beeline: ==words== and his name are yellow, an open ask's words carry its number, code stays plain", async () => {
+    const h = fmt("Ask ==#3 Push now?== for Arjang, ==npm test 182== and `==#4 not a mark==`", { agent: true, owner: "Arjang" });
+    assert(h.includes('<mark class="blAsk" data-ask="3"><span class="blAskN">3</span>Push now?</mark>'), h);
+    assert(h.includes('<mark class="blHl">Arjang</mark>') && h.includes('<mark class="blHl">npm test 182</mark>'), h);
+    assert(h.includes("<code>==#4 not a mark==</code>"), h);
+    const mine = fmt("Arjang here ==hi==", { agent: false, owner: "Arjang" });
+    assert(!mine.includes('<mark class="blHl">Arjang</mark>') && mine.includes('<mark class="blHl">hi</mark>'), mine);
+    const poss = fmt("It's Arjang's call", { agent: true, owner: "Arjang" });
+    assert(poss.includes('<mark class="blHl">Arjang&#39;s</mark>'), poss);
+    assert(!fmt("Arjangs and Arjang2", { agent: true, owner: "Arjang" }).includes("<mark"), "a longer word isn't his name");
+  });
+  await check("v1.16 Beeline: links stop before ==, open safely, a highlight can hold one, and no raw HTML gets through", async () => {
+    const h = fmt("==see https://example.com/x== and https://example.com/a==b", {});
+    assert(h.includes('<mark class="blHl">see <a href="https://example.com/x" target="_blank" rel="noopener noreferrer">https://example.com/x</a></mark>'), h);
+    assert(h.includes('href="https://example.com/a"'), h);
+    const x = fmt('<img src=x onerror="alert(1)"> **bold** javascript:alert(1)', {});
+    assert(!x.includes("<img") && x.includes("&lt;img") && x.includes("<strong>bold</strong>") && !x.includes('href="javascript'), x);
+  });
+  await check("v1.16 Beeline: an open ask gets a color rule, a closed ask or a bad color gets none", async () => {
+    const css = askCss([{ n: 2, color: "#FB923C" }, { n: 4, color: "red;}body{display:none" }, { n: 0, color: "#000000" }]);
+    assert(css.includes('mark.blAsk[data-ask="2"]{--ask:#FB923C;') && !css.includes('data-ask="4"') && !css.includes('data-ask="0"'), css);
+    assert(askCss([]) === "" && askCss(null) === "", "no asks, no rules");
+  });
+  await check("v1.16 Beeline: a poke says how it reaches the agent", async () => {
+    const fresh = { ago: 5, problem: null };
+    assert(pokeReach({ wake: "live", live: true }, "Quill", false, fresh) === "Poked Quill. It's in the room, so it sees it right away.");
+    assert(pokeReach({ wake: "queued" }, "Claude", false, fresh) === "Poked Claude. Starting its chat from your Mac.");
+    assert(pokeReach({ wake: "queued" }, "Claude", true, fresh) === "Poked Claude again. Starting its chat from your Mac.");
+    assert(pokeReach({ wake: "queued" }, "Claude", false, { ago: 5, problem: "signin" }).includes("needs Claude signed in again"));
+    assert(pokeReach({ wake: "queued" }, "Claude", false, { ago: 900, problem: null }).includes("when your Mac wakes up"));
+    assert(pokeReach({ wake: "queued" }, "Claude", false, null).includes("once the relay on your Mac is set up"));
+    assert(pokeReach({ wake: null, checkin_every: 900 }, "Bee", false, fresh) === "Poked Bee. It sees it at its next check-in, about every 15 min.");
+    assert(pokeReach({ wake: null }, "Bee", false, fresh).includes("sees it when it comes back"));
+  });
+  await check("v1.16 Beeline: Beeline's own refusals show once, and its codes in plain words", async () => {
+    assert(why("Not sent: it's over the 8000-character limit.") === "it's over the 8000-character limit.");
+    assert(why("bad_key") === "this device was disconnected" && why("no_ask") === "it's already closed" && why("") === "something went wrong");
+  });
+  await check("v1.16 Beeline: device keys, and file links that carry no key", async () => {
+    const key = "bld_" + "ab".repeat(32);
+    assert(looksLikeKey(" " + key.slice(0, 20) + "\n" + key.slice(20) + " ") && cleanKey(" " + key + "\n") === key, "a pasted key with spaces and a line break");
+    assert(!looksLikeKey("bl_" + "a".repeat(64)) && !looksLikeKey(key + "0") && !looksLikeKey(key.toUpperCase()), "not keys");
+    const u = fileUrl("demo", "1795204800.0123456789abcdef0123456789abcdef", 72, true);
+    assert(u.endsWith("/app/file/72?r=demo&t=1795204800.0123456789abcdef0123456789abcdef&thumb=1"), u);
+    assert(fileUrl("demo", "", 72) === "" && fileUrl("", "t", 72) === "", "no link without a room and a token");
+  });
+  await check("v1.16 Beeline: a device key belongs to the account signed in on this browser, so another account there never gets it", async () => {
+    const kept = new Map();
+    const was = globalThis.localStorage;
+    globalThis.localStorage = { getItem: (k) => (kept.has(k) ? kept.get(k) : null), setItem: (k, v) => kept.set(k, String(v)), removeItem: (k) => kept.delete(k) };
+    try {
+      const key = "bld_" + "cd".repeat(32);
+      saveDevice({ key, name: "Mac" }, "arjang");
+      assert(savedDevice("arjang")?.key === key, "her own account finds it");
+      assert(savedDevice("someone.else") === null && savedDevice(null) === null, "another account, or no account, finds nothing");
+      forgetDevice("someone.else");
+      assert(savedDevice("arjang")?.key === key, "another account's disconnect leaves hers alone");
+      forgetDevice("arjang");
+      assert(savedDevice("arjang") === null, "her disconnect forgets it");
+    } finally { globalThis.localStorage = was; }
+  });
+  await check("v1.16 Beeline: the key stays in this browser and goes only in a header, and the switch opens the screen", async () => {
+    const dir = new URL("../client/src/", import.meta.url).pathname;
+    const screen = readFileSync(join(dir, "beeline/BeelineScreen.jsx"), "utf8");
+    const api = readFileSync(join(dir, "beeline/beelineApi.js"), "utf8");
+    const main = readFileSync(join(dir, "main.jsx"), "utf8");
+    assert(!/localStorage|x-beeline-key/.test(screen), "only beelineApi.js touches the key");
+    assert((api.match(/x-beeline-key/g) || []).length === 1 && api.includes('headers: { ...(options.headers || {}), "x-beeline-key": key }'), "the key goes in one header");
+    assert(!/[?&]key=|\/app\/[^"]*\$\{key\}/.test(api), "the key is never in an address");
+    const serverFiles = execFileSync("git", ["ls-files", "server"], { cwd: join(dir, "../..") }).toString();
+    assert(!/beeline/i.test(serverFiles), "the server takes no part");
+    assert(main.includes('lazy(() => import("./beeline/BeelineScreen.jsx"))') && main.includes('tab("beeline", "Beeline")') && main.includes('active={screen === "beeline"}'), "the switch opens it");
+  });
+  await check("v1.16 Beeline: every class the screen uses has a rule in beeline.css", async () => {
+    const dir = new URL("../client/src/beeline/", import.meta.url).pathname;
+    const code = readFileSync(join(dir, "BeelineScreen.jsx"), "utf8") + readFileSync(join(dir, "beelineText.js"), "utf8");
+    const css = readFileSync(join(dir, "beeline.css"), "utf8");
+    const used = new Set();
+    for (const m of code.matchAll(/className=(\{[^}]*\}|"[^"]*")|class=\\?"([^"\\]*)|classList\.(?:add|remove)\("([^"]+)"\)/g)) {
+      for (const t of String(m[1] || m[2] || m[3]).matchAll(/\bbl[A-Z][A-Za-z0-9]*\b/g)) used.add(t[0]);
+    }
+    const have = new Set([...css.matchAll(/\.(bl[A-Z][A-Za-z0-9]*)/g)].map((m) => m[1]));
+    const missing = [...used].filter((c) => !have.has(c));
+    assert(used.size > 60, `found only ${used.size} classes`);
     assert(!missing.length, `classes with no rule: ${missing.join(" ")}`);
   });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {

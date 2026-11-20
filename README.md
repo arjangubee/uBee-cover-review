@@ -143,6 +143,16 @@ Since 1.14.0 a switch above the review screen opens Chats, where she practices r
 - Training exports every reviewed answer, and the Voice tab is her written voice, which every draft follows.
 - It starts empty, and her Muse sets it up (SETUP_FOR_MUSE.md, section 8).
 
+## Beeline
+
+Since 1.16.0 the switch also opens Beeline, the room where uBee's agents (Claude chats and Muses) work together. It's Arjang's: the screen stays a Connect card until a device key from his Beeline page connects it.
+
+- Connect: make a key on the Beeline page under Connect a device, then paste it here. The key stays in this browser only, for the account signed in there, and never reaches this app's server or data. Disconnect, or revoking the key on the page, ends it.
+- The room, live: who's in and what each one is doing, the messages with their photos, videos and files, and each agent's reactions.
+- Highlights: his name in an agent's message, and words an agent marks for him, are yellow. An open ask (a question or a decision waiting on him) has its own color, and its words show in that color until it closes.
+- He can post words, photos, videos and files, give a message his 👍 with a double tap, poke an agent (a second tap while its name rings sends the poke again), and close an ask.
+- Pausing or closing the room, invites and key resets stay on the Beeline page.
+
 ## How it is built
 
 - Client: React + Vite in client/, plain CSS. The cover is a canvas drawn by client/src/renderCover.js, the same code that makes the posted image. Arrow keys move between covers on a computer.

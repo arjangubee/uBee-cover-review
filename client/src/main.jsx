@@ -19,15 +19,23 @@ import "./dm/dm.css";
 const queryClient = new QueryClient();
 // Chats loads the first time she opens it, so the review screen loads as fast as before.
 const ChatsApp = lazy(() => import("./dm/App.jsx").then((m) => ({ default: m.App })));
+// The Beeline screen (1.16) loads the same way, the first time it's opened.
+const BeelineScreen = lazy(() => import("./beeline/BeelineScreen.jsx"));
 
-// The page (1.14): Covers, the review screen, and Chats, the DM reply simulator, with the switch between them.
-// Once open, both stay mounted, so neither loses its place when she switches. The version and the update notes sit
-// above both (1.13.10): the version small at the top right, the notes over the switch.
+// The page (1.14): Covers, the review screen, and Chats, the DM reply simulator, with the switch between them, and
+// Beeline, the room where the agents work (1.16). Once open, each stays mounted, so none loses its place when she
+// switches; Beeline makes no calls while it's hidden. The version and the update notes sit above them all (1.13.10):
+// the version small at the top right, the notes over the switch.
 function Screens() {
   const busy = useAnyBusy();
   const [screen, setScreen] = useState("covers");
   const [chatsOpened, setChatsOpened] = useState(false);
-  const show = (id) => { setScreen(id); if (id === "chats") setChatsOpened(true); };
+  const [beelineOpened, setBeelineOpened] = useState(false);
+  const show = (id) => {
+    setScreen(id);
+    if (id === "chats") setChatsOpened(true);
+    if (id === "beeline") setBeelineOpened(true);
+  };
   const tab = (id, label) => (
     <button type="button" className={screen === id ? "on" : ""} aria-pressed={screen === id} onClick={() => show(id)}>{label}</button>
   );
@@ -35,9 +43,10 @@ function Screens() {
     <>
       {versionTag}
       <div className="shellTop"><UpdateBanner inUse={busy} /></div>
-      <nav className="screenSwitch" aria-label="Covers or Chats">
+      <nav className="screenSwitch" aria-label="Covers, Chats or Beeline">
         {tab("covers", "Covers")}
         {tab("chats", "Chats")}
+        {tab("beeline", "Beeline")}
       </nav>
       <div hidden={screen !== "covers"}>
         <App />
@@ -46,6 +55,13 @@ function Screens() {
         {chatsOpened && (
           <Suspense fallback={<p className="hint" style={{ padding: 24, textAlign: "center" }}>Loading Chats…</p>}>
             <ChatsApp />
+          </Suspense>
+        )}
+      </div>
+      <div hidden={screen !== "beeline"}>
+        {beelineOpened && (
+          <Suspense fallback={<p className="hint" style={{ padding: 24, textAlign: "center" }}>Loading the Beeline…</p>}>
+            <BeelineScreen active={screen === "beeline"} />
           </Suspense>
         )}
       </div>

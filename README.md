@@ -27,7 +27,7 @@ For development with hot reload, run the server with `npm run dev` and the clien
 
 ## Updates
 
-The app checks for a new version when it starts and every 2 minutes. When there is one, a big UPDATE NOW button shows at the top. One tap backs up your data, updates, and restarts the app. Your photos, decisions and notes are never touched. Install with `git clone` so updates work.
+The app checks for a new version when it starts and every 2 minutes. When there is one, a small note says so, and the app updates itself the next time it sits quiet for a minute: no editor or sheet open, and nothing tapped, typed or scrolled. It backs up your data, updates, and restarts, and an open page reloads itself. Your photos, decisions and notes are never touched. Update now in the note does it right away. If an update fails, the app goes back to the version it was on, says so, and waits for Try again or the next version. Install with `git clone` so updates work. The version you're on shows small at the top right of every screen.
 
 ## Let your Muse set it up
 
@@ -101,7 +101,7 @@ Muse native first, since that is where it was built. It also works with any agen
 
 Say either phrase to Quill and it happens, with a reminder of which one you used. Creators never need these commands, they are the publisher's side of the fence.
 
-Every AI follows the same rule before any push: pull first, run `npm test`, never force-push, dev first, a second AI reviews, then worldwide. A worldwide push shows UPDATE NOW on every creator's copy within 2 minutes. The full rule is in AGENTS.md.
+Every AI follows the same rule before any push: pull first, run `npm test`, never force-push, dev first, a second AI reviews, then worldwide. A worldwide push reaches every creator's copy within 2 minutes, and each copy installs it at its next quiet minute. The full rule is in AGENTS.md.
 
 ## The review screen
 

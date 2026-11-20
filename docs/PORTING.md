@@ -12,6 +12,51 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.13.10: the app updates itself, and the version shows at the top
+
+Arjang's #729, Quill's #703, #733, #745 and #746. No new fields, settings or tables. One new action and client changes.
+
+1. **The version at the top.** BUILT_VERSION, plain x.y.z from package.json at build time, shows small at the top right
+   of the app column on every screen: the cover screen, the editor, Covers and Songs. It's words only, so presses go
+   through it. An open sheet, the magnifier or the song screen covers it like the rest of the page.
+2. **A git copy updates itself at a quiet moment.** When GitHub has a new version, the app installs it once no page has
+   an editor, a sheet or a text box open, and nothing was tapped, typed, scrolled or wheeled on any page for 60
+   seconds. A page with something open says so at once, then every 20 seconds, and each word holds for 45 seconds. The
+   minute starts when the app starts, so an open page can speak up first. The app looks for that moment every 15
+   seconds. The steps are UPDATE NOW's: back up the data files to data/backups (the last 10 are kept), set a Muse's
+   local changes aside, pull, reinstall, rebuild and restart. An open page follows it and reloads itself once the new
+   version answers, or right after she closes what she has open. Meanwhile a small note says the version is ready,
+   with Update now.
+3. **A failed update.** If the install or the build fails, the old version goes back on disk (the old commit, the
+   Muse's local changes from the saved patch, then reinstalled and rebuilt) and keeps running. The page says
+   "Couldn't update to X. You're still on Y, and nothing was lost." with the reason and Try again. That version isn't
+   tried again on its own: Try again, a restart of the app, or a newer version tries again. A failure to reach GitHub
+   changes nothing on disk.
+4. **A copy without git** (her space) says "Version X is out. Your Muse brings it in.", with a small Copy the ask link
+   in case a port was missed. The big UPDATE NOW banner and the line to copy are gone: her Muse brings each public
+   version in on arrival (Quill #733).
+
+### Server actions
+
+| Action | Change |
+| --- | --- |
+| POST /api/activity | New. `{ busy, idleMs }` from the page: busy counts only when it's exactly true, and odd values only put an update off |
+| GET /api/update | also answers boot (a new id on every start) and failed: `{ from, to, commit, at, auto }`, or null |
+| POST /api/update/apply | a tap always tries, even a version that failed on its own |
+
+The page sends activity only when /api/update answers git: true, so a ported space needs no new action.
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| App.jsx | the version tag; inUse (the editor, the info sheet or the schedule sheet open) for UpdateBanner |
+| UpdateBanner.jsx | small notes in place of the big banner; activity; following an update and reloading when she's free; the hosted note with Copy the ask |
+| styles.css | .versionTag, .srOnly and the note variants |
+
+**For her space:** no data changes. After the port, the version shows at the top, and a new public version shows the
+small note until it's ported. Re-verify the counts unchanged.
+
 ## 1.13.9: the T icon, quotes on by default
 
 Arjang's direction in Rose's #693 and #694, Quill's #695, #696, #707, #719 and #725. One new field on the cover

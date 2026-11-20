@@ -134,6 +134,63 @@ try {
     assert(git(forkCopy, "rev-parse", "HEAD") === head, "the fork copy should land on uBee's commit");
   });
 
+  // 1.13.10 (Arjang #729, Quill #733): a git copy updates itself at a quiet moment instead of waiting for UPDATE NOW.
+  await check("1.13.10 auto-update: a git copy updates itself after a quiet minute, nothing touched and no editor or sheet open", async () => {
+    let t = 1_000_000, restarts = 0;
+    const u = updaterFor(copy, { now: () => t, restart: () => { restarts++; } });
+    assert((await u.check()).available === true, "the copy is one version behind");
+    assert((await u.autoTick()).reason === "not-quiet", "right after a start it waits a quiet minute first");
+    t += 30_000;
+    u.noteActivity({}); // a tap
+    t += 59_000;
+    assert((await u.autoTick()).reason === "not-quiet", "a tap 59 s ago is too recent");
+    u.noteActivity({ busy: true, idleMs: 59_000 }); // the editor is open, untouched
+    t += 20_000;
+    u.noteActivity({ busy: true, idleMs: 79_000 }); // and still open 20 s later
+    t += 20_000;
+    assert((await u.autoTick()).reason === "not-quiet", "an open editor holds it, even untouched");
+    t += 46_000; // the editor closed: no word from it for 46 s, and no tap for 145 s
+    const r = await u.autoTick();
+    assert(r.applied === true && restarts === 1, `quiet: it updates on its own and restarts once: ${JSON.stringify(r)} ${restarts}`);
+    assert(git(copy, "rev-parse", "HEAD") === git(pub, "rev-parse", "HEAD"), "the copy is on the new version");
+    const last = JSON.parse(readFileSync(join(copy, "data", "last-update.json"), "utf8"));
+    assert(last.auto === true, `the restarted app can say it updated itself: ${JSON.stringify(last)}`);
+    assert(readdirSync(join(copy, "data", "backups")).length >= 1, "her data was backed up first, the same as UPDATE NOW");
+  });
+
+  await check("1.13.10 auto-update: a failed update puts the old version back with her Muse's local fix, says so, and isn't tried again on its own", async () => {
+    const before = git(copy, "rev-parse", "HEAD");
+    const aBefore = readFileSync(join(copy, "server", "a.js"), "utf8");
+    writeFileSync(join(copy, "server", "b.js"), "export const b = 'muse fix 2';\n");
+    publish("server/a.js", "export const a = 5;\n", "A version whose build fails");
+    const runs = join(tmp, "build-runs.txt");
+    writeFileSync(runs, "");
+    const failing = [[process.execPath, ["-e", "require('fs').appendFileSync(process.argv[1], 'x'); process.exit(3)", runs]]];
+    let t = 2_000_000, restarts = 0;
+    const u = updaterFor(copy, { now: () => t, restart: () => { restarts++; }, commands: failing });
+    await u.check();
+    t += 61_000;
+    const r = await u.autoTick();
+    assert(r.applied === false && r.reason === "failed", `the build fails: ${JSON.stringify(r)}`);
+    assert(git(copy, "rev-parse", "HEAD") === before && readFileSync(join(copy, "server", "a.js"), "utf8") === aBefore, "the old version is back");
+    assert(readFileSync(join(copy, "server", "b.js"), "utf8").includes("muse fix 2"), "with her Muse's local fix");
+    assert(restarts === 0, "no restart: the old version keeps running");
+    const s = u.status();
+    assert(s.state === "failed" && /went back to version 1\.1\.0/.test(s.error) && s.failed?.auto === true, `a notice says so: ${JSON.stringify([s.state, s.error, s.failed])}`);
+    const tried = readFileSync(runs, "utf8").length;
+    t += 600_000;
+    await u.check();
+    assert((await u.autoTick()).reason === "failed-before" && readFileSync(runs, "utf8").length === tried, "the same version isn't tried again on its own");
+    const manual = await u.apply();
+    assert(manual.ok === false && readFileSync(runs, "utf8").length > tried, "Try again tries it again");
+    publish("server/a.js", "export const a = 6;\n", "A newer version");
+    await u.check();
+    const afterManual = readFileSync(runs, "utf8").length;
+    t += 61_000;
+    assert((await u.autoTick()).reason === "failed" && readFileSync(runs, "utf8").length > afterManual, "a newer version gets its own try");
+    assert(git(copy, "rev-parse", "HEAD") === before, "and the old version is back again");
+  });
+
   await check("a copy without git says so and refuses to update", async () => {
     mkdirSync(join(plain, "data"), { recursive: true });
     writeFileSync(join(plain, "package.json"), JSON.stringify({ name: "x", version: "1.1.0" }));
@@ -142,6 +199,7 @@ try {
     assert(s.git === false && s.available === false, "plain folder is not a git copy");
     const r = await u.apply();
     assert(r.ok === false && /git/i.test(r.error), "apply should refuse without git");
+    assert(typeof u.autoTick === "function" && (await u.autoTick()).applied === false, "and it never updates itself");
   });
 
   await check("version info reads package.json and the commit", async () => {

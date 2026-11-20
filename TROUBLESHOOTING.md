@@ -23,8 +23,8 @@ Common issues:
 | A uBee client's files landed in their personal Drive | Workspace mode is own_drive | POST /api/workspace/configure with mode ubee_shared and the client name, then rebuild their folders inside the uBee shared Drive under Creators / their name |
 | Photos approved but creator cannot find them | Decisions live in data/db.json and the app tabs | Show them the Approved tab. If Drive is connected, mirror approvals into the Approved folder |
 | Data looks wrong after an edit | A fix touched data files | Restore data/db.json from the backup the protocol told you to make before fixing |
-| UPDATE NOW never shows up | The copy wasn't installed with git, or GitHub can't be reached | Run `git status` in the app folder. No git: reinstall with `git clone` and move data/ across |
-| Update stopped with "finish my Cover Review update" | The new version downloaded but install or build failed | Run `npm run setup`, then `npm run build`, then `npm start` |
+| The app never updates itself | The copy wasn't installed with git, GitHub can't be reached, or it never sits quiet for a minute | Run `git status` in the app folder. No git: reinstall with `git clone` and move data/ across. Otherwise tap Update now in the note |
+| Update says it went back to the old version | The new version downloaded but install or build failed, so the app put the old one back (1.13.10) | Check data/backups and the error, run `npm run setup` and `npm run build` on the new version by hand, then `npm start` |
 | Update note says a local fix clashed | Your code fix and the new version changed the same lines | Open data/backups/<time>/local-changes.patch, re-apply what is still needed |
 | Data looks wrong right after an update | Rare, but backups exist | Every update first copies the data files to data/backups/<time>/ |
 

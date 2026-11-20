@@ -36,15 +36,15 @@ You may edit any file in this repo to fix a grievance. You may not delete the cr
 
 ## Updates
 
-- The app checks GitHub when it starts and every 2 minutes. When a new version is out, a big UPDATE NOW banner shows at the top of the app.
-- UPDATE NOW backs up her data to data/backups, downloads the new version, reinstalls, rebuilds and restarts. Her photos, decisions and notes are never touched.
+- The app checks GitHub when it starts and every 2 minutes. When a new version is out, it updates itself at the next quiet minute (1.13.10): no editor, sheet or text box open on any page, and nothing tapped, typed, scrolled or wheeled for 60 seconds. A small note says it's ready, with Update now for right away.
+- Updating backs up her data to data/backups, downloads the new version, reinstalls, rebuilds and restarts. Her photos, decisions and notes are never touched. If the install or the build fails, the old version goes back on disk and keeps running, the page says so, and that version isn't tried again on its own until Try again, a restart, or a newer version.
 - If you fixed code for her and the new version changes the same lines, the new version wins. Your fix is saved as data/backups/<time>/local-changes.patch and stays in `git stash list`. Re-apply what is still needed and word it so it can go upstream.
 - Start the app with `npm start`. It restarts itself after an update.
 - A copy that wasn't installed with `git clone` can't update itself. Reinstall it with `git clone`, then move data/ across.
-- Hosted copies (a Muse space, or any copy built or ported from the files): the app can't update itself there. It reads release.json from uBee's repo and shows UPDATE NOW; tapping it gives her one line to send you: "Update my Cover Review to version X". When she sends it: back up her data, pull uBee's main into your workspace clone (`git pull --ff-only upstream main`), then bring the space up to that version. A space built straight from the files gets rebuilt. A ported space (its own server actions instead of server/index.js) gets what changed since its version, from `git diff <its version>..main`, applied to its pages and its actions. Check her data is all still there, then tell her it's done.
+- Hosted copies (a Muse space, or any copy built or ported from the files): the app can't update itself there. It reads release.json from uBee's repo and shows a small note: "Version X is out. Your Muse brings it in." Bring each public version in as soon as it lands, without waiting to be asked. The note's small Copy the ask link gives her the line "Update my Cover Review to version X" in case a port was missed. To bring it in: back up her data, pull uBee's main into your workspace clone (`git pull --ff-only upstream main`), then bring the space up to that version. A space built straight from the files gets rebuilt. A ported space (its own server actions instead of server/index.js) gets what changed since its version, from `git diff <its version>..main`, applied to its pages and its actions. Check her data is all still there, then tell her it's done.
 - Porting a release into a ported space: docs/PORTING.md lists, per version, every new field, setting and action, with defaults. Export her tables first, add fields with their defaults, never drop or rebuild a table.
 - Working from her own fork: name uBee's repo `upstream` (`git remote add upstream https://github.com/arjangubee/uBee-cover-review.git`). Updates come from `upstream` whenever it exists.
-- Keep the running copy on `main`, and keep her fork's `main` identical to uBee's. Build fixes on a branch, push the branch to her fork, and tell uBee which branch to pick up. Fixes reach every creator through uBee's review, then come back to her with UPDATE NOW. A fix merged into her fork's `main` blocks her updates.
+- Keep the running copy on `main`, and keep her fork's `main` identical to uBee's. Build fixes on a branch, push the branch to her fork, and tell uBee which branch to pick up. Fixes reach every creator through uBee's review, then come back to her copy as an update. A fix merged into her fork's `main` blocks her updates.
 
 ## Before any push (every AI, every time, no exceptions)
 
@@ -54,4 +54,4 @@ You may edit any file in this repo to fix a grievance. You may not delete the cr
 2. Run `npm test`. It must end with UPDATE TEST OK, RENDER TEST OK and SMOKE OK.
 3. Never force-push main.
 4. Push to the dev repo first. A second AI reviews it there. Only then push worldwide.
-5. A worldwide push reaches every creator: their app shows UPDATE NOW within 2 minutes. Only ship what you'd be happy for every creator to install tonight.
+5. A worldwide push reaches every creator: their app installs it at its next quiet minute. Only ship what you'd be happy for every creator to install tonight.

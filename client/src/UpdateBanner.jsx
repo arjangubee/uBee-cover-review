@@ -10,34 +10,73 @@ function markSeen(at) {
   try { localStorage.setItem(SEEN_KEY, at); } catch { /* storage off, the note just shows again */ }
 }
 
-// The big UPDATE NOW banner. The server checks GitHub every 2 minutes; this asks the
-// server every minute and whenever the window gets focus. A copy that can't update itself
-// (a hosted Muse space) checks uBee's release note instead, and UPDATE NOW hands her one line
-// to send her Muse, who rebuilds it.
-export default function UpdateBanner() {
+// A text box with the cursor in it counts as busy too, so an update never restarts the app under her typing.
+function typing() {
+  const el = typeof document !== "undefined" ? document.activeElement : null;
+  if (!el) return false;
+  if (el.isContentEditable || el.tagName === "TEXTAREA") return true;
+  return el.tagName === "INPUT" && !["button", "checkbox", "radio", "range", "submit", "reset", "file", "color"].includes(String(el.type).toLowerCase());
+}
+
+const TOUCH_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart", "scroll"];
+const REPORT_EVERY_MS = 15000; // a tap is passed on at most this often, and the last one always goes
+const BUSY_EVERY_MS = 20000; // while an editor, a sheet or a text box is open
+const FOLLOW_EVERY_MS = 1500;
+
+// Updates (1.13.10, Arjang #729, Quill #733 and #746).
+// A copy run from git updates itself at a quiet moment. This page tells the app when she taps, types, scrolls or
+// wheels, and, while an editor, a sheet or a text box is open, that she's busy. The app waits for a quiet minute,
+// backs up her data, updates and restarts. This page follows it and reloads itself once the new version answers, or
+// right after she closes what she has open. UPDATE NOW is a small "Update now" for anyone who doesn't want to wait.
+// A copy without git (her space) can't pull from GitHub: her Muse brings each version in, so the page only says a new
+// version is out, with a small link to copy the ask in case a port was missed.
+export default function UpdateBanner({ inUse = false }) {
   const [u, setU] = useState(null);
   const [hosted, setHosted] = useState(null); // { version, whatsNew, ask } for a copy without git
-  const [asked, setAsked] = useState(false);
   const [copied, setCopied] = useState(null); // null | "copied" | "manual": a tap always shows a result (1.8)
   const askRef = useRef(null);
   const [phase, setPhase] = useState("idle"); // idle | updating | restarting
   const [error, setError] = useState(null);
-  const fromBoot = useRef(null);
-  const clickedAt = useRef(0);
+  const bootAtLoad = useRef(null); // the app process this page came from
+  const reloading = useRef(false);
+  const busyNow = useRef(() => false);
+  busyNow.current = () => inUse || typing();
+
+  // Reload once the page is free: nothing open and no cursor in a text box. A restarted app may be a new version.
+  const reloadWhenFree = useCallback(() => {
+    if (reloading.current) return;
+    reloading.current = true;
+    const go = async () => {
+      if (busyNow.current()) { setTimeout(go, FOLLOW_EVERY_MS); return; }
+      try {
+        const page = await fetch("/", { cache: "no-store" });
+        if (page.ok) { window.location.reload(); return; }
+      } catch { /* not back yet */ }
+      setTimeout(go, FOLLOW_EVERY_MS);
+    };
+    go();
+  }, []);
 
   const refresh = useCallback(async () => {
     let s = null;
     try {
-      const r = await fetch("/api/update");
+      const r = await fetch("/api/update", { cache: "no-store" });
       if (r.ok) s = await r.json();
     } catch { /* the app is restarting, offline, or has no server updater */ }
-    if (s?.git) { setU(s); setHosted(null); return; }
+    if (s?.git) {
+      setU(s);
+      setHosted(null);
+      if (s.boot && bootAtLoad.current == null) bootAtLoad.current = s.boot;
+      if (s.state === "updating" || s.state === "restarting") setPhase(s.state);
+      else if (s.boot && s.boot !== bootAtLoad.current) reloadWhenFree();
+      return;
+    }
     setU(s);
     try {
       const r = await fetch(RELEASE_URL, { cache: "no-store" });
       setHosted(r.ok ? releaseBanner(await r.json(), BUILT_VERSION) : null);
     } catch { /* GitHub unreachable: try again next time */ }
-  }, []);
+  }, [reloadWhenFree]);
 
   useEffect(() => {
     refresh();
@@ -46,36 +85,55 @@ export default function UpdateBanner() {
     return () => { clearInterval(t); window.removeEventListener("focus", refresh); };
   }, [refresh]);
 
-  // While updating, follow the server until the NEW process answers, then reload. The old
-  // process can still answer for a moment, and the new one starts fresh (state idle), so the
-  // signal is a different boot id, or an idle server whose last update is this one.
+  // While the app updates, follow it until the new process answers (a new boot id), then reload when she's free.
   useEffect(() => {
     if (phase === "idle") return undefined;
     const t = setInterval(async () => {
       try {
         const s = await (await fetch("/api/update", { cache: "no-store" })).json();
-        const h = await (await fetch("/api/health", { cache: "no-store" })).json();
-        const newProcess = (fromBoot.current && h.boot && h.boot !== fromBoot.current)
-          || (s.state === "idle" && s.lastUpdate && Date.parse(s.lastUpdate.at) >= clickedAt.current);
-        if (newProcess) {
-          const page = await fetch("/", { cache: "no-store" });
-          if (page.ok) window.location.reload();
-          return;
-        }
+        if (s.boot && bootAtLoad.current && s.boot !== bootAtLoad.current) { reloadWhenFree(); return; }
         if (s.state === "failed") { setError(s.error); setPhase("idle"); setU(s); return; }
         if (s.state === "restarting") setPhase("restarting");
       } catch {
         setPhase("restarting"); // the old version just shut down; keep waiting for the new one
       }
-    }, 1500);
+    }, FOLLOW_EVERY_MS);
     return () => clearInterval(t);
-  }, [phase]);
+  }, [phase, reloadWhenFree]);
+
+  // Her activity, for a git copy's quiet moment: every tap, key, scroll or wheel at most every 15 seconds (the last one
+  // always goes), and "busy" right away when an editor, a sheet or a text box opens, then every 20 seconds while it's open.
+  const send = useRef(() => {});
+  const isGit = Boolean(u?.git);
+  useEffect(() => {
+    if (!isGit) return undefined;
+    let lastTouch = Date.now(), lastSent = 0, trailing = null;
+    send.current = () => {
+      lastSent = Date.now();
+      fetch("/api/activity", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ busy: busyNow.current(), idleMs: Date.now() - lastTouch }) }).catch(() => {});
+    };
+    const touched = () => {
+      lastTouch = Date.now();
+      const wait = REPORT_EVERY_MS - (lastTouch - lastSent);
+      if (wait <= 0) send.current();
+      else if (!trailing) trailing = setTimeout(() => { trailing = null; send.current(); }, wait);
+    };
+    for (const e of TOUCH_EVENTS) window.addEventListener(e, touched, { capture: true, passive: true });
+    window.addEventListener("focusin", touched, true);
+    const beat = setInterval(() => { if (busyNow.current()) send.current(); }, BUSY_EVERY_MS);
+    return () => {
+      for (const e of TOUCH_EVENTS) window.removeEventListener(e, touched, { capture: true });
+      window.removeEventListener("focusin", touched, true);
+      clearInterval(beat);
+      clearTimeout(trailing);
+      send.current = () => {};
+    };
+  }, [isGit]);
+  useEffect(() => { if (isGit && inUse) send.current(); }, [isGit, inUse]);
 
   async function updateNow() {
     setError(null);
-    clickedAt.current = Date.now() - 5000; // small allowance for clock drift between page and app
-    try { fromBoot.current = (await (await fetch("/api/health", { cache: "no-store" })).json()).boot || null; }
-    catch { fromBoot.current = null; }
     setPhase("updating");
     try {
       const r = await (await fetch("/api/update/apply", { method: "POST" })).json();
@@ -85,18 +143,31 @@ export default function UpdateBanner() {
     }
   }
 
-  const last = u?.lastUpdate;
-  // A newer version always wins over the "Updated" note.
-  if (phase === "idle" && !u?.available && !error && last && !seen(last.at) && u?.current?.commit === last.to) {
-    return (
-      <div className="updateNote">
-        <span>
-          Updated to version {last.version}.
-          {last.savedPatch ? " A local fix from your Muse clashed with it and was saved in data/backups. Tell your Muse: check my Cover Review update." : ""}
-        </span>
-        <button className="ghost mini" onClick={() => { markSeen(last.at); setU({ ...u, lastUpdate: null }); }}>Got it</button>
-      </div>
-    );
+  // The fallback line for a missed port: copy it, or show it ready to press and hold. A tap is never a silent no-op.
+  useEffect(() => {
+    if (copied !== "manual" || !askRef.current) return;
+    const range = document.createRange();
+    range.selectNodeContents(askRef.current);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }, [copied]);
+  async function copyAsk() {
+    let ok = false;
+    try { await navigator.clipboard.writeText(hosted.ask); ok = true; } catch { /* blocked here: try the old way */ }
+    if (!ok) {
+      try {
+        const t = document.createElement("textarea");
+        t.value = hosted.ask;
+        t.setAttribute("readonly", "");
+        t.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+        document.body.appendChild(t);
+        t.select();
+        ok = document.execCommand("copy");
+        t.remove();
+      } catch { ok = false; }
+    }
+    setCopied(ok ? "copied" : "manual");
   }
 
   if (phase === "updating" || phase === "restarting") {
@@ -108,71 +179,52 @@ export default function UpdateBanner() {
     );
   }
 
-  if (hosted && !u?.available && !error) {
-    // Copy the line for her Muse. Some apps block the clipboard, so there's a fallback; if both fail, the line is
-    // selected and the banner says to press and hold it. A tap is never a silent no-op.
-    async function copyAsk() {
-      let ok = false;
-      try { await navigator.clipboard.writeText(hosted.ask); ok = true; } catch { /* blocked here: try the old way */ }
-      if (!ok) {
-        try {
-          const t = document.createElement("textarea");
-          t.value = hosted.ask;
-          t.setAttribute("readonly", "");
-          t.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
-          document.body.appendChild(t);
-          t.select();
-          ok = document.execCommand("copy");
-          t.remove();
-        } catch { ok = false; }
-      }
-      if (!ok && askRef.current) {
-        const range = document.createRange();
-        range.selectNodeContents(askRef.current);
-        const sel = window.getSelection();
-        sel?.removeAllRanges();
-        sel?.addRange(range);
-      }
-      setCopied(ok ? "copied" : "manual");
-    }
+  if (hosted && !u?.git) {
     return (
-      <div className="updateBanner" role="alert">
-        <strong>New version ready</strong>
-        {!asked ? (
-          <>
-            <ul>
-              {hosted.whatsNew.slice(0, 3).map((line) => <li key={line}>{line}</li>)}
-              {hosted.whatsNew.length > 3 && <li>and {hosted.whatsNew.length - 3} more</li>}
-            </ul>
-            <button className="updateNow" onClick={() => setAsked(true)}>UPDATE NOW</button>
-          </>
-        ) : (
-          <>
-            <span>Your Muse updates this copy. Send your Muse this:</span>
-            <button type="button" ref={askRef} className="askLine copyable" onClick={copyAsk} aria-label={`Copy: ${hosted.ask}`}>{hosted.ask}</button>
-            <button className="updateNow" onClick={copyAsk}>{copied === "copied" ? "COPIED" : "COPY IT"}</button>
-            {copied && (
-              <span className="copyNote" role="status">{copied === "copied" ? "Copied. Paste it to your Muse." : "Press and hold the line to copy it, then paste it to your Muse."}</span>
-            )}
-          </>
+      <div className="updateNote hosted" role="status">
+        <span>Version {hosted.version} is out. Your Muse brings it in.</span>
+        <button type="button" className="linkBtn small" onClick={copyAsk}>Copy the ask</button>
+        {copied === "copied" && <span className="copyNote">Copied. Paste it to your Muse.</span>}
+        {copied === "manual" && (
+          <span className="copyNote">Press and hold the line to copy it, then paste it to your Muse: <span ref={askRef} className="askLine small">{hosted.ask}</span></span>
         )}
       </div>
     );
   }
 
-  if (!u?.available && !error) return null;
+  const failedNow = error || u?.state === "failed";
+  if (failedNow) {
+    const f = u?.failed || {};
+    return (
+      <div className="updateNote failed" role="alert">
+        <span>
+          <strong>Couldn&apos;t update to {f.to || u?.latest?.version || "the new version"}.</strong> You&apos;re still on {f.from || BUILT_VERSION}, and nothing was lost.
+          {(error || u?.error) && <span className="why"> {error || u?.error}</span>}
+        </span>
+        <button className="ghost mini" onClick={updateNow}>Try again</button>
+      </div>
+    );
+  }
 
-  const news = u?.whatsNew || [];
+  const last = u?.lastUpdate;
+  // A newer version always wins over the "Updated" note.
+  if (!u?.available && last && !seen(last.at) && u?.current?.commit === last.to) {
+    return (
+      <div className="updateNote">
+        <span>
+          {last.auto ? "Updated itself" : "Updated"} to version {last.version}.
+          {last.savedPatch ? " A local fix from your Muse clashed with it and was saved in data/backups. Tell your Muse: check my Cover Review update." : ""}
+        </span>
+        <button className="ghost mini" onClick={() => { markSeen(last.at); setU({ ...u, lastUpdate: null }); }}>Got it</button>
+      </div>
+    );
+  }
+
+  if (!u?.available) return null;
   return (
-    <div className="updateBanner" role="alert">
-      <strong>{error ? "The update didn't finish" : "New version ready"}</strong>
-      {error ? <span>{error}</span> : (
-        <ul>
-          {news.slice(0, 3).map((line) => <li key={line}>{line}</li>)}
-          {news.length > 3 && <li>and {news.length - 3} more</li>}
-        </ul>
-      )}
-      <button className="updateNow" onClick={updateNow}>{error ? "TRY AGAIN" : "UPDATE NOW"}</button>
+    <div className="updateNote" role="status">
+      <span>{u.latest?.version ? `Version ${u.latest.version} is ready.` : "A new version is ready."} It installs itself after a quiet minute.</span>
+      <button className="ghost mini" onClick={updateNow}>Update now</button>
     </div>
   );
 }

@@ -47,6 +47,12 @@ Ask if they want songs from their own Spotify. On yes:
 3. Pull their saved tracks or their chosen playlists through your Spotify connector and send them with `POST /api/connectors/spotify/sync-library` as tracks with title and artist, plus spotifyUrl (the track's open.spotify.com link) so the play button can open Spotify's player.
 4. From then on, song suggestions come from their library first.
 
+Downloaded songs, only when the owner gives you a songs folder (1.11):
+1. The folder holds Symphony's manifest.json at its top and the hook clips it lists (hooks/<id>.m4a).
+2. Connect it with `POST /api/songs/folder` as `{ "folder": "/full/path/to/the/folder" }`. It answers with the songs it can play, or the reason it can't use the folder.
+3. From then on, new covers and Shuffle pick from those songs, each with its hook clip, and a song you set that's on the list gets its clip. Covers keep their songs until they're shuffled or changed.
+4. To stop, send `{ "folder": null }`. Covers keep their song names.
+
 ## 5. Instagram: trending by default, captions only with consent
 
 Trending, no consent needed:

@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { join } from "node:path";
 import { captionProblems } from "./captionRules.js";
 import { postedCaption } from "./captionCtas.js";
+import { MISSING_CLIP, clipPath, clipType, songMeta } from "./songs.js";
 import { DATA_DIR, LIBRARY_DIR, UPLOAD_DIR, store } from "./store.js";
 
 export const BEE_HIVE_URL = process.env.COVER_REVIEW_BEE_HIVE_URL || "https://ubeeofm.com/api/public/cover-review";
@@ -27,6 +28,16 @@ class HiveError extends Error {
 }
 
 const pollen = () => store.settings.pollen || null;
+// 1.11: the Bee Hive says in hello whether it takes a song with a cover. Until it does, covers go out as before.
+const takesSongs = () => Boolean(pollen()?.features?.songs);
+
+/** How a cover's downloaded song fares with Pollen: does it have a clip, will the clip go, and any problem. */
+export function songCheck(item) {
+  const hasSongClip = Boolean(item?.songFile);
+  const clip = hasSongClip ? clipPath(item.songFile) : null;
+  const goes = Boolean(clip) && takesSongs();
+  return { hasSongClip, songGoes: goes, clip, problem: hasSongClip && takesSongs() && !clip ? MISSING_CLIP : null };
+}
 
 async function hive(action, body = {}, code = pollen()?.code) {
   let r;
@@ -66,7 +77,7 @@ export async function connect(code) {
   if (c.length < 32 || c.length > 256) throw new HiveError(REFUSED, 400);
   let hello;
   try { hello = await hive("hello", {}, c); } catch (e) { throw e.status === 401 ? new HiveError(REFUSED, 401) : e; }
-  store.settings.pollen = { code: c, creator: hello.creator, channels: hello.channels, connectedAt: Date.now(), checkedAt: Date.now() };
+  store.settings.pollen = { code: c, creator: hello.creator, channels: hello.channels, features: hello.features || {}, connectedAt: Date.now(), checkedAt: Date.now() };
   store.saveSettings();
   return { ok: true, creator: hello.creator, channels: channelList(hello.channels) };
 }
@@ -77,7 +88,7 @@ export async function channels({ refresh = false } = {}) {
   if (refresh || !p.checkedAt || Date.now() - p.checkedAt > HELLO_FRESH_MS) {
     try {
       const hello = await hive("hello");
-      Object.assign(p, { creator: hello.creator, channels: hello.channels, checkedAt: Date.now() });
+      Object.assign(p, { creator: hello.creator, channels: hello.channels, features: hello.features || {}, checkedAt: Date.now() });
       store.saveSettings();
     } catch (e) {
       if (e.status === 401) { revoke(); return pollenStatus(); }
@@ -128,6 +139,8 @@ async function scheduleOne(id, picked) {
   if (problems.length) return { itemId: id, status: "refused", error: problems.join(" ") };
   const render = item.pollenRender;
   if (!render || !existsSync(join(RENDER_DIR, render.file))) return { itemId: id, status: "refused", error: "Render the cover first." };
+  const song = songCheck(item);
+  if (song.problem) return { itemId: id, status: "refused", error: song.problem };
   if (!pollen()?.code) return { itemId: id, status: "not_sent", error: REVOKED };
 
   // A cover that never made it keeps its key, so a retry can't land twice. One Pollen refused gets a new key.
@@ -143,8 +156,21 @@ async function scheduleOne(id, picked) {
         body: readFileSync(join(RENDER_DIR, render.file)), signal: AbortSignal.timeout(120000) });
     } catch { throw new HiveError(OFFLINE, 0); }
     if (!put.ok) throw new HiveError(`The cover didn't upload (${put.status}). Try again.`, put.status);
+    // 1.11: a cover with a downloaded song sends that exact hook clip too, with its name and hook times.
+    let songBody = {};
+    if (song.songGoes) {
+      const type = clipType(song.clip);
+      const upSong = await hive("upload_url", { client_key: clientKey, kind: "song", content_type: type });
+      let putSong;
+      try {
+        putSong = await fetch(upSong.signed_url, { method: "PUT", headers: { "Content-Type": type, "x-upsert": "true" },
+          body: readFileSync(song.clip), signal: AbortSignal.timeout(120000) });
+      } catch { throw new HiveError(OFFLINE, 0); }
+      if (!putSong.ok) throw new HiveError(`The song clip didn't upload (${putSong.status}). Try again.`, putSong.status);
+      songBody = { song: { path: upSong.path, ...songMeta(item), content_type: type } };
+    }
     const sub = await hive("submit", { client_key: clientKey, caption: caption || "", image_path: up.path,
-      width: render.width, height: render.height, channel_ids: picked, has_slides: (item.slides || []).some((s) => !s.deletedAt) });
+      width: render.width, height: render.height, channel_ids: picked, has_slides: (item.slides || []).some((s) => !s.deletedAt), ...songBody });
     Object.assign(item.pollen, { requestId: sub.request.id, status: sub.request.status, updatedAt: Date.now() });
     store.saveDb();
     return { itemId: id, status: item.pollen.status };
@@ -256,8 +282,10 @@ export function registerPollen(app) {
     res.json({ items: ids.map((id) => {
       const item = store.getItem(id);
       const caption = item ? postedCaption(item, store.settings.captionCtas) : "";
-      return { itemId: id, caption, problems: item ? captionProblems(caption) : ["That cover is gone."],
-        hasSlides: Boolean(item && (item.slides || []).some((s) => !s.deletedAt)), pollen: item?.pollen || null };
+      const song = songCheck(item);
+      return { itemId: id, caption, problems: item ? [...captionProblems(caption), ...(song.problem ? [song.problem] : [])] : ["That cover is gone."],
+        hasSlides: Boolean(item && (item.slides || []).some((s) => !s.deletedAt)), hasSongClip: song.hasSongClip, songGoes: song.songGoes,
+        pollen: item?.pollen || null };
     }) });
   });
   app.post("/api/pollen/schedule", async (req, res) => {

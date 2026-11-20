@@ -58,6 +58,19 @@ export const CONNECTORS = [
       "Tell the creator: in Approved, tap Select, pick covers, then Schedule with Pollen.",
     ],
   },
+  {
+    id: "songs",
+    name: "Downloaded songs (Symphony)",
+    required: false,
+    purpose: "Songs from a folder of licensed downloads with Symphony's manifest.json and hook clips. A cover with one plays its hook clip from this app, and Pollen can post with it once it takes songs. Nothing changes until a folder is connected.",
+    env: [],
+    claudeSteps: [
+      "Only when the owner gives you a songs folder. Skip this for everyone else.",
+      "POST /api/songs/folder with {folder}, the folder's full path. It answers with the songs it can play, or the reason it can't use the folder.",
+      "Check GET /api/songs: connected, with the songs listed. New covers and Shuffle now pick from them, and a typed song on the list gets its clip.",
+      "To stop, POST /api/songs/folder with {folder: null}. Covers keep their song names.",
+    ],
+  },
 ];
 
 export const DRIVE_ROOT_NAME = "uBee Cover Review";

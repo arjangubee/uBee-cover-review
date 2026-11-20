@@ -2,7 +2,7 @@
 // Run with the server stopped: node scripts/smoke.mjs
 import { execFileSync, spawn } from "node:child_process";
 import http from "node:http";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { captionProblems } from "../server/captionRules.js";
@@ -19,13 +19,35 @@ for (const f of ["default-quotes.json", "quiz-quotes.json", "trending-instagram.
 const repoDataBefore = execFileSync("git", ["status", "--porcelain", "--", "data"], { cwd: join(REPO_DATA, "..") }).toString();
 const seedBefore = readFileSync(join(DATA, "trending-instagram.json"), "utf8");
 
+// A songs folder in Symphony's shape (1.11): manifest.json at the top, hook clips under hooks/. Three usable songs (one
+// written in snake_case), plus entries the app must leave out: a path outside the folder, hook times that don't make
+// sense, a clip that isn't there, and a file that isn't audio.
+const SONGS = mkdtempSync(join(tmpdir(), "cr-songs-"));
+const NO_MANIFEST = mkdtempSync(join(tmpdir(), "cr-nosongs-"));
+mkdirSync(join(SONGS, "hooks"));
+const CLIP_A = Buffer.from("fake-aac-clip-for-song-a-0123456789"), CLIP_B = Buffer.from("fake-mp3-clip-for-song-b"), CLIP_C = Buffer.from("fake-clip-c");
+writeFileSync(join(SONGS, "hooks", "artist-a--song-a.m4a"), CLIP_A);
+writeFileSync(join(SONGS, "hooks", "artist-b--song-b.mp3"), CLIP_B);
+writeFileSync(join(SONGS, "hooks", "artist-c--song-c.m4a"), CLIP_C);
+writeFileSync(join(SONGS, "hooks", "notes.txt"), "not audio");
+writeFileSync(join(SONGS, "manifest.json"), JSON.stringify({ updatedAt: "2026-11-20T00:00:00Z", songs: [
+  { id: "artist-a--song-a", artist: "Artist A", title: "Song A", hookStart: 44.2, hookEnd: 59.1, previewStart: { apple: 30, deezer: 41.5, spotify: 30 }, replayPeak: 47, hookFile: "hooks/artist-a--song-a.m4a", spotifyUrl: "https://open.spotify.com/track/aaaaaaaaaaaaaaaaaaaaaa", isrc: "XX0000000001", hookLabel: "0:44 to 0:59" },
+  { id: "artist-b--song-b", artist: "Artist B", title: "Song B", hookStart: 12, hookEnd: 27, hookFile: "hooks/artist-b--song-b.mp3" },
+  { id: "artist-c--song-c", artist: "Artist C", title: "Song C", hook_start: 5, hook_end: 20, hook_file: "hooks/artist-c--song-c.m4a" },
+  { id: "outside", artist: "Artist D", title: "Song D", hookStart: 1, hookEnd: 9, hookFile: "../outside.m4a" },
+  { id: "backwards", artist: "Artist E", title: "Song E", hookStart: 30, hookEnd: 20, hookFile: "hooks/artist-a--song-a.m4a" },
+  { id: "missing", artist: "Artist F", title: "Song F", hookStart: 1, hookEnd: 9, hookFile: "hooks/not-there.m4a" },
+  { id: "text", artist: "Artist G", title: "Song G", hookStart: 1, hookEnd: 9, hookFile: "hooks/notes.txt" },
+] }));
+writeFileSync(join(SONGS, "..", "outside.m4a"), "outside the folder");
+
 // A fake Bee Hive: the same four actions the real one answers, plus the signed upload URL and a
 // remote photo for the same-origin image route. It records everything so checks can count calls.
 const TINY_JPEG = Buffer.from("/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYwLjMxLjEwMgD/2wBDAAgKCgsKCw0NDQ0NDRAPEBAQEBAQEBAQEBASEhIVFRUSEhIQEBISFBQVFRcXFxUVFRUXFxkZGR4eHBwjIyQrKzP/xAClAAADAQEBAQAAAAAAAAAAAAAHBQQGAwIAAQADAQEBAAAAAAAAAAAAAAAHBQQDBgIQAAADBgAKBAwHAQAAAAAAAAIBAwAREgUTBDRBgYKyMjFCISKxwkMURQaTwcMzgweEVFEV0VLSFlXTo2IRAAIBAgMCCAwHAQEAAAAAAAECAxEEBRIAMSETs0FCMgYzInSysXKChIFxNTRRIxQHwbQ2Q3NiYf/AABEIADIAKAMBIgACEQADEQD/2gAMAwEAAhEDEQA/ABcI7xW5USQ4whjN8BBAEgkYhCGNwQhL6iMixNqLeZz5G6CEKrhkA1SFBbmCmYT544TTgdvPc/htZdbiAP7khBWGp3QYUHmESwERENQITLegxFzflI3NogKJFYFZU3LcVu6RHHTr1KcW2Onu+sdxhZRjOKPiMlZYVZQxyJIeF4NZVViwzEdwdE91QadLTy/wuF7leFfMYHmaNmHOSQAIlQ2VmoCKNXduU6ynjJMppdCtg3qsZgIYk+REihUg4hEkEiERuLi89jJ5YrfCEoG3PjDGPgmQQhARmYhCHyhIvqZkTPpwIwHKU0zBbKpqKjIhieVvUVAJM1BCI9UnGKInkW0m4y0dQpsioYLpZRRFSBMTiuSSWENWmIJFrBeYYSiMuISZxY39xa4TGkJMaLWiIzKihrkqXyKQgXeZD3x7+XU8MXB3qlXYMOcNzAmGuXMO9Xm9H2cmm6EwnyMKAVHOAapctsYKZvFUqQmCD/qJz+G1u/3aefN2/lLD8WqAJMpaVnSct67ucRx0u8VacW2Olu+sdxhZdAl/CXHlLn9DQrilzIXLSLHR2AzEfcA/sGa4TutyUzD/AKOk97gti1w8hgFy0rNJIwSpDuxLK5FvLVwd7FiG37xrGX2EqZuiTUpa5Zehpr7CVM3RJqUtcsvQ057JPM/TTfHvn/WJuMGpZl2Wd1WgQ3snna+ZdlndVoEN7J526Ky+ST0vHOoYu3Ht8XTdPULL0t0bmnqFl6W6N5O0+/SG47eX/R/GOvru0XVXGIIHkbnG8JbpFjNn1v4vzVVUIQ2zzN7iqoliM8ajemLssw1LP0BNwN7iE1vEMqxmiNtDc0D6MNdh11UWF/hXBd78ZcTcJn35fuQ9CmWnTO2vJoHT+TzCXd37yhSqVIOdMT4YH6gxOc8trJLOyuFo6YInQv5gltf9TJjH7x/BnxXoGwUk7f2fWYs9WLKLEerdreyl1kk4aoQgJ3bmRBQMrHYPrt1hh8Sz4pHA1QrZt46W6Itygjb/AOa928gmiiQRBt3kb3HURLGZY1Go/bs3+W/1R/sYpyzA0s/TEzJs5LONXcVfcxG0fX3aFGL4zc2uKX8CJCVhuriJSwYsQkrKK0cCtBvoBoMMXZZhqWfoCYRMXZZhqWfoCYMYr2XoSeQaMP5h/P8AV3wibjLXWW94/gz4r0DYKSdv7PrNvfeP4M+K9A2Cknb+z6zHrqT/AA2w9Y/ey6zwn45D6fENovSzA0s/TEzJlsswNLP0xMybKbtZPOby6A3WD45ivh93x76//9k=", "base64");
 const CH_IG = "11111111-1111-4111-8111-111111111111";
 const CH_SUBSTACK = "22222222-2222-4222-8222-222222222222";
 const hive = { code: "smoke-pollen-code-0123456789-abcdefghijklmnop", revoked: false, dropSubmitOnce: false,
-  uploads: {}, requests: [], submits: 0 };
+  uploads: {}, uploadTypes: {}, requests: [], submits: 0, songs: false };
 const hiveServer = http.createServer(async (req, res) => {
   const chunks = [];
   for await (const c of req) chunks.push(c);
@@ -36,26 +58,34 @@ const hiveServer = http.createServer(async (req, res) => {
   if (req.method === "PUT" && url.pathname.startsWith("/upload/")) {
     if (url.searchParams.get("token") !== "t0k") return send(400, { error: "no token" });
     hive.uploads[decodeURIComponent(url.pathname.slice(8))] = raw;
+    hive.uploadTypes[decodeURIComponent(url.pathname.slice(8))] = req.headers["content-type"];
     return send(200, { Key: url.pathname.slice(8) });
   }
   if (hive.revoked || req.headers.authorization !== `Bearer ${hive.code}`) return send(401, { error: "That Pollen code doesn't work anymore. Ask uBee for a new one." });
   const body = JSON.parse(raw.toString() || "{}");
   if (body.action === "hello") {
-    return send(200, { ok: true, creator: { id: "cr-1", display_name: "Test Creator" }, channels: [
+    return send(200, { ok: true, creator: { id: "cr-1", display_name: "Test Creator" }, ...(hive.songs ? { features: { songs: true } } : {}), channels: [
       { id: CH_IG, platform: "instagram", handle: "@smoke_ig", photo: true, ready: true, default_on: true },
       { id: CH_SUBSTACK, platform: "substack", handle: "smoke", photo: true, ready: true, default_on: false }] });
   }
   if (body.action === "upload_url") {
     if (!/^[A-Za-z0-9_-]{8,80}$/.test(body.client_key || "")) return send(400, { error: "bad client_key" });
+    if (body.kind === "song") {
+      if (!hive.songs) return send(400, { error: "unknown kind" });
+      const ext = { "audio/mp4": "m4a", "audio/mpeg": "mp3" }[body.content_type] || "bin";
+      return send(200, { ok: true, path: `cr-1/${body.client_key}-song.${ext}`, signed_url: `${hiveBase}/upload/cr-1/${body.client_key}-song.${ext}?token=t0k`, token: "t0k" });
+    }
     return send(200, { ok: true, path: `cr-1/${body.client_key}.jpg`, signed_url: `${hiveBase}/upload/cr-1/${body.client_key}.jpg?token=t0k`, token: "t0k" });
   }
   if (body.action === "submit") {
     hive.submits += 1;
     if (!hive.uploads[body.image_path]) return send(400, { error: "the image must be uploaded first" });
+    if (body.song && (!hive.songs || !hive.uploads[body.song.path])) return send(400, { error: "the song must be uploaded first" });
     let r = hive.requests.find((x) => x.client_key === body.client_key);
     if (!r) {
       r = { id: `${String(hive.requests.length + 1).padStart(8, "0")}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, client_key: body.client_key, caption: body.caption,
-        channel_ids: body.channel_ids, width: body.width, height: body.height, has_slides: body.has_slides, status: "waiting", booked_day: null, posts: [], error: null };
+        channel_ids: body.channel_ids, width: body.width, height: body.height, has_slides: body.has_slides, status: "waiting", booked_day: null, posts: [], error: null,
+        ...(body.song ? { song: body.song } : {}) };
       hive.requests.push(r);
     }
     if (hive.dropSubmitOnce) { hive.dropSubmitOnce = false; return req.socket.destroy(); }
@@ -109,10 +139,11 @@ try {
     const q = await (await fetch(`${base}/api/quotes`)).json();
     assert(q.quotes.length > 300, `expected 300+ default quotes, got ${q.quotes.length}`);
   });
-  await check("connectors registry lists drive, spotify, instagram, pollen with Muse steps", async () => {
+  await check("connectors registry lists drive, spotify, instagram, pollen and the songs folder with Muse steps", async () => {
     const c = await (await fetch(`${base}/api/connectors`)).json();
     const ids = c.connectors.map((x) => x.id).sort().join(",");
-    assert(ids === "google_drive,instagram,pollen,spotify", `unexpected connectors: ${ids}`);
+    assert(ids === "google_drive,instagram,pollen,songs,spotify", `unexpected connectors: ${ids}`);
+    assert(c.connectors.find((x) => x.id === "songs").claudeSteps.some((t) => t.includes("/api/songs/folder")), "the songs folder steps say how to connect it");
     assert(c.connectors.every((x) => x.claudeSteps.length >= 3), "each connector needs Muse steps");
   });
   await check("drive plan has DUMP and every bucket", async () => {
@@ -488,6 +519,88 @@ try {
     assert(needsDescription({ ...text, description: "" }, "") === false, "with no voice nothing is needed");
     assert(!/allude|call to comment|subtext|curiosity/i.test(captionPrompt(text, "")), "the no-voice prompt stays the original's");
   });
+  // ---------- v1.11: downloaded songs (Arjang #477, #480; Quill #482; Symphony #481, #491) ----------
+  let before111;
+  await check("v1.11 the songs folder is empty by default, and a folder the app can't use is refused with the reason", async () => {
+    before111 = await newItem("songs-before.png");
+    const empty = await (await fetch(`${base}/api/songs`)).json();
+    assert(empty.connected === false && empty.folder === null && Array.isArray(empty.songs) && empty.songs.length === 0, `nothing connected: ${JSON.stringify(empty)}`);
+    for (const [folder, why] of [["relative/songs", /full path/i], [join(SONGS, "nope"), /isn't there|not a folder/i], [NO_MANIFEST, /manifest\.json/]]) {
+      const r = await fetch(`${base}/api/songs/folder`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folder }) });
+      const b = await r.json();
+      assert(r.status === 400 && why.test(b.error || ""), `${folder}: ${r.status} ${JSON.stringify(b)}`);
+    }
+    assert((await (await fetch(`${base}/api/songs`)).json()).connected === false, "a refused folder connects nothing");
+    assert(!before111.songFile && before111.songSource !== "downloaded", `no clip before a folder is connected: ${JSON.stringify(before111)}`);
+  });
+  await check("v1.11 connecting reads Symphony's manifest and leaves out songs it can't play", async () => {
+    const r = await postJson(`/api/songs/folder`, { folder: SONGS });
+    assert(r.ok && r.connected && r.folder === SONGS && r.songs.length === 3, `three usable songs: ${JSON.stringify(r)}`);
+    const list = await (await fetch(`${base}/api/songs`)).json();
+    const a = list.songs.find((x) => x.id === "artist-a--song-a"), c = list.songs.find((x) => x.id === "artist-c--song-c");
+    assert(a && a.artist === "Artist A" && a.title === "Song A" && a.hookStart === 44.2 && a.hookEnd === 59.1 && a.hookFile === "hooks/artist-a--song-a.m4a", JSON.stringify(a));
+    assert(a.clipUrl === "/api/songs/clips/hooks/artist-a--song-a.m4a" && a.spotifyUrl.includes("open.spotify.com"), JSON.stringify(a));
+    assert(c && c.hookStart === 5 && c.hookEnd === 20 && c.hookFile === "hooks/artist-c--song-c.m4a", `snake_case is read too: ${JSON.stringify(c)}`);
+    assert(!list.songs.some((x) => ["outside", "backwards", "missing", "text"].includes(x.id)), `left out: ${list.songs.map((x) => x.id)}`);
+    assert(readFileSync(join(DATA, "settings.json"), "utf8").includes(SONGS), "the folder lives in this copy's own settings");
+  });
+  await check("v1.11 the app serves a hook clip from its own address, and nothing else from the folder", async () => {
+    const r = await fetch(`${base}/api/songs/clips/hooks/artist-a--song-a.m4a`);
+    assert(r.ok && r.headers.get("content-type").startsWith("audio/mp4") && Buffer.from(await r.arrayBuffer()).equals(CLIP_A), `the clip: ${r.status} ${r.headers.get("content-type")}`);
+    const mp3 = await fetch(`${base}/api/songs/clips/hooks/artist-b--song-b.mp3`);
+    assert(mp3.ok && mp3.headers.get("content-type").startsWith("audio/mpeg"), `an mp3: ${mp3.headers.get("content-type")}`);
+    const part = await fetch(`${base}/api/songs/clips/hooks/artist-a--song-a.m4a`, { headers: { Range: "bytes=0-3" } });
+    assert(part.status === 206 && (await part.arrayBuffer()).byteLength === 4, `a range, so the player can seek: ${part.status}`);
+    for (const path of ["manifest.json", "hooks/notes.txt", "hooks/not-there.m4a", "..%2Foutside.m4a", "hooks%2F..%2F..%2Foutside.m4a", "%2Fetc%2Fpasswd.m4a"]) {
+      const bad = await fetch(`${base}/api/songs/clips/${path}`);
+      assert(bad.status === 404, `${path} answered ${bad.status}`);
+    }
+  });
+  await check("v1.11 with the folder connected, new covers and Shuffle pick downloaded songs, and older covers keep theirs", async () => {
+    const fresh = await newItem("songs-new.png");
+    assert(fresh.songSource === "downloaded" && /^hooks\//.test(fresh.songFile) && fresh.songPreviewUrl === `/api/songs/clips/${fresh.songFile}`, `a new cover: ${JSON.stringify(fresh)}`);
+    assert(fresh.songHook && fresh.songHook.end > fresh.songHook.start && / - /.test(fresh.song), `with its hook: ${JSON.stringify(fresh.songHook)} ${fresh.song}`);
+    const old = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === before111.id);
+    assert(old.song === before111.song && !old.songFile, `an older cover keeps its song: ${JSON.stringify(old)}`);
+    const shuffled = (await postJson(`/api/items/${before111.id}/edit`, { shuffleSong: true })).item;
+    assert(shuffled.songSource === "downloaded" && shuffled.songFile && shuffled.songPreviewUrl === `/api/songs/clips/${shuffled.songFile}`, `shuffle picks from the list: ${JSON.stringify(shuffled)}`);
+  });
+  await check("v1.11 a typed song on the list gets its clip, any other typed song drops it, and undo puts the clip back", async () => {
+    const item = await newItem("songs-typed.png");
+    const onList = (await postJson(`/api/items/${item.id}/edit`, { song: "artist b - song b" })).item;
+    assert(onList.songFile === "hooks/artist-b--song-b.mp3" && onList.songHook.start === 12 && onList.songHook.end === 27 && onList.songPreviewUrl === "/api/songs/clips/hooks/artist-b--song-b.mp3", JSON.stringify(onList));
+    const other = (await postJson(`/api/items/${item.id}/edit`, { song: "Someone - Else" })).item;
+    assert(!other.songFile && !other.songHook && other.songPreviewUrl === "" && other.song === "Someone - Else", `any other song drops the clip: ${JSON.stringify(other)}`);
+    await postJson(`/api/items/${item.id}/edit`, { song: "Artist B - Song B" });
+    const withLink = (await postJson(`/api/items/${item.id}/edit`, { song: "Someone - Else", songPreviewUrl: "https://example.com/preview.mp3" })).item;
+    assert(!withLink.songFile && withLink.songPreviewUrl === "https://example.com/preview.mp3", `a preview sent with another song stays: ${JSON.stringify(withLink)}`);
+    const undo = (await postJson(`/api/items/${item.id}/edit`, { song: onList.song, songPreviewUrl: onList.songPreviewUrl, songSpotifyUrl: "", songFile: onList.songFile, songHook: onList.songHook })).item;
+    assert(undo.songFile === onList.songFile && undo.songHook.start === 12 && undo.songPreviewUrl === onList.songPreviewUrl, `undo: ${JSON.stringify(undo)}`);
+    const sneaky = await fetch(`${base}/api/items/${item.id}/edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song: "x", note: "changed", songFile: "../../etc/passwd" }) });
+    assert(sneaky.status === 400, `a clip outside the folder is refused, got ${sneaky.status}`);
+    const after = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === item.id);
+    assert(after.song === onList.song && after.note !== "changed", "a refused edit changes nothing");
+  });
+  await check("v1.11 the Compose check counts a downloaded song as in the pool, and a song on no list as not", async () => {
+    const item = await newItem("songs-verify.png");
+    assert(item.songSource === "downloaded", `picked from the list: ${item.songSource}`);
+    await postJson(`/api/items/${item.id}/edit`, { song: "Someone - Else" });
+    const no = await postJson(`/api/items/${item.id}/verify`, {});
+    assert(no.item.beacons.SONG_IN_POOL === false && no.item.songSource !== "downloaded", `on no list: ${JSON.stringify(no.item.beacons)} ${no.item.songSource}`);
+    await postJson(`/api/items/${item.id}/edit`, { song: "Artist C - Song C" });
+    const yes = await postJson(`/api/items/${item.id}/verify`, {});
+    assert(yes.item.beacons.SONG_IN_POOL === true && yes.item.songSource === "downloaded", JSON.stringify(yes.item.beacons));
+  });
+  await check("v1.11 disconnecting stops the clips and the picks, and covers keep their song names", async () => {
+    const item = await newItem("songs-disconnect.png");
+    const off = await postJson(`/api/songs/folder`, { folder: null });
+    assert(off.connected === false, JSON.stringify(off));
+    assert((await fetch(`${base}/api/songs/clips/${item.songFile}`)).status === 404, "no folder, no clip");
+    const later = await newItem("songs-after.png");
+    assert(later.songSource !== "downloaded" && !later.songFile, `back to the old picks: ${JSON.stringify(later)}`);
+    const kept = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === item.id);
+    assert(kept.song === item.song && kept.songFile === item.songFile, "nothing stored is rewritten");
+  });
   await check("v1.4 a rating can be cleared, so undo can take back a first rating", async () => {
     const item = await newItem("quill-rate.png");
     const r = await postJson(`/api/items/${item.id}/rate`, { songRating: 6 });
@@ -746,6 +859,63 @@ try {
       await postJson(`/api/settings/caption-ctas`, { ctas: [] });
     }
   });
+  await check("v1.11 while the Bee Hive doesn't take songs, a cover with a clip goes out as before and the check says so", async () => {
+    await postJson(`/api/songs/folder`, { folder: SONGS });
+    try {
+      const cover = await approvedItem("song-off.png", "hook in the dark");
+      await postJson(`/api/items/${cover.id}/edit`, { song: "Artist A - Song A" });
+      await render(cover.id);
+      const c = (await (await post("/api/pollen/check", { itemIds: [cover.id] })).json()).items[0];
+      assert(c.hasSongClip === true && c.songGoes === false && c.problems.length === 0, `the check: ${JSON.stringify(c)}`);
+      const uploadsBefore = Object.keys(hive.uploads).length;
+      await (await post("/api/pollen/schedule", { itemIds: [cover.id], channelIds: [CH_IG] })).json();
+      const key = (await pollenOf(cover.id)).clientKey;
+      const r = hive.requests.find((x) => x.client_key === key);
+      assert(r && !r.song && Object.keys(hive.uploads).length === uploadsBefore + 1, `the cover alone: ${JSON.stringify(r)}`);
+    } finally {
+      await postJson(`/api/songs/folder`, { folder: null });
+    }
+  });
+  await check("v1.11 once the Bee Hive takes songs, the hook clip goes with the cover, and covers without one go as before", async () => {
+    hive.songs = true;
+    await postJson(`/api/songs/folder`, { folder: SONGS });
+    try {
+      await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
+      const withSong = await approvedItem("song-on.png", "hook in the light");
+      await postJson(`/api/items/${withSong.id}/edit`, { song: "Artist A - Song A" });
+      const plain = await approvedItem("song-none.png", "no hook here");
+      await postJson(`/api/items/${plain.id}/edit`, { song: "Someone - Else" });
+      for (const c of [withSong, plain]) await render(c.id);
+      const checked = (await (await post("/api/pollen/check", { itemIds: [withSong.id, plain.id] })).json()).items;
+      assert(checked[0].songGoes === true && checked[1].hasSongClip === false && checked[1].songGoes === false, JSON.stringify(checked));
+      await (await post("/api/pollen/schedule", { itemIds: [withSong.id, plain.id], channelIds: [CH_IG] })).json();
+      const keySong = (await pollenOf(withSong.id)).clientKey, keyPlain = (await pollenOf(plain.id)).clientKey;
+      const rSong = hive.requests.find((x) => x.client_key === keySong), rPlain = hive.requests.find((x) => x.client_key === keyPlain);
+      assert(rSong && rSong.song && rSong.song.artist === "Artist A" && rSong.song.title === "Song A" && rSong.song.hook_start === 44.2 && rSong.song.hook_end === 59.1 && rSong.song.content_type === "audio/mp4", `the request carries the hook: ${JSON.stringify(rSong)}`);
+      assert(hive.uploads[rSong.song.path] && hive.uploads[rSong.song.path].equals(CLIP_A) && hive.uploadTypes[rSong.song.path] === "audio/mp4", "the exact clip is uploaded");
+      assert(rPlain && !rPlain.song, `a cover without a clip goes as before: ${JSON.stringify(rPlain)}`);
+    } finally {
+      await postJson(`/api/songs/folder`, { folder: null });
+    }
+  });
+  await check("v1.11 when the Bee Hive takes songs, a cover whose clip is gone is flagged before anything is sent", async () => {
+    await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
+    await postJson(`/api/songs/folder`, { folder: SONGS });
+    const cover = await approvedItem("song-gone.png", "hook gone");
+    await postJson(`/api/items/${cover.id}/edit`, { song: "Artist B - Song B" });
+    await render(cover.id);
+    await postJson(`/api/songs/folder`, { folder: null });
+    try {
+      const c = (await (await post("/api/pollen/check", { itemIds: [cover.id] })).json()).items[0];
+      assert(c.hasSongClip === true && c.songGoes === false && c.problems.some((p) => /song clip/i.test(p)), `flagged: ${JSON.stringify(c)}`);
+      const before = hive.submits;
+      const out = (await (await post("/api/pollen/schedule", { itemIds: [cover.id], channelIds: [CH_IG] })).json()).results[0];
+      assert(out.status === "refused" && /song clip/i.test(out.error) && hive.submits === before, `refused before sending: ${JSON.stringify(out)}`);
+    } finally {
+      hive.songs = false;
+      await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
+    }
+  });
   await check("pollen: the image route serves local and remote photos from this app's own address", async () => {
     const local = await fetch(`${base}/api/items/${first.id}/image`);
     assert(local.ok && local.headers.get("content-type").startsWith("image/png"), `local photo: ${local.status} ${local.headers.get("content-type")}`);
@@ -810,5 +980,6 @@ try {
   server.kill();
   hiveServer.close();
   rmSync(DATA, { recursive: true, force: true });
+  for (const d of [SONGS, NO_MANIFEST, join(SONGS, "..", "outside.m4a")]) rmSync(d, { recursive: true, force: true });
 }
 console.log(process.exitCode ? "SMOKE FAILED" : "SMOKE OK");

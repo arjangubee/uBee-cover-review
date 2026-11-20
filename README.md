@@ -9,7 +9,7 @@ This is the portable edition of the Cover Review app that started inside Arjang'
 - Photos are the only thing it needs. Add photos and start reviewing.
 - Approve, pass, rate, and leave a note on every photo. Nothing gets deleted when you approve, your choice is saved.
 - Every photo gets a quote from the uBee default pack, a song suggestion, and a caption draft.
-- Songs default to what is trending on Instagram. Connect Spotify and your own library goes first.
+- Songs default to what is trending on Instagram. Connect Spotify and your own library goes first. Connect a folder of downloaded songs (Symphony's manifest.json and hook clips) and its songs go first, each playing its hook.
 - Captions draft in your voice once your Muse learns it from your previous Instagram captions, with your consent.
 - Where your Muse can draft with a model, new covers get a caption in your own voice before you see them, on topic of the text on the cover, or about the photo when a cover has no text. A caption you typed is never replaced.
 - If you run comment keyword DMs, your Muse saves your calls ("Comment WORD and I'll send you ...") and each cover gets a switch under the caption, off by default. On, your call leads the caption that posts.
@@ -109,7 +109,7 @@ Since 1.4.0 the cover is the screen, the way Quill's Cover Review looks. Since 1
 
 - Header: back to all covers, the queue count, setup and help, "Cover 1 of 17", undo and redo.
 - The cover as it will post, in a 4:5 frame. The screen and the posted image are drawn by the same code, so what she approves is what posts.
-- The song row: the play button opens Spotify's own player for the cover's song when the song has a Spotify link, or plays a preview when the pool has one. Shuffle picks another song.
+- The song row: the play button opens Spotify's own player for the cover's song when the song has a Spotify link, or plays a preview when the pool has one. A downloaded song plays its hook clip from the app. Shuffle picks another song.
 - Icons under the cover: like (approve), dislike (pass), download, repost (remix into a new version), note, edit.
 - The glass at the top left of the cover flies the photo up to fill the screen. Pinch to zoom (up to 4 times), drag to look around, double tap to zoom in or out, and tap the dark background to put it back. It works in the editor too.
 - Slides: swipe the cover or use the Slides stepper to move through them, add one with +, remove one with minus. Posts steps between covers.

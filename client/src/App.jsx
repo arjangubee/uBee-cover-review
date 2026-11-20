@@ -195,6 +195,7 @@ export default function App() {
     const typed = { note: (p.note ?? saved.note).trim(), caption: p.caption ?? saved.caption, song: (p.song ?? saved.song).trim() };
     const ch = changedFields(saved, typed, ["note", "caption", "song"]);
     if (ch && "caption" in ch.before) ch.before.captionSource = item.captionSource ?? null; // undo restores the source too (1.9)
+    if (ch && "song" in ch.before) Object.assign(ch.before, songOf(item)); // and a song steps back whole, clip and all (1.11)
     return ch;
   }
   async function flushPending(item = current) {
@@ -274,17 +275,20 @@ export default function App() {
   const saveCaption = (caption) => attempt(() => { setPending(current.id, "caption", null); return record("Caption", current.id, { edit: captionOf(current) }, { edit: { caption } }); });
   // The Comment CTA switch (1.10, renamed in 1.10.1): a keyword turns it on, null turns it off; undo steps back like any edit.
   const setCta = (keyword) => attempt(() => record("Comment CTA", current.id, { edit: { cta: current.cta ?? null } }, { edit: { cta: keyword } }));
+  // A song steps back whole: its name, preview, Spotify link, and the downloaded hook clip with its source (1.11).
+  const songOf = (item) => ({ song: item.song || "", songPreviewUrl: item.songPreviewUrl || "", songSpotifyUrl: item.songSpotifyUrl || "",
+    songFile: item.songFile ?? null, songHook: item.songHook ?? null, songSource: item.songSource ?? "" });
   async function regenerate(kind) {
-    const before = kind === "caption" ? captionOf(current) : { song: current.song || "", songPreviewUrl: current.songPreviewUrl || "" };
+    const before = kind === "caption" ? captionOf(current) : songOf(current);
     await attempt(async () => {
       const { item } = await post(`/api/items/${current.id}/edit`, kind === "caption" ? { regenerateCaption: true } : { shuffleSong: true });
       patchItem(item);
-      const after = kind === "caption" ? captionOf(item) : { song: item.song, songPreviewUrl: item.songPreviewUrl || "" };
+      const after = kind === "caption" ? captionOf(item) : songOf(item);
       history.current.push({ label: kind === "caption" ? "Caption" : "Song", itemId: item.id, before: { edit: before }, after: { edit: after } });
       bumpHistory();
     });
   }
-  const setSong = (song) => attempt(() => { setPending(current.id, "song", null); return record("Song", current.id, { edit: { song: current.song || "", songPreviewUrl: current.songPreviewUrl || "" } }, { edit: { song } }); });
+  const setSong = (song) => attempt(() => { setPending(current.id, "song", null); return record("Song", current.id, { edit: songOf(current) }, { edit: { song } }); });
   const rate = (key, stars) => attempt(() => record("Rating", current.id, { rate: { [key]: current[key] ?? null } }, { rate: { [key]: valueForStars(stars) } }));
   const recheck = () => attempt(async () => {
     const { item } = await post(`/api/items/${current.id}/verify`);

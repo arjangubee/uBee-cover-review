@@ -201,9 +201,10 @@ export default function App() {
       await post(`/api/items/${itemId}/decide`, { decision: ch.status });
       if (ch.status === list) pendingId.current = itemId; // it's back in this list: go to it
       await load();
-      return;
+      return null;
     }
     if (item) patchItem(item);
+    return item;
   }
   async function record(label, itemId, before, after) {
     await applyChange(itemId, after);
@@ -211,19 +212,33 @@ export default function App() {
     bumpHistory();
   }
   async function step(direction) {
-    if (draft || stepping.current) return; // while the editor is open, undo and redo wait until it closes
-    const entry = direction === "undo" ? history.current.undo() : history.current.redo();
-    bumpHistory();
-    if (!entry) return;
+    if (stepping.current) return;
     stepping.current = true;
     try {
-      await applyChange(entry.itemId, direction === "undo" ? entry.before : entry.after);
-      say(`${direction === "undo" ? "Undid" : "Redid"} ${entry.label.toLowerCase()}.`);
-    } catch (e) {
-      // It didn't happen, so it stays where it was in the history.
-      if (direction === "undo") history.current.redo(); else history.current.undo();
+      // With the editor open (1.13.5, #559 item 3), her waiting change is saved first, so it's the step that comes
+      // off. A step for this cover stays in the editor and shows there. A step for another cover, or a decision,
+      // closes the editor first and runs the way it always did.
+      const editing = draftNow.current;
+      if (editing) {
+        if (!(await persistDraft())) return;
+        const next = history.current.peek(direction);
+        if (!next) return;
+        const here = next.itemId === editing.id && !next.before?.status && !next.after?.status;
+        if (!here && !(await finishEdit())) return;
+      }
+      const entry = direction === "undo" ? history.current.undo() : history.current.redo();
       bumpHistory();
-      say(`Couldn't ${direction} that: ${e.message}`);
+      if (!entry) return;
+      try {
+        const item = await applyChange(entry.itemId, direction === "undo" ? entry.before : entry.after);
+        if (item && draftNow.current?.id === item.id) refreshDraft(item);
+        say(`${direction === "undo" ? "Undid" : "Redid"} ${entry.label.toLowerCase()}.`);
+      } catch (e) {
+        // It didn't happen, so it stays where it was in the history.
+        if (direction === "undo") history.current.redo(); else history.current.undo();
+        bumpHistory();
+        say(`Couldn't ${direction} that: ${e.message}`);
+      }
     } finally { stepping.current = false; }
   }
 
@@ -366,11 +381,21 @@ export default function App() {
   });
 
   // ---------- The editor: every change saves as she goes (1.8), each save one undo step ----------
+  // What the editor works on: the cover with its full style and its photo edits filled in.
+  const editorCopy = (item) => JSON.parse(JSON.stringify({ ...item, ...effectiveStyle(item), imageEdit: { contrast: "normal", mosaics: [], ...(item.imageEdit || {}) } }));
+  // An undo or redo inside the editor (1.13.5): the editor shows the cover as it now is, with nothing waiting to save.
+  function refreshDraft(item) {
+    const fresh = editorCopy(item);
+    draftSaved.current = JSON.parse(JSON.stringify(fresh));
+    draftNow.current = fresh;
+    setDraft(fresh);
+    setActiveBox((b) => (b >= (fresh.extraTexts || []).length ? -1 : b));
+  }
   function startEdit(box = -1) {
     if (!current) return;
     setStory(false);
     setSlide(0);
-    const opened = JSON.parse(JSON.stringify({ ...current, ...effectiveStyle(current), imageEdit: { contrast: "normal", mosaics: [], ...(current.imageEdit || {}) } }));
+    const opened = editorCopy(current);
     draftSaved.current = JSON.parse(JSON.stringify(opened));
     draftNow.current = opened;
     setSaveState("idle");
@@ -588,7 +613,8 @@ export default function App() {
                 <Ratings item={current} onRate={rate} />
               </div>
               {draft && (
-                <EditorSheet onDismiss={finishEdit} status={saveState} dismissRef={sheetDismiss}>
+                <EditorSheet onDismiss={finishEdit} status={saveState} dismissRef={sheetDismiss}
+                  history={{ canUndo: history.current.canUndo(), canRedo: history.current.canRedo(), onUndo: () => step("undo"), onRedo: () => step("redo") }}>
                   <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
                     palette={palette.palette} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
                     quoteAll={quoteShown(draft, quotesStatus?.quoteOverlay)}

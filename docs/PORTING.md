@@ -12,6 +12,35 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.13.5: undo and redo inside the editor
+
+Arjang's #559 item 3, Quill's #670. The editor sheet has its own Undo and Redo at its top left, on the same stack as
+the header's. No new fields, settings or actions, and what a change records is unchanged.
+
+1. **One stack.** The sheet's buttons call the same step("undo") and step("redo") as the header's. There is no second
+   history. Both pairs read canUndo and canRedo from the same stack, so they always show the same state.
+2. **With the editor open.** step() used to wait until the editor closed. Now her change still waiting to save is saved
+   first, so it's the step that comes off. A step for the cover being edited runs in place, and the editor shows the
+   cover as it now is. A step for another cover, or a decision (like or pass), closes the editor first and runs the
+   way it always did.
+3. **The header.** Its Undo and Redo follow the stack with the editor open too, and sit above the sheet's backdrop so
+   they can be tapped. Back, the queue pill and info still wait for the editor to close. Keyboard shortcuts don't
+   change: they still wait for the editor to close.
+4. **The history** gains peek(direction): the step undo or redo would take next, without taking it.
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| undo.js | peek(direction) |
+| App.jsx | step() works with the editor open; applyChange answers the item it changed; editorCopy and refreshDraft; the sheet gets history |
+| EditorSheet.jsx | Undo and Redo at the top left (.sheetHistory), from its history prop |
+| CoverTop.jsx | Undo and Redo follow the stack, not the editor |
+| styles.css | .sheetHistory; the sheet's handle is 44px tall; .app.editing .topbar above the backdrop |
+
+Checks after the port: the counts don't change. In the editor, a change then the sheet's Undo takes it back and the
+editor stays open; the header's Redo puts it back; both pairs show the same state the whole time.
+
 ## 1.13.4: one row under the cover, and Randomize layout on a phone's first screen
 
 Arjang's #559 item 2, Quill's #660. Layout only: no new fields, settings or actions, and slides and covers move exactly

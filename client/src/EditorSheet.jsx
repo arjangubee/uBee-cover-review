@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import Icon from "./icons.jsx";
 
 // The text editor's sheet, like the original's: anchored to the bottom, nearly see-through. It rests at 56% of the
 // screen; a swipe up (on the handle, or from the top of its content) takes it to 88% (1.8, Arjang and Quill), and a
@@ -14,7 +15,7 @@ const maxDrag = () => 0.52 * window.innerHeight; // the original stops the pull 
 const span = () => (TALL - REST) * window.innerHeight; // the distance between the two stops
 const STATUS = { idle: "Saves as you go", saving: "Saving…", saved: "Saved", error: "Not saved yet" };
 
-export default function EditorSheet({ onDismiss, status = "idle", dismissRef: outerDismiss, children }) {
+export default function EditorSheet({ onDismiss, status = "idle", dismissRef: outerDismiss, history = null, children }) {
   const [offset, setOffset] = useState(0); // px down, from the rest stop, while dragging it closed
   const [grow, setGrow] = useState(0); // px taller (or shorter, below 0) than the current stop, while dragging between stops
   const [tall, setTall] = useState(false);
@@ -164,6 +165,13 @@ export default function EditorSheet({ onDismiss, status = "idle", dismissRef: ou
         <div className="sheetTop">
           <button type="button" ref={handleRef} className="sheetHandle" aria-label="Close the editor" aria-describedby="sheetStatus"
             onPointerDown={onHandleDown} onPointerMove={onHandleMove} onPointerUp={onHandleUp} onPointerCancel={onHandleCancel} onClick={onHandleClick} />
+          {/* Undo and redo on the same stack as the header's (1.13.5, #559 item 3), reachable without closing the sheet. */}
+          {history && (
+            <div className="sheetHistory" role="group" aria-label="Undo and redo">
+              <button type="button" className="iconBtn small" onClick={history.onUndo} disabled={!history.canUndo} aria-label="Undo"><Icon name="undo" size={20} /></button>
+              <button type="button" className="iconBtn small" onClick={history.onRedo} disabled={!history.canRedo} aria-label="Redo"><Icon name="redo" size={20} /></button>
+            </div>
+          )}
           <span id="sheetStatus" className={`sheetStatus ${status}`} role="status">{STATUS[status] || STATUS.idle}</span>
         </div>
         <div className="sheetScroll" ref={scrollRef}>{children}</div>

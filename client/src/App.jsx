@@ -164,7 +164,10 @@ export default function App() {
     if (!app || !btn || !stage) return undefined;
     const fit = () => {
       const s = stage.getBoundingClientRect(), b = btn.getBoundingClientRect();
-      const used = Math.ceil(s.top + window.scrollY + (b.bottom - s.bottom) + 8);
+      // The Spotify card opens above the song row (1.13.7) and is left out, so play never shrinks the cover.
+      const card = app.querySelector(".spotifyEmbed");
+      const cardRoom = card ? card.getBoundingClientRect().height + (parseFloat(getComputedStyle(card).marginBottom) || 0) : 0;
+      const used = Math.ceil(s.top + window.scrollY - cardRoom + (b.bottom - s.bottom) + 8);
       app.style.setProperty("--fit-h", `calc(100svh - var(--host-bar) - env(safe-area-inset-bottom, 0px) - ${used}px)`);
     };
     fit();

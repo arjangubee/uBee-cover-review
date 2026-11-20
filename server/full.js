@@ -181,11 +181,17 @@ function quotesUnlocked() {
 function quoteDrawn(item) {
   return quotesUnlocked() && quoteShown(item, store.settings.quoteOverlay);
 }
-/** QUOTE_IN_STOCK's test: the quote is on her quote list, in any case and without the spaces around it. The remix menu
- * checks its pick with it (1.17.0). */
+/** A quote as the stock check reads it, the original's normalizeForStockCheck (composeVerification.ts, Quill #826): lower
+ * case, curly quotes made straight, anything but a-z, 0-9 and spaces made a space, runs of spaces made one, then trimmed. */
+export function normalizeForStockCheck(text) {
+  return String(text ?? "").toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
+    .replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+/** QUOTE_IN_STOCK's test: the quote is on her quote list, read the original's way (1.17.1). The remix menu checks its pick
+ * with it (1.17.0). */
 export function quoteInStock(quote) {
-  const quotes = loadQuotes().map((q) => String(q?.text ?? "").trim().toLowerCase());
-  return Boolean(quote) && quotes.includes(String(quote).trim().toLowerCase());
+  const q = normalizeForStockCheck(quote);
+  return Boolean(q) && loadQuotes().some((x) => normalizeForStockCheck(x?.text) === q);
 }
 /** SONG_IN_POOL's test: the song pool, her Spotify library or the songs folder has the song, or it came from trending. */
 export function songInPool(item) {

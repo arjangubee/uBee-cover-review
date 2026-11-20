@@ -12,6 +12,31 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.17.1: the quote stock check reads quotes the original's way
+
+Quill's #826, items 1 and 4. Server only: no client, data, settings or tables change, so the counts don't move.
+
+1. **The stock check.** QUOTE_IN_STOCK compares the cover's quote with her stock the way the original's
+   normalizeForStockCheck does (composeVerification.ts): lower case, curly quotes made straight, anything but a-z, 0-9
+   and spaces made a space, runs of spaces made one, then trimmed. A stock entry with a double space, curly quotes or other
+   punctuation now counts as it does in the original. It's one helper for the compose check and the remix pick's gate, so
+   every copy of the stock test in a space should read quotes this way.
+2. **The remix pick** reads her stock the same way: it never picks the quote the cover already has, however that quote is
+   written, and it counts each quote once.
+3. **A remix of a remix** keeps one " (remix)" on its title instead of adding another (#826 item 4).
+4. Saved compose checks keep their result until they're checked again. Nothing is rechecked in bulk, and no row is rewritten.
+
+### Server
+
+| Where | Change |
+| --- | --- |
+| server/full.js | New: normalizeForStockCheck, exported. quoteInStock uses it, so verifyItem and the remix gate both do |
+| server/remix.js | The quote pick leaves out the cover's own quote and repeats by the same reading. A remix title keeps one " (remix)" |
+
+Checks after the port: the counts don't change, and the gate on covers 1 and 7 reads as before. Prove the double space
+case on a test account only: a stock entry with two spaces between words, and a cover with the same words and one space,
+reads in stock.
+
 ## 1.17.0: the remix menu
 
 Rose's #796 and #797, Quill's #798 and #811. Remix opens a menu instead of making an instant copy.

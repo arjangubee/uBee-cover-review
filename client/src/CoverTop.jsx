@@ -1,4 +1,4 @@
-import { Component, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Icon from "./icons.jsx";
 import { displayTitle, parseSong, spotifyEmbedUrl } from "./reviewMath.js";
 import { clipNow, clipSource, isSilent, unlockAudio } from "./songs/clipSource.js";
@@ -9,7 +9,7 @@ import { symphonyIdOf } from "./songs/songsData.js";
 
 const LIST_WORDS = { queue: "in queue", approved: "approved", rejected: "passed" };
 
-export function CoverHeader({ list, count, position, total, canUndo, canRedo, onBack, onInfo, onUndo, onRedo, locked = false }) {
+export function CoverHeader({ list, count, position, total, canUndo, canRedo, onBack, onInfo, onUndo, onRedo, locked = false, away = false }) {
   // "Cover 12 of 172" when it fits, "12 of 172" when the row is tight.
   const countRef = useRef(null);
   useLayoutEffect(() => {
@@ -25,7 +25,7 @@ export function CoverHeader({ list, count, position, total, canUndo, canRedo, on
     return () => ro?.disconnect();
   }, [position, total, count, list]);
   return (
-    <header className="topbar">
+    <header className={away ? "topbar away" : "topbar"} inert={away ? true : undefined}>
       <button type="button" className="iconBtn" onClick={onBack} disabled={locked} aria-label="All covers"><Icon name="back" /></button>
       <button type="button" className={`queuePill ${list}`} onClick={onBack} disabled={locked} aria-label={`${count} ${LIST_WORDS[list]}. Show all covers`}>
         <span className="pillFace">
@@ -43,32 +43,13 @@ export function CoverHeader({ list, count, position, total, canUndo, canRedo, on
   );
 }
 
-export function ModeSwitch({ story, setStory, disabled }) {
+export function ModeSwitch({ story, setStory, disabled, away = false }) {
   return (
-    <div className="modeSwitch" role="tablist" aria-label="View">
+    <div className={away ? "modeSwitch away" : "modeSwitch"} role="tablist" aria-label="View" inert={away ? true : undefined}>
       <button type="button" role="tab" aria-selected={!story} className={!story ? "on" : ""} onClick={() => setStory(false)}>Review deck</button>
       <button type="button" role="tab" aria-selected={story} className={story ? "on" : ""} disabled={disabled} onClick={() => setStory(true)}>Story view</button>
     </div>
   );
-}
-
-// Keeps what anchorRef points at in the same place on screen when `open` changes (1.13.7, #559 item 5). The Spotify
-// card opens above the song row, so the page scrolls by however far the row moved: the black area above moves up,
-// and the song row and the cover stay where they were. getSnapshotBeforeUpdate reads the row's place before the
-// change reaches the page, whatever caused it: play, close, or another cover.
-class HoldPlace extends Component {
-  getSnapshotBeforeUpdate(prev) {
-    if (prev.open === this.props.open) return null;
-    const el = this.props.anchorRef.current;
-    return el ? el.getBoundingClientRect().top : null;
-  }
-  componentDidUpdate(_prev, _state, before) {
-    const el = this.props.anchorRef.current;
-    if (before == null || !el) return;
-    const shift = el.getBoundingClientRect().top - before;
-    if (Math.abs(shift) >= 1) window.scrollBy(0, shift);
-  }
-  render() { return this.props.children; }
 }
 
 // The play button works like the original's: with a Spotify link it opens Spotify's own player for this cover's
@@ -76,7 +57,7 @@ class HoldPlace extends Component {
 // removes the player, so playback stops. A song with only a preview plays the preview, as in 1.4. A downloaded song
 // (1.11) plays its hook clip from this app, ahead of any Spotify link. With Symphony connected (1.12), the note opens
 // the Songs screen for this cover.
-export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs }) {
+export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs, onPlayer }) {
   const { artist, title } = parseSong(item.song);
   // A Symphony clip plays from the address the server gives for it (1.13.2): asked for as soon as the cover shows,
   // and read again on every tap, so an address that expires is asked for again.
@@ -87,7 +68,6 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs }) {
   const preview = clip || item.songPreviewUrl;
   const [playing, setPlaying] = useState(false);
   const [playerOpen, setPlayerOpen] = useState(false);
-  const rowRef = useRef(null);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(item.song || "");
   const audio = useRef(null);
@@ -125,13 +105,17 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs }) {
   }
 
   const shown = Boolean(embed && playerOpen);
+  // 1.14.1 (Arjang #790 item 3): the card opens right above the song row, over the space the header and the view switch
+  // leave as they move up. Nothing in the page's flow changes, so the cover never moves and the page never scrolls.
+  useEffect(() => { onPlayer?.(shown); }, [shown, onPlayer]);
+  useEffect(() => () => onPlayer?.(false), [onPlayer]);
   return (
-    <HoldPlace open={shown} anchorRef={rowRef}>
+    <div className="songWrap">
     {shown && (
       <iframe key={`${item.id}-${embed}`} className="spotifyEmbed" src={embed} title={`Spotify player for ${item.song || "this song"}`}
         allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" />
     )}
-    <div className="songRow" ref={rowRef}>
+    <div className="songRow">
       <div className="songMeta">
         <strong className="songOwner">{displayTitle(item.title)}</strong>
         {editing ? (
@@ -158,6 +142,6 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs }) {
       {onSongs && <button type="button" className="iconBtn" onClick={onSongs} aria-label="Pick a song from Symphony"><Icon name="note" /></button>}
       <button type="button" className="iconBtn" onClick={onShuffle} aria-label="Shuffle the song"><Icon name="shuffle" /></button>
     </div>
-    </HoldPlace>
+    </div>
   );
 }

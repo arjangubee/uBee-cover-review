@@ -12,6 +12,25 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.14.1: the cover edge to edge, the magnifier by the pencil, play without moving the cover, Color lock
+
+Arjang's #790, ruled in Quill's #793. Client only: no new field, setting or action, so no data moves and the counts
+stay as they are.
+
+1. **Edge to edge.** The 1.13.4 phone fit is gone (the `pointer: coarse` rule on `.stage` and the page's `--fit-h`
+   measurement). The cover fills the app column at 4:5 on every screen.
+2. **The magnifier.** Its button left the photo and sits in the action row, right before the pencil, with the same
+   label ("Zoom in on the photo") and the same zoom. Nothing sits on the photo.
+3. **Play.** The Spotify card opens right above the song row (absolutely placed in `.songWrap`), and while it's open
+   the header and the Review deck / Story view switch move up and out (`.away`, inert). Nothing in the page's flow
+   changes, so the cover keeps its exact place and the page doesn't scroll. 1.13.7's scroll that held the row in place
+   is gone.
+4. **Color lock** sits on Randomize layout, on by default: a randomize changes the layout only. Off, each randomize also
+   picks a new text color from the 11 palette colors, never the one already on the cover. Tapping Color lock only
+   switches it. It's kept for the page's session.
+5. **Check after the port**: screenshots of the cover screen at a phone's width (the cover edge to edge, the glass left
+   of the pencil), the same with the Spotify card open (the cover in the same place), and Randomize with Color lock off.
+
 ## 1.14.0: Chats, the DM reply simulator
 
 Arjang's #570 and #575, Quill's #581 and #584, built from Rose's #580 scrub spec, rebased onto 1.13.10, with the

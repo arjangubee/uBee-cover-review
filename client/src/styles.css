@@ -73,19 +73,25 @@ img { max-width: 100%; }
 .playBtn { flex: none; display: grid; place-items: center; width: 50px; height: 50px; padding: 0 0 0 3px; border: 0; border-radius: 50%; background: #1ed760; color: #000; }
 .playBtn:active { transform: scale(0.95); }
 .spotifyEmbed { display: block; width: 100%; height: 80px; margin: 0 0 10px; border: 0; border-radius: 12px; background: var(--surface); } /* Spotify's compact player, above the song row (1.13.7) */
+/* 1.14.1 (Arjang #790 item 3): the card opens right above the song row, over the space the header and the view switch
+   leave as they move up and out of the way. Nothing in the page's flow changes, so the cover stays exactly where it is
+   and the page never scrolls. */
+.songWrap { position: relative; }
+.songWrap .spotifyEmbed { position: absolute; bottom: 100%; left: 0; z-index: 31; }
+.topbar, .modeSwitch { transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s ease, visibility 0s; }
+.topbar.away, .modeSwitch.away { opacity: 0; visibility: hidden; pointer-events: none;
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s ease, visibility 0s linear 0.25s; }
+.topbar.away { transform: translateY(-100%); }
+.modeSwitch.away { transform: translateY(-160%); }
+@media (prefers-reduced-motion: reduce) { .topbar, .modeSwitch, .topbar.away, .modeSwitch.away { transition: none; } }
 
 /* ---------- The stage: a 4:5 frame, the cover drawn by the same code that makes the post ---------- */
 .stage { position: relative; display: flex; align-items: center; justify-content: center; margin: 4px -16px 0; background: var(--bg); overflow: hidden; }
 /* Holding the cover, a slide or the magnifier selects nothing and opens no callout menu (1.13.6, #559 item 4).
    The editor's fields sit outside both, so they keep normal selection. */
 .stage, .stage *, .zoomView, .zoomView * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-/* On a phone (1.13.4, #559 item 2): the cover sizes itself so Randomize layout ends above the Muse tab bar on the
-   first screen. --fit-h is the room the page measures for it. It keeps 4:5, stays centered, and never gets
-   narrower than 260px. On a computer it keeps its full width. */
-@media (pointer: coarse) {
-  .stage { --stage-w: min(calc(100% + 32px), max(min(260px, calc(100% + 32px)), calc(var(--fit-h, 100vh) * 0.8)));
-    width: var(--stage-w); margin-left: calc((100% - var(--stage-w)) / 2); margin-right: 0; }
-}
+/* 1.14.1 (Arjang #790 item 1): the cover fills the app column edge to edge at 4:5, on a phone too. 1.13.4's phone
+   shrink is gone: folding Slides and Posts into one row only takes the black space under the cover. */
 .stageSingle { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 .coverWrap { position: relative; flex: none; }
 .coverCanvas { display: block; width: 100%; height: 100%; }
@@ -138,7 +144,12 @@ img { max-width: 100%; }
 .postBtn:disabled { background: #0d0d0d; border-color: #161616; color: var(--off); }
 .outlineBtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 52px; padding: 0 18px; border: 1px solid var(--line-strong); border-radius: 16px; background: transparent; color: #fff; font-size: 16px; font-weight: 600; }
 .outlineBtn.wide { width: 100%; margin-top: 12px; }
-.outlineBtn.randomize { height: 46px; margin-top: 8px; }
+/* Randomize layout, with Color lock on it (1.14.1, Arjang #790 item 4): one outlined bar, two buttons. */
+.randomizeBar { display: flex; align-items: center; height: 46px; margin-top: 8px; padding: 0 5px 0 0; border: 1px solid var(--line-strong); border-radius: 16px; }
+.randomizeMain { display: inline-flex; flex: 1; align-items: center; justify-content: center; gap: 8px; height: 100%; padding: 0 0 0 18px; border: 0; background: none; color: #fff; font-size: 16px; font-weight: 600; }
+.randomizeMain:active { transform: scale(0.99); }
+.colorLock { display: inline-flex; flex: none; align-items: center; gap: 5px; height: 34px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: 999px; background: none; color: var(--muted); font-size: 13px; font-weight: 700; }
+.colorLock[aria-pressed="true"] { border-color: transparent; background: var(--surface-2); color: #fff; }
 .outlineBtn:active { transform: scale(0.99); }
 .noteRow { display: flex; align-items: center; gap: 10px; margin-top: 12px; border-bottom: 1px solid var(--line); }
 .noteInput { flex: 1; min-width: 0; padding: 14px 0; border: 0; background: transparent; color: #fff; font-size: 17px; }
@@ -226,8 +237,7 @@ img { max-width: 100%; }
 .brandFoot .wordmark { height: 34px; object-fit: contain; }
 
 /* ---------- The magnifier (1.7): the photo flies up over a dark blur; pinch zooms 1 to 4 ---------- */
-.zoomBtn { position: absolute; top: 10px; left: 12px; z-index: 3; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55); color: #fff; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+/* 1.14.1 (Arjang #790 item 2): its button sits in the action row, right before the pencil. Nothing sits on the photo. */
 .zoomView { position: fixed; inset: 0; z-index: 80; overflow: hidden; touch-action: none; overscroll-behavior: none; background: rgba(0, 0, 0, 0.72);
   -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); transition: background-color 0.32s ease, -webkit-backdrop-filter 0.32s ease, backdrop-filter 0.32s ease; }
 .zoomView.from, .zoomView.closing { background: rgba(0, 0, 0, 0); -webkit-backdrop-filter: blur(0); backdrop-filter: blur(0); }

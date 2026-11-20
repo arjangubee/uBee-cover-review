@@ -9,6 +9,7 @@ import { LOCKED, badgeFor, formatDay, selectable } from "../client/src/pollenVie
 import { RELEASE_URL, newer, releaseBanner } from "../client/src/release.js";
 import { canUse, clipAddress, coverSongEdit, hotList, librarySorted, moveText, onCover, partLabel, partsOf, replayPath, searchSongs, sourceFor, statusLine, symphonyIdOf, topGenres } from "../client/src/songs/songsData.js";
 import { clipNow, clipSource } from "../client/src/songs/clipSource.js";
+import { readFileSync } from "node:fs";
 
 let failed = 0;
 function check(name, fn) {
@@ -241,6 +242,21 @@ check("peek shows the step undo or redo would take next, without taking it (1.13
   assert(h.peek("undo")?.label === "a" && h.peek("redo")?.label === "b", "after an undo, both sides show");
   h.redo();
   assert(h.peek("redo") === null && h.peek("undo")?.label === "b", "after a redo, nothing to redo");
+});
+check("holding the cover or the magnifier selects nothing and opens no menu, and no rule takes selection from the whole page (1.13.6)", () => {
+  // Arjang #559 item 4, Quill #676: a long press on the cover must not select it blue or open the iPhone's callout menu.
+  // The rule stays on the cover and the magnifier, so the editor's fields keep normal selection.
+  const css = readFileSync(new URL("../client/src/styles.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, sel, body]) => ({
+    sels: sel.split(",").map((x) => x.trim().replace(/\s+/g, " ")),
+    decls: Object.fromEntries(body.split(";").map((d) => [d.slice(0, d.indexOf(":")).trim(), d.slice(d.indexOf(":") + 1).trim()]).filter(([k]) => k)),
+  }));
+  const still = (sel) => rules.some((r) => r.sels.includes(sel) && r.decls["user-select"] === "none"
+    && r.decls["-webkit-user-select"] === "none" && r.decls["-webkit-touch-callout"] === "none");
+  for (const sel of [".stage", ".stage *", ".zoomView", ".zoomView *"]) assert(still(sel), `${sel} should select nothing and open no menu when held`);
+  const whole = /^(\*|html|body|:root|\.app|input|textarea|select|\[contenteditable[^\]]*\])$/;
+  const wide = rules.filter((r) => r.decls["user-select"] === "none" || r.decls["-webkit-user-select"] === "none").flatMap((r) => r.sels).filter((x) => whole.test(x));
+  assert(!wide.length, `no selection rule over the whole page or its fields: ${wide.join(", ")}`);
 });
 check("undo and redo walk back and forth, and a new change clears redo", () => {
   const h = createHistory(3);

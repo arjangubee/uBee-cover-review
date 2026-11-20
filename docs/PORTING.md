@@ -12,6 +12,28 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.13.6: holding the cover selects nothing
+
+Arjang's #559 item 4, Quill's #676. One CSS rule: no new fields, settings or actions, and no code change.
+
+1. **The cover and the magnifier.** `.stage`, `.zoomView` and everything inside them get `user-select: none` (with
+   its `-webkit-` form) and `-webkit-touch-callout: none`. Holding down on the cover, a photo slide, the slide counter
+   or the zoomed photo no longer selects anything blue or opens the iPhone's callout menu.
+2. **Taps and gestures don't change.** A hold that lifts without moving is still a tap: on the quote it opens the
+   editor. Dragging a text box or a Face mosaic box, swiping the slides, the color picker, and the magnifier's pinch,
+   drag and double tap all work as before.
+3. **Fields keep selection.** The rule stays on the cover and the magnifier. The editor sheet, the caption and the
+   note sit outside both, so their fields select and edit as before. No rule covers the whole page.
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| styles.css | `.stage, .stage *, .zoomView, .zoomView *` select nothing and open no callout menu |
+
+Checks after the port: the counts don't change. On her phone, holding the cover or a photo slide turns nothing blue
+and opens no menu, a held tap on the quote still opens the editor, and text in the editor still selects.
+
 ## 1.13.5: undo and redo inside the editor
 
 Arjang's #559 item 3, Quill's #670. The editor sheet has its own Undo and Redo at its top left, on the same stack as

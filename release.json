@@ -1,9 +1,9 @@
 {
-  "version": "1.13.8",
+  "version": "1.13.9",
   "date": "2026-11-20",
   "whatsNew": [
-    "The quote starts in even lines, inside the safe area of the cover",
-    "Dragging the text catches on the safe area's edge, and lets go when you keep pulling",
-    "Covers can get their text placed by your Muse, away from faces"
+    "Quotes show on every cover. Tap the T next to the pencil to turn one off, and tap again to bring it back",
+    "Hold the T for a second to hide the quote on every cover, and hold it again to bring them back",
+    "Compose checks saved before this version are checked again once, in the background"
   ]
 }

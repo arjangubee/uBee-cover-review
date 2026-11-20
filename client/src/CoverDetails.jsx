@@ -8,9 +8,10 @@ import { displayTitle, parseSong, starsFor } from "./reviewMath.js";
 // Everything under the cover: the icon row, Slides and Posts, Randomize layout, her note, the caption,
 // the Compose check, Why it matches, Image info and the star ratings.
 
-export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onComment, onEdit, busy }) {
+export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onComment, onEdit, busy, quote }) {
   return (
-    // Order from the original, with dislike and repost swapped (Arjang, Nov 18): like, dislike, download, repost, comment, edit.
+    // Order from the original, with dislike and repost swapped (Arjang, Nov 18): like, dislike, download, repost, comment,
+    // then the T icon (1.13.9) and edit.
     <div className="actionRow" role="toolbar" aria-label="Cover actions">
       <button type="button" className={item.status === "approved" ? "iconBtn act liked" : "iconBtn act"} onClick={onLike} disabled={busy} aria-label="Like: approve this cover" aria-pressed={item.status === "approved"}>
         <Icon name="heart" size={28} filled={item.status === "approved"} />
@@ -21,8 +22,40 @@ export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onComm
       <button type="button" className="iconBtn act" onClick={onDownload} disabled={busy} aria-label="Download this cover as it will post"><Icon name="download" size={28} /></button>
       <button type="button" className="iconBtn act" onClick={onRemix} disabled={busy} aria-label="Repost: remix this cover as a new version"><Icon name="repost" size={28} /></button>
       <button type="button" className="iconBtn act" onClick={onComment} aria-label="Write a note for the next revision"><Icon name="comment" size={28} /></button>
+      {quote && <QuoteButton {...quote} />}
       <button type="button" className="iconBtn act" onClick={onEdit} aria-label="Edit the text on the cover"><Icon name="edit" size={28} /></button>
     </div>
+  );
+}
+
+// The T icon (1.13.9, Arjang via Rose #693 and #694, Quill #695 and #696). On: a green circle behind the T, and the
+// quote shows. Off: the T with a slash, grey like the other icons. A tap turns the quote off, or back on, for this post
+// only. Holding it for HOLD_MS hides every quote, or brings them back, and that hold never also counts as a tap.
+// Shift+Enter is the hold from a keyboard. A finger that slides off before the hold lands is neither. 1000 ms is the
+// original's deck and quote holds (textHold and adjacentHold, Quill #707 and #719): a shorter press is a tap.
+export const HOLD_MS = 1000;
+function QuoteButton({ on, locked, onTap, onHold }) {
+  const timer = useRef(null);
+  const press = useRef(null);
+  const stop = () => { clearTimeout(timer.current); timer.current = null; };
+  useEffect(() => stop, []);
+  return (
+    <button type="button" className={on ? "iconBtn act quoteBtn on" : "iconBtn act quoteBtn"} disabled={locked}
+      aria-label="Quote on this cover" aria-pressed={on}
+      aria-description="Tap to turn it off or on for this cover. Press and hold to hide or show quotes on every cover."
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        press.current = { x: e.clientX, y: e.clientY, held: false };
+        stop();
+        timer.current = setTimeout(() => { timer.current = null; if (press.current) press.current.held = true; onHold(); }, HOLD_MS);
+      }}
+      onPointerMove={(e) => { const p = press.current; if (p && !p.held && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 10) { stop(); press.current = null; } }}
+      onPointerUp={stop} onPointerCancel={() => { stop(); press.current = null; }} onPointerLeave={stop}
+      onContextMenu={(e) => e.preventDefault()}
+      onClick={() => { const p = press.current; press.current = null; if (p?.held) return; onTap(); }}
+      onKeyDown={(e) => { if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); onHold(); } }}>
+      <span className="quoteMark"><Icon name={on ? "text" : "textOff"} size={22} /></span>
+    </button>
   );
 }
 

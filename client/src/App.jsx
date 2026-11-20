@@ -16,7 +16,7 @@ import ScheduleSheet from "./ScheduleSheet.jsx";
 import { coverSongEdit } from "./songs/songsData.js";
 import SongsView from "./songs/SongsView.jsx";
 import { createHistory } from "./undo.js";
-import { quoteShown } from "./quoteOverlay.js";
+import { globalHide, ownQuote, quoteShown } from "./quoteOverlay.js";
 import UpdateBanner from "./UpdateBanner.jsx";
 
 const STYLE_KEYS = Object.keys(STYLE_DEFAULTS);
@@ -31,6 +31,10 @@ function effectiveStyle(item) {
   return out;
 }
 const pickStyle = (item, keys) => Object.fromEntries(keys.map((k) => [k, effectiveStyle(item)[k]]));
+// Resolves when the browser has a free moment (or after a short wait where it can't say), so a pass in the background
+// never competes with her taps.
+const whenIdle = () => new Promise((done) => (typeof window !== "undefined" && window.requestIdleCallback
+  ? window.requestIdleCallback(() => done(), { timeout: 1000 }) : setTimeout(done, 50)));
 
 export default function App() {
   const [status, setStatus] = useState(null);
@@ -150,6 +154,30 @@ export default function App() {
     placing.current = false;
   }
 
+  // 1.13.9's one-time recheck (Quill #706, #707 and #719). A compose check saved before 1.13.9 was made when every post
+  // started with its quote off, so it can say NOT NEEDED for a quote that shows now. Each one is checked once more:
+  // idle, one cover at a time, the one on screen last, beacons only. Only a cover whose check changed is patched, and
+  // only its check, so nothing else on the screen moves. A cover that fails keeps its saved check until the next load.
+  const rechecking = useRef(false);
+  async function recheckSavedChecks(onScreenId) {
+    if (rechecking.current) return;
+    rechecking.current = true;
+    try {
+      const { ids } = await api("/api/beacons/wanted");
+      for (const id of [...ids.filter((i) => i !== onScreenId), ...ids.filter((i) => i === onScreenId)]) {
+        await whenIdle();
+        try {
+          const r = await post(`/api/items/${id}/recheck`, {});
+          if (!r.rechecked || !r.changed?.length || !r.item) continue;
+          const fresh = { beacons: r.item.beacons, composeAttestedAt: r.item.composeAttestedAt, beaconsVersion: r.item.beaconsVersion };
+          // A check that came back from something else in the meantime is as new as this one: it stays.
+          setItems((prev) => prev.map((i) => (i.id === r.item.id && !(Number(i.beaconsVersion || 0) >= fresh.beaconsVersion) ? { ...i, ...fresh } : i)));
+        } catch { /* this cover keeps its saved check until the next load */ }
+      }
+    } catch { /* the recheck only refreshes saved checks: every cover stays as it is */ }
+    rechecking.current = false;
+  }
+
   // Keep her place: a cover opened from the grid, or the same spot after a cover leaves the list.
   useEffect(() => {
     if (pendingId.current != null) {
@@ -170,17 +198,10 @@ export default function App() {
 
   const current = items[index] || null;
   const shown = draft && current && draft.id === current.id ? draft : current;
-  const quoteOn = Boolean(quoteShown(shown, quotesStatus?.quoteOverlay) && quotesStatus?.unlocked); // 1.13.3: the one switch, else the cover's own
+  const quoteOn = Boolean(quoteShown(shown, quotesStatus?.quoteOverlay) && quotesStatus?.unlocked); // 1.13.9: global hide, else the post's own (on by default)
   const activeSlides = useMemo(() => (shown?.slides || []).map((s, at) => ({ ...s, at }))
     .filter((s) => !s.deletedAt).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)), [shown]);
   useEffect(() => { setSlide(0); setPickMode(false); }, [current?.id]);
-  // Her last choice on Quote on the cover carries over to a cover she hasn't set yet (1.13). It only ever turns a quote
-  // on, since a new cover starts with it off, and a cover she has set keeps its own choice. It isn't a step for undo.
-  useEffect(() => {
-    const c = current;
-    if (!c || draft || quotesStatus?.quoteOverlay != null || quotesStatus?.quoteDefault !== true || !quotesStatus?.unlocked || c.showQuote || c.showQuoteSet) return;
-    post(`/api/items/${c.id}/quote-toggle`, { from: "default" }).then((r) => { if (r?.applied) patchItem(r.item); }).catch(() => {});
-  }, [current?.id, quotesStatus?.quoteDefault, quotesStatus?.quoteOverlay]); // eslint-disable-line react-hooks/exhaustive-deps
   // The editor belongs to one cover: if that cover leaves the screen, the editor closes with it.
   useEffect(() => { if (draft && current?.id !== draft.id) finishEdit(); }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setZoom(null); }, [current?.id, view]); // another cover starts unzoomed, like the original
@@ -190,7 +211,7 @@ export default function App() {
   useEffect(() => { if (loads) fillCaptions(current?.id ?? null); }, [loads]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!loads) return undefined;
-    const run = () => fillPlacements(current?.id ?? null);
+    const run = async () => { await recheckSavedChecks(current?.id ?? null); await fillPlacements(current?.id ?? null); };
     const idle = typeof window !== "undefined" && window.requestIdleCallback;
     const handle = idle ? window.requestIdleCallback(run, { timeout: 3000 }) : setTimeout(run, 800);
     return () => (idle ? window.cancelIdleCallback(handle) : clearTimeout(handle));
@@ -234,19 +255,8 @@ export default function App() {
     if (ch.edit) item = (await post(`/api/items/${itemId}/edit`, ch.edit)).item;
     if (ch.imageEdit) item = (await post(`/api/items/${itemId}/image-edit`, ch.imageEdit)).item;
     if (ch.rate) item = (await post(`/api/items/${itemId}/rate`, ch.rate)).item;
-    if (ch.showQuote != null) {
-      // Her switch, undo and redo: her last choice becomes the default for covers she hasn't set yet (1.13).
-      const r = await post(`/api/items/${itemId}/quote-toggle`, { showQuote: ch.showQuote, from: "switch" });
-      item = r.item;
-      setQuotesStatus((s) => (s ? { ...s, quoteDefault: r.quoteDefault ?? null } : s));
-    }
-    if (ch.quoteAll !== undefined) {
-      // The one switch for every cover (1.13.3): true, false, or null (unset) when undo takes it back to unset.
-      const r = await post("/api/settings/quote-overlay", { on: ch.quoteAll });
-      const { items: rechecked = [], ...qs } = r;
-      setQuotesStatus(qs);
-      for (const i of rechecked) patchItem(i);
-    }
+    // The T icon's tap, undo and redo (1.13.9): this post's own quote, with its mark; set false takes the mark back off.
+    if (ch.showQuote != null) item = (await post(`/api/items/${itemId}/quote-toggle`, { showQuote: ch.showQuote, set: ch.set !== false })).item;
     if (ch.slide) item = (await post(`/api/items/${itemId}/slides/${ch.slide.at}/${ch.slide.state === "removed" ? "remove" : "restore"}`)).item;
     if (ch.status) {
       await post(`/api/items/${itemId}/decide`, { decision: ch.status });
@@ -362,6 +372,32 @@ export default function App() {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   });
+  // The T icon (1.13.9, Arjang via Rose #693 and #694, Quill #695 and #696). A tap turns this post's quote off, or back on,
+  // for this post only: a cover edit like any other, so undo puts back exactly what it was, mark and all. A hold is
+  // global hide, the 1.13.3 setting: it hides every quote or brings them back, and it isn't a step for undo.
+  const hidden = globalHide(quotesStatus?.quoteOverlay);
+  const statusNow = useRef(quotesStatus);
+  statusNow.current = quotesStatus;
+  const holding = useRef(false);
+  const tapQuote = () => attempt(async () => {
+    const c = current;
+    const own = ownQuote(c);
+    await record(own ? "Quote off" : "Quote on", c.id, { showQuote: Boolean(c.showQuote), set: Boolean(c.showQuoteSet) }, { showQuote: !own, set: true });
+    if (hidden) say(`This cover's quote is ${own ? "off" : "on"}. Quotes stay hidden on every cover until you hold the T again.`);
+  });
+  const holdQuotes = () => {
+    if (holding.current) return; // one hold at a time: the next reads what the last one set
+    holding.current = true;
+    const was = globalHide(statusNow.current?.quoteOverlay);
+    attempt(async () => {
+      const r = await post("/api/settings/quote-overlay", { on: was ? null : false });
+      const { items: rechecked = [], ...qs } = r;
+      statusNow.current = qs;
+      setQuotesStatus(qs);
+      for (const i of rechecked) patchItem(i);
+      say(was ? "Quotes are back. Each cover shows its own." : "Quotes hidden on every cover. Hold the T again to bring them back.");
+    }).finally(() => { holding.current = false; });
+  };
   const randomize = () => attempt(async () => {
     // The original's six layouts, kept inside the safe zone (1.8). Layout only: never the color, the font or the weight.
     const img = await loadImage(imageUrlFor(current));
@@ -649,6 +685,7 @@ export default function App() {
                 onZoom={setZoom} onTapOff={() => sheetDismiss.current?.()} free={free} onFree={freeBox} />
               <div className="behind" inert={draft ? true : undefined}>
                 <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={remix} onDownload={download}
+                  quote={{ on: quoteOn, locked: !quotesStatus?.unlocked, onTap: tapQuote, onHold: holdQuotes }}
                   onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)} />
                 {story && <StoryControls item={current} onPan={pan} onPanDone={panDone} />}
                 <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={addSlide} onRemoveSlide={removeSlide}
@@ -668,8 +705,6 @@ export default function App() {
                   history={{ canUndo: history.current.canUndo(), canRedo: history.current.canRedo(), onUndo: () => step("undo"), onRedo: () => step("redo") }}>
                   <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
                     palette={palette.palette} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
-                    quoteAll={quoteShown(draft, quotesStatus?.quoteOverlay)}
-                    onQuoteAll={(on) => record("Quote on all covers", draft.id, { quoteAll: quotesStatus?.quoteOverlay ?? null }, { quoteAll: on }).catch((e) => say(`Couldn't change that: ${e.message}`))}
                     pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox}
                     onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={draft.extraTexts.length < MAX_BOXES} onRemoveCustomColor={removeCustomColor} />
                 </EditorSheet>

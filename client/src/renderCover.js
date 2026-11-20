@@ -62,27 +62,17 @@ export function withDefaults(box) {
 /** The deck's text size for a box, before scaling: 55% of the size slider, never under 14px. */
 export const previewFontPx = (item) => Math.max(14, Number(item.fontSize ?? 58) * 0.55);
 
-/** Lines the way the deck wraps them: at spaces, inside long words when one doesn't fit, her line breaks kept. */
-export function wrapText(text, maxWidth, measure) {
-  const lines = [];
-  for (const para of String(text ?? "").split("\n")) {
-    let line = "";
-    for (const word of para.split(" ")) {
-      const next = line === "" ? word : `${line} ${word}`;
-      if (measure(next) <= maxWidth) { line = next; continue; }
-      if (line !== "") lines.push(line);
-      let rest = word;
-      while (rest.length > 1 && measure(rest) > maxWidth) {
-        let cut = rest.length - 1;
-        while (cut > 1 && measure(rest.slice(0, cut)) > maxWidth) cut--;
-        lines.push(rest.slice(0, cut));
-        rest = rest.slice(cut);
-      }
-      line = rest;
-    }
-    lines.push(line);
-  }
-  return lines;
+/**
+ * How many rows Lines on Auto draws (1.13.8, the original's estimatedLineCount, Quill #687 and #689): her typed line
+ * count when she typed more than one line, otherwise the characters / 20, rounded. Never under 1 or over the words;
+ * an empty quote has none. The words are then balanced across that many rows (balanceLines).
+ */
+export function estimatedLineCount(quote) {
+  const text = String(quote ?? "").trim();
+  const words = text.split(/\s+/).filter(Boolean).length;
+  if (!words) return 0;
+  const typed = text.split("\n").filter((l) => l.trim()).length;
+  return Math.max(1, Math.min(words, typed > 1 ? typed : Math.round(text.length / 20)));
 }
 
 /**
@@ -127,24 +117,21 @@ export function balanceLines(text, count, measure) {
 /**
  * Where a text box goes on a cover of width x height. measureAt(px) returns a function that measures a
  * string at that text size. Like the original, the block fits inside the photo less 2 px and its center is clamped.
+ * With safe (1.13.8, the deck's constrainToSafeZone for a box she hasn't dragged this session), the block fits and
+ * clamps inside the safe rectangle instead, the same way.
  */
-export function coverLayout(box, width, height, measureAt) {
+export function coverLayout(box, width, height, measureAt, { safe = false } = {}) {
   const s = withDefaults(box);
   const boxW = (width * clamp(s.textWidth, 20, 100)) / 100;
   let fontPx = previewFontPx(s) * (width / PREVIEW_WIDTH);
-  let lines;
   const lineCount = clamp(Math.round(s.lineCount), 0, 99); // no cap: the balancer stops at the word count
-  if (lineCount > 0) {
-    lines = balanceLines(s.quote, lineCount, measureAt(fontPx));
-    // Lines picks the rows; the size gives way so the widest row fits the box.
-    for (let pass = 0; pass < 3 && lines.length; pass++) {
-      const m = measureAt(fontPx);
-      const widest = Math.max(...lines.map((l) => m(l)));
-      if (widest <= boxW + 1e-9) break;
-      fontPx *= boxW / widest;
-    }
-  } else {
-    lines = wrapText(s.quote, boxW, measureAt(fontPx));
+  // Lines picks the rows (on Auto, the original's estimate, 1.13.8); the size gives way so the widest row fits the box.
+  const lines = balanceLines(s.quote, lineCount > 0 ? lineCount : estimatedLineCount(s.quote), measureAt(fontPx));
+  for (let pass = 0; pass < 3 && lines.length; pass++) {
+    const m = measureAt(fontPx);
+    const widest = Math.max(...lines.map((l) => m(l)));
+    if (widest <= boxW + 1e-9) break;
+    fontPx *= boxW / widest;
   }
   const measure = measureAt(fontPx);
   const lineHeight = (fontPx * clamp(s.textHeight, 60, 200)) / 100;
@@ -155,27 +142,23 @@ export function coverLayout(box, width, height, measureAt) {
   // oversized block and pulls a center near an edge in. Text width and Text height are the stretch (30 = none).
   const sx = clamp(Number(s.widthScale) || 30, 10, 50) / 30;
   const sy = clamp(Number(s.heightScale) || 30, 10, 50) / 30;
-  const inset = (2 * width) / PREVIEW_WIDTH;
+  // The photo keeps a 2 px inset; the safe rectangle (1.13.8) is already in from the edges, so a held block's edge can sit
+  // right on it, where a drag's crossing lock puts it too.
+  const area = safe ? safeZoneFor(width, height) : { left: 0, top: 0, right: width, bottom: height };
+  const inset = safe ? 0 : (2 * width) / PREVIEW_WIDTH;
   const naturalW = Math.max(boxW, ...lines.map((l) => measure(l)));
   const naturalH = lines.length * lineHeight;
-  const fit = lines.length ? Math.min(1, (width - 2 * inset) / (naturalW * sx), (height - 2 * inset) / (naturalH * sy)) : 1;
+  const fit = lines.length ? Math.min(1, (area.right - area.left - 2 * inset) / (naturalW * sx), (area.bottom - area.top - 2 * inset) / (naturalH * sy)) : 1;
   const halfW = (naturalW * fit * sx) / 2, halfH = (naturalH * fit * sy) / 2;
-  const cx = clamp((width * s.horizontalPosition) / 100, inset + halfW, width - inset - halfW);
-  const cy = clamp((height * s.verticalPosition) / 100, inset + halfH, height - inset - halfH);
+  const cx = clamp((width * s.horizontalPosition) / 100, area.left + inset + halfW, area.right - inset - halfW);
+  const cy = clamp((height * s.verticalPosition) / 100, area.top + inset + halfH, area.bottom - inset - halfH);
   const justify = s.textAlign === "justify";
   const align = justify ? "left" : ["left", "right"].includes(s.textAlign) ? s.textAlign : "center";
   const boxLeft = cx - boxW / 2;
   const top = cy - naturalH / 2;
 
-  // Her line breaks end a paragraph; the last row of a paragraph is never stretched.
-  const paraEnds = new Set();
-  if (justify && lineCount === 0) {
-    let at = 0;
-    for (const para of String(s.quote).split("\n")) {
-      at += wrapText(para, boxW, measure).length;
-      paraEnds.add(at - 1);
-    }
-  } else paraEnds.add(lines.length - 1);
+  // The last row is never stretched. Her line breaks are balanced like any space (1.13.8), so it's the only paragraph end.
+  const paraEnds = new Set([lines.length - 1]);
 
   const rows = lines.map((text, i) => {
     const w = measure(text);
@@ -207,7 +190,7 @@ export function coverLayout(box, width, height, measureAt) {
     top: anchorY + (top - anchorY) * ky, bottom: anchorY + (top + naturalH - anchorY) * ky,
   };
   return { fontPx, lines, rows, x, top, lineHeight, align, justify, boxLeft, boxW, alpha: clamp(s.opacity, 0, 100) / 100,
-    color: s.textColor, font: s.textFont, weight: s.fontWeight, sx, sy, fit, kx, ky, anchorX, anchorY, bounds };
+    color: s.textColor, font: s.textFont, weight: s.fontWeight, sx, sy, fit, kx, ky, anchorX, anchorY, bounds, halfW, halfH, naturalW, naturalH };
 }
 
 /** How many rows Lines on Auto draws for this box. The stepper shows it, and its first tap starts from it. */
@@ -282,7 +265,7 @@ export async function ensureFonts(item, quoteOn = true) {
  * Image contrast, face mosaic, then the text. Returns { effectsSkipped } when the photo's pixels
  * couldn't be read (a photo from another site), so the screen can say so.
  */
-export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(item.showQuote), src = null } = {}) {
+export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(item.showQuote), src = null, safe = false, free = null } = {}) {
   let effectsSkipped = false;
   ctx.save();
   ctx.clearRect(0, 0, width, height);
@@ -315,7 +298,7 @@ export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(ite
     }
   }
   for (const box of textBoxes(item, quoteOn)) {
-    const L = coverLayout(box, width, height, (px) => { ctx.font = fontString(box, px); return (t) => ctx.measureText(t).width; });
+    const L = coverLayout(box, width, height, (px) => { ctx.font = fontString(box, px); return (t) => ctx.measureText(t).width; }, { safe: held(box, safe, free) });
     ctx.font = fontString(box, L.fontPx);
     ctx.fillStyle = box.textColor || "#FFFFFF";
     ctx.globalAlpha = L.alpha;
@@ -340,16 +323,26 @@ export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(ite
   return { effectsSkipped };
 }
 
-/** Where each text box sits on a width x height cover, for tapping the text to edit it. */
-export function textHitBoxes(item, width, height, measureCtx, quoteOn = Boolean(item.showQuote)) {
+/**
+ * The deck holds a box inside the safe rectangle until she drags it (1.13.8, Quill #687 and #689). free is the set of
+ * boxes she dragged on this cover this session, by index (-1 is the quote, 0 and up her own boxes), like the
+ * original's positionedTextIds: never saved, so a reload holds them again until she drags them.
+ */
+const held = (box, safe, free) => Boolean(safe) && !free?.has(box.main ? -1 : box.extraIndex);
+
+/** Where each text box sits on a width x height cover, for tapping the text to edit it, with the drawing's own hold. */
+export function textHitBoxes(item, width, height, measureCtx, quoteOn = Boolean(item.showQuote), { safe = false, free = null } = {}) {
   return textBoxes(item, quoteOn).map((box) => {
-    const L = coverLayout(box, width, height, (px) => { measureCtx.font = fontString(box, px); return (t) => measureCtx.measureText(t).width; });
-    return { index: box.main ? -1 : box.extraIndex, ...L.bounds };
+    const L = coverLayout(box, width, height, (px) => { measureCtx.font = fontString(box, px); return (t) => measureCtx.measureText(t).width; }, { safe: held(box, safe, free) });
+    return { index: box.main ? -1 : box.extraIndex, ...L.bounds, centerX: L.anchorX, centerY: L.anchorY, halfW: L.halfW, halfH: L.halfH };
   });
 }
 
-/** The cover as a JPEG Blob, longest side at most maxLong. quoteOn follows the deck: the toggle, and quotes unlocked. */
-export async function renderCover(item, { maxLong = 2160, quoteOn = Boolean(item.showQuote) } = {}) {
+/**
+ * The cover as a JPEG Blob, longest side at most maxLong. quoteOn follows the deck: the toggle, and quotes unlocked.
+ * It draws what the deck shows (1.13.8): boxes held in the safe rectangle, except any in free (dragged this session).
+ */
+export async function renderCover(item, { maxLong = 2160, quoteOn = Boolean(item.showQuote), free = null } = {}) {
   const img = new Image();
   img.decoding = "async";
   img.src = `/api/items/${item.id}/image?v=${encodeURIComponent(String(item.imageUrl || "").slice(-80))}`;
@@ -361,7 +354,7 @@ export async function renderCover(item, { maxLong = 2160, quoteOn = Boolean(item
   canvas.width = w;
   canvas.height = h;
   await ensureFonts(item, quoteOn);
-  drawCover(canvas.getContext("2d"), item, img, w, h, { quoteOn });
+  drawCover(canvas.getContext("2d"), item, img, w, h, { quoteOn, safe: true, free });
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't make the cover image."))), "image/jpeg", 0.92));
 }
 
@@ -410,4 +403,42 @@ export function randomizeLayout(box, aspect, measureAt, rand = Math.random, { tr
   const p = randomEditorialLayout(rand, box.quote, RANDOM_LAYOUTS[0]);
   while (p.fontSize > 6 && !fits(p)) p.fontSize -= 2;
   return p;
+}
+
+/**
+ * The placement pass's answer, made ready (1.13.8, Quill #685 and #687, the original's normalizeQueuedTextPlacement).
+ * Ready means leave it alone: when the answer says nothing needs to change and the deck's safe hold wouldn't move or
+ * shrink the block, this returns null and only the stamp moves. Otherwise it takes the center, the alignment, the size
+ * and the line count from the answer (the box's own where the answer has none) and nothing else. Lines are 1 to 8 and
+ * never more than the words: an explicit count wins exactly, and with none on the answer or the box, the estimate is
+ * written. The size is 8 to 110. Then the whole block goes inside the safe rectangle: the size scaled down (never up)
+ * until the block is short enough, and the center clamped by the block's half extents. Positions keep one decimal.
+ */
+const PASS_ALIGNS = ["left", "center", "right"];
+export function normalizePlacement(box, aspect, measureAt, answer) {
+  const width = PREVIEW_WIDTH, height = PREVIEW_WIDTH / (aspect || 0.8);
+  const s = withDefaults(box);
+  const same = (a, b) => Math.abs(a.anchorX - b.anchorX) < 1e-6 && Math.abs(a.anchorY - b.anchorY) < 1e-6 && Math.abs(a.fit - b.fit) < 1e-9;
+  if (!answer?.needsChange && same(coverLayout(s, width, height, measureAt), coverLayout(s, width, height, measureAt, { safe: true }))) return null;
+  const a = answer || {};
+  const words = s.quote.split(/\s+/).filter(Boolean).length;
+  const asked = num(a.lineCount, 0) > 0 ? Math.round(num(a.lineCount, 0)) : s.lineCount > 0 ? Math.round(s.lineCount) : estimatedLineCount(s.quote);
+  const next = {
+    horizontalPosition: clamp(num(a.horizontalPosition, s.horizontalPosition), 0, 100),
+    verticalPosition: clamp(num(a.verticalPosition, s.verticalPosition), 0, 100),
+    textAlign: PASS_ALIGNS.includes(a.textAlign) ? a.textAlign : s.textAlign,
+    fontSize: clamp(num(a.fontSize, s.fontSize), 8, 110),
+    lineCount: clamp(asked, 1, Math.max(1, Math.min(8, words))),
+  };
+  const z = safeZoneFor(width, height), roomH = z.bottom - z.top;
+  for (let pass = 0; pass < 6 && next.fontSize > 8 && next.fontSize * 0.55 > 14; pass++) {
+    const L = coverLayout({ ...s, ...next }, width, height, measureAt);
+    const tall = L.naturalH * L.sy;
+    if (tall <= roomH + 1e-6) break;
+    next.fontSize = Math.max(8, Math.floor((next.fontSize * roomH) / tall));
+  }
+  const L = coverLayout({ ...s, ...next }, width, height, measureAt, { safe: true });
+  next.horizontalPosition = Math.round((L.anchorX / width) * 1000) / 10;
+  next.verticalPosition = Math.round((L.anchorY / height) * 1000) / 10;
+  return next;
 }

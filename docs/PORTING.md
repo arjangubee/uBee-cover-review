@@ -12,6 +12,57 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.13.8: default text placement, from the original
+
+Arjang's #559 item 6, Quill's #685, #687 and #689. One new field, four new actions, and client changes. Read all of it
+before porting: the drawing changes on every cover, and the pass can move text on every cover in her queue.
+
+1. **Lines on Auto.** lineCount 0 now draws the original's estimate as balanced rows: her typed line count when she
+   typed more than one line, otherwise the characters / 20, rounded, at least 1 and never more than the words. Her
+   typed breaks are balanced like any space. This changes the drawing of every cover on Auto, approved ones too (the
+   original has no freeze), and the posted JPEG follows.
+2. **The deck's safe hold.** On the cover screen, the magnifier, Download and the posted JPEG, a text box she hasn't
+   dragged on this cover this session is held inside the safe rectangle: its column clamped by its half extents, and
+   scaled down, never up, when it's too big. The story view never holds. The stored position isn't rewritten.
+3. **Free for the session.** A drag past 3px lets that box go: the photo's edge is its only limit until the cover
+   changes or the page reloads. Nothing is saved for this (the original's positionedTextIds).
+4. **Crossing locks.** While she drags, a block's edge catches on a safe edge only when it crosses it, holds until she
+   pulls 8px past, then lets go. A drag that starts with an edge within 1.5px of a safe edge starts caught.
+5. **The placement pass.** New field **textPlacementVersion** (number, default 0; a missing field reads as 0). Each
+   queue cover with no stamp gets one pass: idle, one cover at a time, off-screen covers first, the one on screen
+   last. A model looks at the photo and answers where the quote goes. The client fits the answer with the real text
+   sizes and saves it, which stamps the cover with 1, even when nothing needed to change. Only the center, the
+   alignment, the size and the line count ever change. An open draft is never touched. A cover that fails is tried
+   again on the next load. Approved covers are never part of the pass.
+
+### Server actions
+
+| Action | What it does |
+| --- | --- |
+| GET /api/placements/wanted | ids of queue covers whose textPlacementVersion is under 1 |
+| GET /api/items/:id/placement-prompt | the rules for a model, the photo's address, and whether the cover is wanted |
+| POST /api/items/:id/placement-fill | upstream answers `{ placed: false, reason: "no-model" }`, or `"done"` for a cover that isn't wanted |
+| POST /api/items/:id/placement | `{ fields }` or `{ fields: null }`: saves only horizontalPosition and verticalPosition (0 to 100), textAlign, fontSize (8 to 110) and lineCount (1 to 8), then stamps 1. A cover that isn't wanted answers `{ saved: false, reason: "done" }` |
+
+**In her space,** map placement-fill to her Muse's model call: send the photo with placement-prompt's prompt, and answer
+`{ reason: "answer", answer: { needsChange, horizontalPosition, verticalPosition, textAlign, fontSize, lineCount }, item }`.
+Without that mapping, her covers keep the drawing in points 1 and 2 and nothing is stamped. Once it's mapped, every
+cover in her queue with no stamp gets a pass. If her queue needs staging at port time, that's a port-time call.
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| renderCover.js | estimatedLineCount; coverLayout draws Auto as balanced rows and takes `{ safe }`; drawCover, textHitBoxes and renderCover take the hold; normalizePlacement; wrapText removed |
+| safeLock.js | new: the crossing locks |
+| CoverStage.jsx | the hold on the deck, crossing locks while dragging, a drag past 3px frees the box |
+| CoverCanvas.jsx, ZoomView.jsx | pass the hold through |
+| CoverEditor.jsx | the Auto count without a canvas is the same estimate |
+| App.jsx | the placement loop, and the session's freed boxes, cleared on another cover |
+
+Checks after the port: the counts don't change, and no cover is stamped until placement-fill answers. Covers on Auto
+redraw in even lines, and text near an edge sits inside the safe area on the cover screen.
+
 ## 1.13.7: play opens the Spotify player above the song row
 
 Arjang's #559 item 5, Quill's #681. Layout only: no new fields, settings or actions, and play, close and what the

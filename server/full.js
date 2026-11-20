@@ -59,6 +59,29 @@ function setNumbers(target, src, stored = target) {
   }
 }
 
+/** What a model is asked when it places a cover's quote (1.13.8, Quill #685): the original's rules, in plain words. */
+export function placementPrompt(item) {
+  const lines = Number(item.lineCount) > 0 ? `${Math.round(Number(item.lineCount))} lines` : "lines picked from its length";
+  return [
+    "Place the quote on this cover photo. First look at the photo: faces, heads and bodies, the main subject, busy detail,",
+    "and real empty space such as sky, walls, or dark or even areas.",
+    "- Put the text block in empty space first. Never cover a face or a head. Don't fight the main subject. Covering a torso or body is fine.",
+    "- Align the text with the space it sits in: open space on the left means left align, on the right means right align,",
+    "  and center only when the open space is centered. When there's room at a side, the side beats the center.",
+    "- The whole block, not just its center, stays inside the safe area, in percent of the photo (left, top, width, height):",
+    "  4:5 photos 5, 6, 90, 88. Square and 3:4 photos 6, 6, 88, 88. Landscape 5, 6, 90, 88, or 6, 8, 88, 84 when the photo is",
+    "  1.7 or more times wider than tall. 9:16 photos 5, 15.625, 90, 62.5.",
+    "- Even, easy lines: 1 to 8 lines, never more lines than words. Text size 8 to 110.",
+    "- If the text already sits well (all inside the safe area, on no face or head, even lines, easy to read, not crammed",
+    "  against an edge), answer needsChange false and change nothing.",
+    'Answer with JSON only: {"needsChange": true or false, "horizontalPosition": 0 to 100, "verticalPosition": 0 to 100,',
+    '"textAlign": "left", "center" or "right", "fontSize": 8 to 110, "lineCount": 1 to 8}. The positions are the center of',
+    "the block, in percent of the photo's width and height.",
+    `The quote: "${String(item.quote || "")}". Now its center sits ${Number(item.horizontalPosition ?? 50)}% across and`,
+    `${Number(item.verticalPosition ?? 50)}% down, aligned ${item.textAlign || "center"}, size ${Number(item.fontSize ?? 58)}, ${lines}.`,
+  ].join("\n");
+}
+
 /** A custom color she used goes to the front of her custom colors, newest first, at most 24. */
 function rememberCustomColor(hex) {
   if (PALETTE.some((c) => c.hex.toUpperCase() === hex)) return;
@@ -489,6 +512,48 @@ export function registerFull(app, upload) {
     }
     res.json({ drafted: false, reason: "no-model", item });
   });
+  // ---------- v1.13.8: default text placement (Arjang #559 item 6, Quill #685 and #687) ----------
+  // The original's placement pass: once per queue cover, a model looks at the photo and moves the quote into empty
+  // space, never onto a face or a head. This server has no model. A space with one maps placement-fill to its model
+  // call with placementPrompt; a model outside the server can read placement-prompt. The client fits the answer with
+  // the real text sizes (normalizePlacement) and saves it here, which stamps the cover. A missing stamp reads as 0.
+  const PLACEMENT_VERSION = 1;
+  const wantsPlacement = (i) => i.status === "queue" && !(Number(i.textPlacementVersion || 0) >= PLACEMENT_VERSION);
+  app.get("/api/placements/wanted", (_req, res) => {
+    res.json({ ids: store.db.items.filter(wantsPlacement).sort((a, b) => a.id - b.id).map((i) => i.id) });
+  });
+  app.get("/api/items/:id/placement-prompt", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    res.json({ prompt: placementPrompt(item), imageUrl: item.imageUrl, wanted: wantsPlacement(item) });
+  });
+  // A space with a model answers { reason: "answer", answer: { needsChange, horizontalPosition, verticalPosition,
+  // textAlign, fontSize, lineCount }, item } from its model call. This one has no model.
+  app.post("/api/items/:id/placement-fill", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    if (!wantsPlacement(item)) return res.json({ placed: false, reason: "done", item });
+    res.json({ placed: false, reason: "no-model", item });
+  });
+  // The pass's answer, already fitted by the client. Only the center, the alignment, the size and the line count ever
+  // change; color, font, quote and everything else stay hers. No fields means the text was ready: only the stamp moves.
+  app.post("/api/items/:id/placement", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    if (!wantsPlacement(item)) return res.json({ saved: false, reason: "done", item });
+    const f = req.body?.fields;
+    let changed = false;
+    if (f && typeof f === "object") {
+      const next = {};
+      if (isNum(f.horizontalPosition)) next.horizontalPosition = clampNum(f.horizontalPosition, 0, 100);
+      if (isNum(f.verticalPosition)) next.verticalPosition = clampNum(f.verticalPosition, 0, 100);
+      if (f.textAlign !== undefined) next.textAlign = ALIGNS.includes(f.textAlign) ? f.textAlign : "center";
+      if (isNum(f.fontSize)) next.fontSize = clampNum(f.fontSize, 8, 110);
+      if (isNum(f.lineCount)) next.lineCount = Math.round(clampNum(f.lineCount, 1, 8));
+      for (const [k, v] of Object.entries(next)) if (item[k] !== v) { item[k] = v; changed = true; }
+    }
+    item.textPlacementVersion = PLACEMENT_VERSION;
+    store.saveDb();
+    res.json({ saved: true, changed, item });
+  });
+
   // The space's caption voice: her Muse sets it, it stays in this copy's data. Empty means none. Backfill lets a
   // model redraft placeholders on covers made before drafting started; that is the owner's call.
   app.get("/api/settings/caption-voice", (_req, res) => res.json(voiceState()));

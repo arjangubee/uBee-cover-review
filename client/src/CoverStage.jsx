@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import CoverCanvas from "./CoverCanvas.jsx";
 import Icon from "./icons.jsx";
-import { textHitBoxes } from "./renderCover.js";
+import { safeZoneFor, textHitBoxes } from "./renderCover.js";
+import { lockAxis, startAxis } from "./safeLock.js";
 
 // The stage: a 4:5 frame like a post. The cover is slide one; her slides follow in a strip she swipes
 // through, like Instagram. While she edits, only the cover shows: tap a text box to pick it, drag it to
@@ -9,10 +10,11 @@ import { textHitBoxes } from "./renderCover.js";
 
 const measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
 const TAP = 8; // a press that moves less than this many pixels is a tap
+const FREE = 3; // a drag past this many pixels lets the box leave the safe rectangle for this session (1.13.8)
 
 export default function CoverStage({
   item, quoteOn, slides, slide, setSlide, story, editing, activeBox, onStartEdit, onSelectBox, onMoveBox,
-  pickMode, onPick, onMosaicsChange, burst = 0, onDrawn, onZoom, onTapOff,
+  pickMode, onPick, onMosaicsChange, burst = 0, onDrawn, onZoom, onTapOff, free = null, onFree,
 }) {
   const [showBurst, setShowBurst] = useState(false);
   useEffect(() => {
@@ -27,6 +29,8 @@ export default function CoverStage({
   const [stageW, setStageW] = useState(390);
   const total = 1 + slides.length;
   const single = editing || story || total === 1;
+  // The deck holds each text box inside the safe rectangle until she drags it (1.13.8); the story view never does.
+  const safe = !story;
 
   useLayoutEffect(() => {
     const el = stageRef.current;
@@ -64,9 +68,10 @@ export default function CoverStage({
 
   // Pointer work on the cover: tap to edit, drag the picked box, pick a color.
   const press = useRef(null);
+  const boxesAt = (cssW, cssH) => (measureCtx ? textHitBoxes(item, cssW, cssH, measureCtx, quoteOn, { safe, free }) : []);
   function hitAt(x, y, cssW, cssH) {
     if (!measureCtx) return null;
-    const boxes = textHitBoxes(item, cssW, cssH, measureCtx, quoteOn);
+    const boxes = boxesAt(cssW, cssH);
     const pad = 10;
     const hit = boxes.reverse().find((b) => x >= b.left - pad && x <= b.right + pad && y >= b.top - pad && y <= b.bottom + pad);
     return hit ? hit.index : null;
@@ -77,16 +82,33 @@ export default function CoverStage({
       const x = e.clientX - r.left, y = e.clientY - r.top;
       const hit = hitAt(x, y, cssW, cssH);
       press.current = { x0: e.clientX, y0: e.clientY, x, y, hit, moved: false, drag: editing && !pickMode && hit != null && hit === activeBox };
-      if (press.current.drag) e.currentTarget.setPointerCapture?.(e.pointerId);
+      if (press.current.drag) {
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        // The safe edges catch the block only when its edge crosses one (1.13.8, the original's crossing locks): the
+        // block's own half extents, from where it is now; an edge within 1.5px of a safe edge starts caught.
+        const b = boxesAt(cssW, cssH).find((bx) => bx.index === activeBox);
+        if (b) {
+          const z = safeZoneFor(cssW, cssH);
+          Object.assign(press.current, { zone: z, halfW: b.halfW, halfH: b.halfH,
+            lockX: startAxis(b.centerX, b.halfW, z.left, z.right), lockY: startAxis(b.centerY, b.halfH, z.top, z.bottom) });
+        }
+      }
     },
     onPointerMove(e) {
       const p = press.current;
       if (!p) return;
       if (Math.abs(e.clientX - p.x0) > TAP || Math.abs(e.clientY - p.y0) > TAP) p.moved = true;
       if (!p.drag) return;
+      if (!p.freed && Math.hypot(e.clientX - p.x0, e.clientY - p.y0) > FREE) { p.freed = true; onFree?.(activeBox); }
       const r = e.currentTarget.getBoundingClientRect();
-      const h = Math.min(100, Math.max(0, ((e.clientX - r.left) / r.width) * 100));
-      const v = Math.min(100, Math.max(0, ((e.clientY - r.top) / r.height) * 100));
+      let x = e.clientX - r.left, y = e.clientY - r.top;
+      if (p.zone) {
+        const ax = lockAxis(p.lockX, x, p.halfW, p.zone.left, p.zone.right), ay = lockAxis(p.lockY, y, p.halfH, p.zone.top, p.zone.bottom);
+        p.lockX = ax.state; p.lockY = ay.state;
+        x = ax.center; y = ay.center;
+      }
+      const h = Math.min(100, Math.max(0, (x / r.width) * 100));
+      const v = Math.min(100, Math.max(0, (y / r.height) * 100));
       onMoveBox(activeBox, Math.round(h), Math.round(v));
     },
     onPointerUp() {
@@ -119,7 +141,7 @@ export default function CoverStage({
   const zoomSource = () => stageRef.current?.querySelector(single ? ".coverCanvas" : ".slideItem.current .coverCanvas, .slideItem.current img") || null;
 
   const cover = (maxW, maxH, extra = {}) => (
-    <CoverCanvas item={item} quoteOn={quoteOn} maxW={maxW} maxH={maxH} story={story} canvasRef={canvasRef} onDrawn={onDrawn}
+    <CoverCanvas item={item} quoteOn={quoteOn} maxW={maxW} maxH={maxH} story={story} safe={safe} free={free} canvasRef={canvasRef} onDrawn={onDrawn}
       className={[editing && "editing", pickMode && "picking"].filter(Boolean).join(" ")} {...extra}>
       {({ cssW, cssH }) => (
         <>

@@ -22,7 +22,7 @@ function targetRect(aspect) {
 }
 const flip = (from, to) => (from && from.width ? `translate(${from.left - to.x}px, ${from.top - to.y}px) scale(${from.width / to.w}, ${from.height / to.h})` : null);
 
-export default function ZoomView({ item, quoteOn, slideUrl, source, onClose }) {
+export default function ZoomView({ item, quoteOn, slideUrl, source, onClose, free = null }) {
   const [target] = useState(() => {
     const r = source()?.getBoundingClientRect();
     return targetRect(r && r.height ? r.width / r.height : 4 / 5);
@@ -162,7 +162,7 @@ export default function ZoomView({ item, quoteOn, slideUrl, source, onClose }) {
         <div className={gesturing ? "zoomLayer gesturing" : "zoomLayer"} data-scale={scaleLabel}
           style={{ transform: `scale(${zoom.scale})`, transformOrigin: `${zoom.x}% ${zoom.y}%` }}>
           {slideUrl ? <img src={slideUrl} alt="" draggable={false} />
-            : <CoverCanvas item={item} quoteOn={quoteOn} maxW={target.w} maxH={target.h} detail={4} />}
+            : <CoverCanvas item={item} quoteOn={quoteOn} maxW={target.w} maxH={target.h} detail={4} safe free={free} />}
         </div>
       </div>
       {zoom.scale > 1 && phase === "open" && (

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Icon from "./icons.jsx";
-import { CONTRAST_MODES, FONT_LABELS, HALF_PRESETS, STYLE_DEFAULTS, autoLineCount, canvasMeasureAt, presetOn } from "./renderCover.js";
+import { CONTRAST_MODES, FONT_LABELS, HALF_PRESETS, STYLE_DEFAULTS, autoLineCount, canvasMeasureAt, estimatedLineCount, presetOn } from "./renderCover.js";
 
 // The text editor that opens on the cover. Every change shows on the cover right away and saves as she goes (1.8):
 // there is no Save or Cancel. Undo, after the editor closes, steps back one saved change at a time.
@@ -24,7 +24,7 @@ export default function CoverEditor({
   const text = isMain ? draft.quote || "" : box.quote || "";
   const words = text.split(/\s+/).filter(Boolean).length;
   const measure = typeof document !== "undefined" ? canvasMeasureAt(box) : null;
-  const autoRows = useMemo(() => (measure ? autoLineCount({ ...box, quote: text }, measure) : Math.max(1, Math.min(words, Math.ceil(text.length / 20)))),
+  const autoRows = useMemo(() => (measure ? autoLineCount({ ...box, quote: text }, measure) : estimatedLineCount(text)),
     [text, box.fontSize, box.textFont, box.fontWeight, box.textWidth]); // eslint-disable-line react-hooks/exhaustive-deps
   const lines = box.lineCount > 0 ? box.lineCount : autoRows;
 

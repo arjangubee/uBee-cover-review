@@ -22,6 +22,13 @@ input, textarea, select { font: inherit; caret-color: var(--accent); }
 img { max-width: 100%; }
 
 .app { max-width: 560px; margin: 0 auto; padding: 0 16px calc(var(--host-bar) + 32px); }
+/* Covers or Chats (1.14): the switch above both screens. */
+/* The update notes sit above both screens (1.14), in the app's column. */
+.shellTop { max-width: 560px; margin: 0 auto; padding: 0 16px; }
+.shellTop:empty { display: none; }
+.screenSwitch { display: flex; gap: 4px; width: min(320px, calc(100% - 32px)); margin: 10px auto 2px; padding: 4px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); }
+.screenSwitch button { flex: 1; min-height: 40px; border: 0; border-radius: 999px; background: transparent; color: var(--text); font-size: 15px; font-weight: 700; }
+.screenSwitch button.on { background: var(--accent); color: #000; }
 .hint { color: var(--muted); font-size: 14px; line-height: 1.4; }
 .problem { color: #ff6961; font-size: 14px; line-height: 1.4; }
 .error { color: #ff6961; font-size: 14px; margin: 10px 0 0; }

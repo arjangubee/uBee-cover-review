@@ -1,9 +1,9 @@
 {
-  "version": "1.13.10",
+  "version": "1.14.0",
   "date": "2026-11-20",
   "whatsNew": [
-    "A copy installed with git updates itself after a quiet minute: nothing open, nothing touched",
-    "The version shows small at the top right of every screen",
-    "A copy your Muse looks after says when a new version is out, and your Muse brings it in"
+    "Chats: practice replies to your DMs and comments. Your Muse drafts in your voice, and Send hands only the texts you approved to your Muse to send",
+    "Change your voice and a draft still waiting is written again when you open its chat. Approved ones only say the voice changed",
+    "A story reply shows the words they wrote, or says they weren't captured"
   ]
 }

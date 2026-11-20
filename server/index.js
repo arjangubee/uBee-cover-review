@@ -6,6 +6,7 @@ import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONNECTORS, createDriveFolders, drivePlan, sortLocalDump, spotifyAuthUrl } from "./connectors.js";
 import { buildVoiceProfile, generateCaption, loadQuotes, loadTrending, saveTrending, suggestQuote, suggestSong } from "./services.js";
+import { registerDm } from "./dm.js";
 import { getImportStatus, registerFull } from "./full.js";
 import { ctaFor } from "./captionCtas.js";
 import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
@@ -224,6 +225,9 @@ registerSongs(app);
 // ---------- Symphony online: its songs and hook clips with a Symphony code (1.12) ----------
 registerSymphony(app);
 startSymphony();
+
+// ---------- Chats: the DM reply simulator. Her Muse drafts and sends (1.14) ----------
+registerDm(app);
 
 // ---------- Pollen: approved covers go out through uBee's publisher (uBee clients only) ----------
 registerPollen(app);

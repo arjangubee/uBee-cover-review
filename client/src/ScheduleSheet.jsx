@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { postedCaption } from "./captionCall.js";
 import { badgeFor } from "./pollenView.js";
 import { renderCover } from "./renderCover.js";
+import { quoteShown } from "./quoteOverlay.js";
 
 const ASLEEP_MS = 90 * 1000; // no answer after this long: uBee's computer is probably asleep
 const POLL_MS = 5000;
@@ -11,7 +12,7 @@ const WAITING = ["waiting", "leased"];
 
 // The Schedule sheet: her channels with photo channels on, every picked cover drawn exactly as it will
 // post, caption problems before anything is sent, then each cover's booked day as Pollen answers.
-export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, api, post, onClose, onDone }) {
+export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, quoteOverlay = null, api, post, onClose, onDone }) {
   const [channels, setChannels] = useState(null);
   const [on, setOn] = useState({});
   const [rows, setRows] = useState(() => items.map((item) => ({ item, thumb: null, problems: [], hasSlides: false, rendered: false, renderError: null, result: null })));
@@ -39,7 +40,7 @@ export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, api, p
       for (const item of items) {
         if (!alive) return; // the sheet was closed: stop drawing
         try {
-          const blob = await renderCover(item, { quoteOn: Boolean(item.showQuote && quotesUnlocked) });
+          const blob = await renderCover(item, { quoteOn: Boolean(quoteShown(item, quoteOverlay) && quotesUnlocked) }); // 1.13.3: posts as it shows
           const form = new FormData();
           form.append("image", blob, "cover.jpg");
           await api(`/api/items/${item.id}/render`, { method: "POST", body: form });

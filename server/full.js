@@ -6,6 +6,7 @@ import { nextOpacity } from "./styleRules.js";
 import { canDraft, captionPrompt, captionState, draftProblems, needsDescription } from "./captionDrafts.js";
 import { cleanCtas } from "./captionCtas.js";
 import { downloadedSongs, matchSongClip } from "./songs.js";
+import { overlayOf, quoteShown } from "../client/src/quoteOverlay.js";
 
 // Full Cover Review feature set, ported from the Muse original.
 // The original server/src/actions.ts (5,020 lines) maps onto these endpoints.
@@ -141,7 +142,8 @@ function loadSongPool() {
 // quote field only ever held stock quotes; here a quote-off cover can hold caption-like text that was never a quote.
 export function verifyItem(item) {
   const quotes = loadQuotes().map((q) => q.text.toLowerCase());
-  const quoteInStock = item.showQuote ? Boolean(item.quote) && quotes.includes(item.quote.trim().toLowerCase()) : null;
+  // 1.13.3: the quote shows when the one switch says so, else when the cover's own switch does.
+  const quoteInStock = quoteShown(item, store.settings.quoteOverlay) ? Boolean(item.quote) && quotes.includes(item.quote.trim().toLowerCase()) : null;
   const pool = loadSongPool().map((s) => `${s.artist} - ${s.title}`.toLowerCase());
   const spotify = (store.settings.spotifyLibrary || []).map((s) => `${s.artist} - ${s.title}`.toLowerCase());
   const downloaded = downloadedSongs().map((s) => `${s.artist} - ${s.title}`.toLowerCase()); // 1.11: the songs folder's list
@@ -180,6 +182,7 @@ export function quotesStatus() {
     quizPoolSize: quizPool().length,
     quizRemaining: quizPool().filter((q) => !store.settings.quizDecisions[q.text]).length,
     quoteDefault: typeof store.settings.quoteDefault === "boolean" ? store.settings.quoteDefault : null, // 1.13: her last switch choice
+    quoteOverlay: overlayOf(store.settings.quoteOverlay), // 1.13.3: the one switch for every cover, or null when it isn't set
   };
 }
 
@@ -226,7 +229,9 @@ export function registerFull(app, upload) {
   app.post("/api/items/:id/quote-toggle", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
     if (req.body.from === "default") {
-      const applies = store.settings.quoteDefault === true && !item.showQuote && !item.showQuoteSet && quotesStatus().unlocked;
+      // While the one switch for every cover is set (1.13.3), the default changes no cover: it only works underneath.
+      const applies = overlayOf(store.settings.quoteOverlay) === null && store.settings.quoteDefault === true && !item.showQuote && !item.showQuoteSet
+        && quotesStatus().unlocked;
       if (applies) {
         Object.assign(item, { showQuote: true, showQuoteSet: true });
         if (item.beacons) verifyItem(item);
@@ -244,6 +249,29 @@ export function registerFull(app, upload) {
     store.saveDb();
     if (req.body.from === "switch") { store.settings.quoteDefault = want; store.saveSettings(); }
     res.json({ item, quoteDefault: store.settings.quoteDefault ?? null });
+  });
+
+  // 1.13.3 (Arjang #621 and #630, Quill #624): one switch shows or hides the quote on every cover. on is true, false,
+  // or null to unset it, which hands each cover its own switch again (with the 1.13 default underneath). It never
+  // rewrites a cover's own choice. A cover that was checked is checked again so its quote check stays truthful, and only
+  // a cover whose check comes out different is saved and sent back (a cover still verified keeps when it was).
+  app.post("/api/settings/quote-overlay", (req, res) => {
+    const on = req.body?.on;
+    if (!(on === true || on === false || on === null)) return res.status(400).json({ error: "on must be true, false or null." });
+    if (on === true && !quotesStatus().unlocked) {
+      return res.status(403).json({ error: "Quote overlay is locked. Connect your quotes, or take the quote quiz and steal quotes that sound like you first." });
+    }
+    if (on === null) delete store.settings.quoteOverlay; else store.settings.quoteOverlay = on;
+    store.saveSettings();
+    const items = [];
+    for (const i of store.db.items.filter((x) => x.beacons)) {
+      const was = JSON.stringify(i.beacons), wasVerified = Boolean(i.beacons.STEPS_VERIFIED), when = i.composeAttestedAt;
+      verifyItem(i);
+      if (wasVerified && i.beacons.STEPS_VERIFIED && when) i.composeAttestedAt = when;
+      if (JSON.stringify(i.beacons) !== was) items.push(i);
+    }
+    if (items.length) store.saveDb();
+    res.json({ ...quotesStatus(), items });
   });
 
   // ---------- Workspace: own Drive by default, uBee shared Drive for clients ----------
@@ -423,7 +451,7 @@ export function registerFull(app, upload) {
   });
   app.get("/api/items/:id/caption-prompt", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
-    res.json({ prompt: captionPrompt(item, captionVoice()), voice: Boolean(captionVoice().trim()), basedOn: String(item.caption ?? ""), canDraft: canDraft(item, draftOpts(item)),
+    res.json({ prompt: captionPrompt({ ...item, showQuote: quoteShown(item, store.settings.quoteOverlay) }, captionVoice()), voice: Boolean(captionVoice().trim()), basedOn: String(item.caption ?? ""), canDraft: canDraft(item, draftOpts(item)),
       imageUrl: item.imageUrl, description: String(item.description ?? ""), needsDescription: needsDescription(item, captionVoice()) });
   });
   // What the photo shows, in plain words, recorded by her Muse (1.9.2). A voiced caption on a cover with no text is

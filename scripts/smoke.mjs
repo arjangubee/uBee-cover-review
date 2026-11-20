@@ -849,6 +849,9 @@ try {
     assert(!quiz.quotes.some((q) => /arjang|firerugs|modeling contract/i.test(q.text)), "quiz pool must exclude Arjang specific quotes");
     const locked = await fetch(`${base}/api/items/${id}/quote-toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ showQuote: true }) });
     assert(locked.status === 403, "toggle on should be refused while locked");
+    assert(st0.quoteOverlay === null, `the one switch for every cover starts unset: ${st0.quoteOverlay}`);
+    const lockedAll = await fetch(`${base}/api/settings/quote-overlay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ on: true }) });
+    assert(lockedAll.status === 403, `the one switch can't turn quotes on while they're locked: ${lockedAll.status}`);
     await fetch(`${base}/api/quiz/decide`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: quiz.quotes[0].text, keep: true }) });
     const st1 = await (await fetch(`${base}/api/quotes/status`)).json();
     assert(st1.unlocked === true && st1.creatorQuoteCount >= 1, "stealing one quote should unlock");
@@ -907,6 +910,52 @@ try {
     const e = await newItem("carry-e.png");
     const freshOff = await postJson(`/api/items/${e.id}/quote-toggle`, { from: "default" });
     assert(freshOff.applied === false && freshOff.item.showQuote === false && !freshOff.item.showQuoteSet, `with off as the default, a fresh cover is left as it is: ${JSON.stringify(freshOff)}`);
+  });
+  // ---------- v1.13.3: one switch for every cover's quote (Arjang #621 and #630, Quill #624) ----------
+  await check("v1.13.3 one switch for every cover: set, it decides for all covers; unset, each cover decides; no cover's own choice changes", async () => {
+    const status = async () => (await fetch(`${base}/api/quotes/status`)).json();
+    const stock = (await (await fetch(`${base}/api/quotes`)).json()).quotes[0].text;
+    const [x, y] = [await newItem("all-x.png"), await newItem("all-y.png")];
+    for (const c of [x, y]) await postJson(`/api/items/${c.id}/edit`, { quote: stock, description: "a beach at dusk" });
+    await postJson(`/api/items/${x.id}/quote-toggle`, { showQuote: false });
+    await postJson(`/api/items/${y.id}/quote-toggle`, { showQuote: true });
+    for (const c of [x, y]) await postJson(`/api/items/${c.id}/verify`);
+    const fresh = await newItem("all-z.png");
+    const defaultBefore = (await status()).quoteDefault;
+    const voiceBefore = (await (await fetch(`${base}/api/settings/caption-voice`)).json()).voice;
+    await postJson("/api/settings/caption-voice", { voice: "short and warm" });
+    const shownOf = async (id) => (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === id);
+    const stockOf = async (id) => (await shownOf(id)).beacons?.QUOTE_IN_STOCK;
+    const ids = (r) => (r.items || []).map((i) => i.id).filter((id) => [x.id, y.id, fresh.id].includes(id)).sort((a, b) => a - b).join(",");
+    const yWhen = (await shownOf(y.id)).composeAttestedAt;
+    const promptOf = async (id) => (await (await fetch(`${base}/api/items/${id}/caption-prompt`)).json()).prompt;
+    try {
+      const on = await postJson("/api/settings/quote-overlay", { on: true });
+      assert(on.quoteOverlay === true && (await status()).quoteOverlay === true, `on: ${JSON.stringify(on).slice(0, 200)}`);
+      assert(await stockOf(x.id) === true && await stockOf(y.id) === true, "on: a checked cover's quote check reads its quote, whatever its own switch says");
+      assert(ids(on) === String(x.id), `on: only a cover whose check changed comes back: ${ids(on)}`);
+      assert((await shownOf(fresh.id)).beacons == null, "a cover nobody checked isn't checked by the switch");
+      assert((await shownOf(y.id)).composeAttestedAt === yWhen, "a cover that stays verified keeps when it was");
+      assert((await shownOf(x.id)).showQuote === false && (await shownOf(y.id)).showQuote === true, "no cover's own choice is rewritten");
+      assert((await promptOf(x.id)).includes(stock), "on: a caption is written about the quote on the cover");
+      const keep = await postJson(`/api/items/${fresh.id}/quote-toggle`, { from: "default" });
+      assert(keep.applied === false && keep.item.showQuote === false, `while the switch is set, the carry-over default changes no cover: ${JSON.stringify(keep).slice(0, 200)}`);
+      const off = await postJson("/api/settings/quote-overlay", { on: false });
+      assert(off.quoteOverlay === false && await stockOf(x.id) === null && await stockOf(y.id) === null && ids(off) === [x.id, y.id].join(","), "off: no cover needs its quote in stock");
+      assert(!(await promptOf(y.id)).includes(stock), "off: a caption isn't about a quote that isn't showing");
+      const unset = await postJson("/api/settings/quote-overlay", { on: null });
+      assert(unset.quoteOverlay === null && (await status()).quoteOverlay === null, "unset");
+      assert(await stockOf(x.id) === null && await stockOf(y.id) === true && ids(unset) === String(y.id), "unset: each cover's own switch decides again");
+      assert((await promptOf(y.id)).includes(stock) && !(await promptOf(x.id)).includes(stock), "unset: captions follow each cover again");
+      assert((await status()).quoteDefault === defaultBefore, "the switch never touches the carry-over default");
+      for (const bad of [{ on: "yes" }, { on: 1 }, {}]) {
+        const r = await fetch(`${base}/api/settings/quote-overlay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bad) });
+        assert(r.status === 400, `${JSON.stringify(bad)} answered ${r.status}`);
+      }
+    } finally {
+      await postJson("/api/settings/quote-overlay", { on: null }).catch(() => {});
+      await postJson("/api/settings/caption-voice", { voice: voiceBefore || "" });
+    }
   });
   await check("ubee client workspace plan", async () => {
     await fetch(`${base}/api/workspace/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "ubee_shared", clientName: "Test Creator" }) });

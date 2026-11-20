@@ -3,6 +3,7 @@
 // Run: node scripts/render-test.mjs
 import { FONT_LABELS, HALF_PRESETS, PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, contrastPixel, coverLayout, drawCover, insideSafeZone, mosaicRects, presetOn, randomizeLayout, safeZoneFor, textBoxes, textHitBoxes, wrapText } from "../client/src/renderCover.js";
 import { createHistory } from "../client/src/undo.js";
+import { overlayOf, quoteShown } from "../client/src/quoteOverlay.js";
 import { RANDOM_LAYOUTS, ZOOM_REST, changedFields, displayTitle, parseSong, randomEditorialLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars, zoomPan, zoomSettle, zoomTo } from "../client/src/reviewMath.js";
 import { LOCKED, badgeFor, formatDay, selectable } from "../client/src/pollenView.js";
 import { RELEASE_URL, newer, releaseBanner } from "../client/src/release.js";
@@ -417,6 +418,13 @@ check("songs: a moment plays from its part's clip, then an app preview that cove
   assert(sourceFor(SONG, 70, 99) === null, "Spotify's start with no preview link plays nothing");
   assert(sourceFor({ ...SONG, previewUrl: {} }, 50, 70) === null, "a range that runs past its part isn't that part's clip");
   assert(clipAddress("sym-b--two") === "/api/symphony/clips/sym-b--two" && clipAddress("sym-b--two", 2) === "/api/symphony/clips/sym-b--two?part=2", "clip addresses");
+});
+check("the one switch for every cover decides when it's set, and each cover decides when it isn't (1.13.3)", () => {
+  for (const [overlay, own, want] of [[true, false, true], [true, true, true], [false, true, false], [false, false, false], [null, true, true], [null, false, false], [undefined, true, true], ["yes", false, false]]) {
+    assert(quoteShown({ showQuote: own }, overlay) === want, `switch ${overlay}, cover ${own}: ${want}`);
+  }
+  assert(quoteShown(null, null) === false && quoteShown(undefined, true) === true, "no cover: the switch, or nothing");
+  assert(overlayOf(true) === true && overlayOf(false) === false && overlayOf(null) === null && overlayOf("false") === null && overlayOf(0) === null, "only true and false count as set");
 });
 check("songs: a clip knows its song and part, and a cover's Symphony song is read from its songFile (1.13.2)", () => {
   assert(JSON.stringify(sourceFor(SONG, 44.4, 59.4).clip) === JSON.stringify({ id: "sym-a--song-one", part: 0 }), "the hook's clip");

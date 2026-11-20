@@ -13,7 +13,7 @@ const ALIGNS = [["left", "L", "Left"], ["center", "C", "Center"], ["right", "R",
 
 export default function CoverEditor({
   draft, activeBox, setActiveBox, setBox, setItem, setImageEdit, palette, fonts, customColors, quotesUnlocked,
-  pickMode, setPickMode, onRemoveBox, onNewBox, onAddMosaic, canAddBox, onRemoveCustomColor,
+  quoteAll, onQuoteAll, pickMode, setPickMode, onRemoveBox, onNewBox, onAddMosaic, canAddBox, onRemoveCustomColor,
 }) {
   // Removing her own colors (1.9.1): Remove colors turns each custom swatch into a remove button until Done.
   const [removing, setRemoving] = useState(false);
@@ -63,10 +63,11 @@ export default function CoverEditor({
         onChange={(e) => (isMain ? setItem({ quote: e.target.value }) : setBox({ quote: e.target.value }))} />
       {isMain && (
         <>
+          {/* One switch for every cover (1.13.3, Arjang #630): it shows or hides the quote on all of them at once. */}
           <div className="switchRow">
-            <span>Quote on the cover</span>
-            <button type="button" role="switch" aria-checked={Boolean(draft.showQuote)} aria-label="Quote on the cover" className={draft.showQuote ? "switch on" : "switch"}
-              disabled={!quotesUnlocked && !draft.showQuote} onClick={() => setItem({ showQuote: !draft.showQuote })}>
+            <span>Quote on all covers</span>
+            <button type="button" role="switch" aria-checked={Boolean(quoteAll)} aria-label="Quote on all covers" className={quoteAll ? "switch on" : "switch"}
+              disabled={!quotesUnlocked && !quoteAll} onClick={() => onQuoteAll(!quoteAll)}>
               <span className="knob" />
             </button>
           </div>

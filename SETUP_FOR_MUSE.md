@@ -100,6 +100,7 @@ Most creators save in their own Drive. A uBee client is different:
 - If the creator drops their own quote list in DUMP, convert it to data/quotes.json as an array of strings or objects with a text field. That file outranks the default pack automatically.
 - Never invent quotes and present them as stock. Generated captions are captions, stock quotes are stock.
 - A toggle you send with `POST /api/items/:id/quote-toggle` sets that cover and leaves her default alone. Only her own switch in the app sets the default that carries over to covers she hasn't set (1.13).
+- Her switch in the editor is one switch for every cover (1.13.3). `POST /api/settings/quote-overlay` with `{ "on": true }` or `false` sets it for all covers, and `{ "on": null }` unsets it, so each cover's own choice decides again. It never changes a cover's own choice. It's hers: change it only when she asks.
 - Quote over image starts OFF and locked. Offer the creator two ways to unlock it: connect their own quote list (POST /api/quotes/connect; add replace: true to swap her whole list for the one sent), or take the quote quiz in the app. The quiz pool (data/quiz-quotes.json) is generalized quotes only, Arjang specific quotes were filtered out before shipping, so what they steal sounds like them. If a creator flags a quiz quote as too specific, remove it from the pool and log it in the grievance resolution.
 
 ## 7. Ongoing jobs for you

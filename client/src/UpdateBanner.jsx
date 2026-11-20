@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BUILT_VERSION, RELEASE_URL, releaseBanner } from "./release.js";
+import { authHeaders } from "./session.js";
 
 const SEEN_KEY = "cover-review-update-seen";
 
@@ -136,7 +137,7 @@ export default function UpdateBanner({ inUse = false }) {
     setError(null);
     setPhase("updating");
     try {
-      const r = await (await fetch("/api/update/apply", { method: "POST" })).json();
+      const r = await (await fetch("/api/update/apply", { method: "POST", headers: authHeaders() })).json(); // a session's call (1.15.0)
       if (!r.ok) { setError(r.error || "The update didn't start."); setPhase("idle"); }
     } catch {
       setPhase("restarting");

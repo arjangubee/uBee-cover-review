@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SafeAreaTopScrim } from "./SafeAreaTopScrim.jsx";
 import { api, FIELDS, sendsAs } from "./dmApi.js";
+import { currentSession } from "../session.js";
 
 // The Chats screen (1.14): a practice inbox in Instagram's style, ported from
 // the Reply Practice Simulator. Its calls are in dmApi.js: /api/dm/<name>
@@ -1005,10 +1006,13 @@ function PracticeView({
 // ---------------------------------------------------------------------------
 
 const LABEL_KEY = "reply-sim-labels";
+// Labels are kept on this device, by chat number. Since 1.15.0 each account's chats are numbered on their own, so another
+// account's labels go under its handle; the owner's stay where they always were.
+const labelKey = () => { const s = currentSession(); return s.owner || !s.handle ? LABEL_KEY : `${LABEL_KEY}:${s.handle}`; };
 
 function readLabels() {
   try {
-    const raw = window.localStorage.getItem(LABEL_KEY);
+    const raw = window.localStorage.getItem(labelKey());
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -1639,7 +1643,7 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
       const all = readLabels();
       if (next) all[String(item.id)] = next;
       else delete all[String(item.id)];
-      window.localStorage.setItem(LABEL_KEY, JSON.stringify(all));
+      window.localStorage.setItem(labelKey(), JSON.stringify(all));
     } catch {
       // localStorage unavailable: the label still shows for this session.
     }

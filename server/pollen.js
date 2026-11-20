@@ -9,11 +9,11 @@ import { join } from "node:path";
 import { captionProblems } from "./captionRules.js";
 import { postedCaption } from "./captionCtas.js";
 import { MISSING_CLIP, clipPath, clipType, songMeta } from "./songs.js";
-import { DATA_DIR, LIBRARY_DIR, UPLOAD_DIR, store } from "./store.js";
+import { inSpace } from "./accounts.js";
+import { currentSpace, knownSpaces, libraryDir, rendersDir, runIn, store, uploadsDir } from "./store.js";
 import { MISSING_ONLINE_CLIP, isSymphonyFile, symphonyClipBytes, symphonyClipReady } from "./symphony.js";
 
 export const BEE_HIVE_URL = process.env.COVER_REVIEW_BEE_HIVE_URL || "https://ubeeofm.com/api/public/cover-review";
-export const RENDER_DIR = join(DATA_DIR, "renders");
 const SYNC_MS = Number(process.env.COVER_REVIEW_POLLEN_SYNC_MS || 30000);
 const BOOKED_SYNC_MS = 10 * 60 * 1000; // a booked cover only changes if Pollen moves or posts it
 const HELLO_FRESH_MS = 60 * 1000;
@@ -124,7 +124,7 @@ export function jpegSize(buf) {
 function saveRender(item, buf) {
   const size = jpegSize(buf);
   if (!size || !size.width || !size.height) throw new HiveError("The cover has to be a JPEG.", 400);
-  mkdirSync(RENDER_DIR, { recursive: true });
+  const RENDER_DIR = rendersDir(); // the signed-in account's own renders (1.15.0)
   const file = `${item.id}.jpg`;
   writeFileSync(join(RENDER_DIR, `${file}.tmp`), buf);
   renameSync(join(RENDER_DIR, `${file}.tmp`), join(RENDER_DIR, file));
@@ -144,6 +144,7 @@ async function scheduleOne(id, picked) {
   const problems = captionProblems(caption);
   if (problems.length) return { itemId: id, status: "refused", error: problems.join(" ") };
   const render = item.pollenRender;
+  const RENDER_DIR = rendersDir();
   if (!render || !existsSync(join(RENDER_DIR, render.file))) return { itemId: id, status: "refused", error: "Render the cover first." };
   const song = songCheck(item);
   if (song.problem) return { itemId: id, status: "refused", error: song.problem };
@@ -203,13 +204,15 @@ export async function schedule(itemIds, channelIds) {
   return { ok: true, results };
 }
 
-let syncing = false;
-let lastSync = 0;
+// Each account syncs with its own Pollen connection (1.15.0).
+const syncing = new Set();
+const lastSync = new Map();
 /** Ask the Bee Hive how each sent cover is doing and keep the newest answer on the item. */
 export async function sync() {
-  if (!pollen()?.code || syncing) return { ok: false, changed: 0 };
-  syncing = true;
-  lastSync = Date.now();
+  const me = currentSpace();
+  if (!pollen()?.code || syncing.has(me)) return { ok: false, changed: 0 };
+  syncing.add(me);
+  lastSync.set(me, Date.now());
   try {
     const items = store.db.items.filter((i) => i.pollen?.requestId && ACTIVE.includes(i.pollen.status));
     let changed = 0;
@@ -230,16 +233,19 @@ export async function sync() {
     }
     if (changed) store.saveDb();
     return { ok: true, changed };
-  } finally { syncing = false; }
+  } finally { syncing.delete(me); }
 }
 
 /** Every 30 seconds while a cover waits for Pollen; every 10 minutes while covers sit booked. */
 export function startPollenSync() {
   const t = setInterval(() => {
-    const live = store.db.items.filter((i) => i.pollen?.requestId);
-    const pending = live.some((i) => PENDING.includes(i.pollen.status));
-    const booked = live.some((i) => i.pollen.status === "booked");
-    if (pending || (booked && Date.now() - lastSync > BOOKED_SYNC_MS)) sync().catch(() => {});
+    for (const space of knownSpaces()) runIn(space, () => {
+      if (!pollen()?.code) return;
+      const live = store.db.items.filter((i) => i.pollen?.requestId);
+      const pending = live.some((i) => PENDING.includes(i.pollen.status));
+      const booked = live.some((i) => i.pollen.status === "booked");
+      if (pending || (booked && Date.now() - (lastSync.get(space) || 0) > BOOKED_SYNC_MS)) sync().catch(() => {});
+    });
   }, SYNC_MS);
   t.unref?.();
 }
@@ -251,8 +257,8 @@ async function sendImage(item, res) {
   const local = (prefix, root) => res.sendFile(decodeURIComponent(url.slice(prefix.length)), { root, dotfiles: "deny" }, (e) => {
     if (e && !res.headersSent) res.status(404).json({ error: "photo not found" });
   });
-  if (url.startsWith("/uploads/")) return local("/uploads/", UPLOAD_DIR);
-  if (url.startsWith("/api/library/")) return local("/api/library/", LIBRARY_DIR);
+  if (url.startsWith("/uploads/")) return local("/uploads/", uploadsDir());
+  if (url.startsWith("/api/library/")) return local("/api/library/", libraryDir());
   const data = url.match(/^data:(image\/[\w.+-]+);base64,(.+)$/);
   if (data) return res.type(data[1]).send(Buffer.from(data[2], "base64"));
   if (!/^https?:\/\//i.test(url)) return res.status(404).json({ error: "photo not found" });
@@ -281,7 +287,7 @@ export function registerPollen(app) {
     res.json({ ok: true });
   });
   app.get("/api/pollen/channels", async (req, res) => res.json(await channels({ refresh: req.query.refresh === "1" })));
-  app.post("/api/items/:id/render", renderUpload.single("image"), (req, res) => {
+  app.post("/api/items/:id/render", inSpace(renderUpload.single("image")), (req, res) => {
     const item = store.getItem(req.params.id);
     if (!item) return res.status(404).json({ ok: false, error: "item not found" });
     if (!req.file) return res.status(400).json({ ok: false, error: "send the cover as the image field" });

@@ -18,7 +18,8 @@ class SongsError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
 }
 
-export const songsFolder = () => (typeof store.settings.songsFolder === "string" && store.settings.songsFolder) || null;
+// The songs folder is the copy's, shared by every account (1.15.0); only the owner changes it.
+export const songsFolder = () => (typeof store.shared.songsFolder === "string" && store.shared.songsFolder) || null;
 
 /** A clip's path inside the folder, cleaned: relative, forward slashes, no "." or ".." parts, an audio type. Else null. */
 export function cleanClipPath(file) {
@@ -122,8 +123,8 @@ export function songsStatus() {
 /** Connects the folder (a full path holding manifest.json), or disconnects it with null. Covers keep their songs. */
 export function connectSongsFolder(folder) {
   if (folder == null || String(folder).trim() === "") {
-    delete store.settings.songsFolder;
-    store.saveSettings();
+    delete store.shared.songsFolder;
+    store.saveShared();
     return { ok: true, ...songsStatus() };
   }
   const f = String(folder).trim();
@@ -134,8 +135,8 @@ export function connectSongsFolder(folder) {
   if (!existsSync(join(f, MANIFEST))) throw new SongsError("That folder has no manifest.json yet. Symphony writes it after its first update.");
   let songs;
   try { songs = readManifest(f); } catch (e) { throw new SongsError(e instanceof SongsError ? e.message : "That folder's manifest.json can't be read."); }
-  store.settings.songsFolder = f;
-  store.saveSettings();
+  store.shared.songsFolder = f;
+  store.saveShared();
   return { ok: true, connected: true, folder: f, songs };
 }
 

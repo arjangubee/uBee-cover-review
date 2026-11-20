@@ -1,11 +1,12 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
+import { pickable } from "./music.js";
 import { downloadedSongs, songFields } from "./songs.js";
-import { DATA_DIR, store } from "./store.js";
+import { DATA_DIR, spaceFile, store } from "./store.js";
 
 // ---------- Quotes: uBee default pack by default, creator can override ----------
 export function loadQuotes() {
-  const own = join(DATA_DIR, "quotes.json");
+  const own = spaceFile("quotes.json"); // the signed-in account's own quotes (1.15.0); the default pack is the copy's
   if (existsSync(own)) {
     try { return JSON.parse(readFileSync(own, "utf8")).map((q) => (typeof q === "string" ? { text: q, source: "creator" } : q)); } catch { /* fall through */ }
   }
@@ -20,9 +21,10 @@ export function suggestQuote(item, quotes) {
 // ---------- Songs: Spotify library first, Instagram trending by default ----------
 // The shipped seed (trending-instagram.json) is never written, so app updates never collide
 // with it. Refreshes from the creator's Muse land in trending.json, which wins when present.
+// 1.15.0 (Symphony #737): the list is the copy's, shared. A refresh lands in the signed-in account's own trending.json, which
+// is her list on top of the shared one. The owner's own is the data folder's, the shared list everyone else gets.
 export function loadTrending() {
-  for (const f of ["trending.json", "trending-instagram.json"]) {
-    const p = join(DATA_DIR, f);
+  for (const p of [spaceFile("trending.json"), join(DATA_DIR, "trending.json"), join(DATA_DIR, "trending-instagram.json")]) {
     if (!existsSync(p)) continue;
     try { return JSON.parse(readFileSync(p, "utf8")); } catch { /* try the next one */ }
   }
@@ -30,22 +32,31 @@ export function loadTrending() {
 }
 export function saveTrending(payload) {
   const doc = { songs: payload.songs || [], updated_at: new Date().toISOString(), source: payload.source || "claude-instagram-refresh" };
-  writeFileSync(join(DATA_DIR, "trending.json"), JSON.stringify(doc, null, 1));
+  writeFileSync(spaceFile("trending.json"), JSON.stringify(doc, null, 1));
   return doc;
 }
-export function suggestSong(item) {
+// Shuffle (shuffle: true) picks another song a few places on, at random, as before.
+// 1.15.0 (Symphony #737): her hidden songs are never picked, and her saved songs come first. A new cover takes one of her
+// saved songs, in turn, when she has any. With saved songs, Shuffle goes through them, then the rest, then starts over.
+export function suggestSong(item, { shuffle = false } = {}) {
+  const k = shuffle ? item.id + 1 + Math.floor(Math.random() * 7) : item.id;
   // 1.11: with a songs folder connected, songs come from its downloaded list first, each with its hook clip.
-  const downloaded = downloadedSongs();
-  if (downloaded.length) return songFields(downloaded[item.id % downloaded.length]);
+  const { saved, rest } = pickable(downloadedSongs());
+  const list = [...saved, ...rest];
+  if (list.length) {
+    if (!shuffle) return songFields(saved.length ? saved[item.id % saved.length] : list[item.id % list.length]);
+    if (saved.length) return songFields(list[(list.findIndex((s) => s.hookFile === item.songFile) + 1) % list.length]);
+    return songFields(list[k % list.length]);
+  }
   const none = { songFile: null, songHook: null };
   const lib = store.settings.spotifyLibrary || [];
   if (lib.length) {
-    const s = lib[item.id % lib.length];
+    const s = lib[k % lib.length];
     return { song: `${s.artist} - ${s.title}`, songSource: "spotify", songPreviewUrl: String(s.previewUrl || ""), songSpotifyUrl: String(s.spotifyUrl || ""), ...none };
   }
   const trending = loadTrending().songs || [];
   if (trending.length) {
-    const s = trending[item.id % trending.length];
+    const s = trending[k % trending.length];
     return { song: `${s.artist} - ${s.title}`, songSource: "trending", songPreviewUrl: String(s.previewUrl || ""), songSpotifyUrl: String(s.spotifyUrl || ""), ...none };
   }
   return { song: "", songSource: "none", songPreviewUrl: "", songSpotifyUrl: "", ...none };

@@ -146,6 +146,30 @@ const symBase = `http://127.0.0.1:${symServer.address().port}`;
 
 const PORT = 4199;
 const base = `http://localhost:${PORT}`;
+
+// 1.15.0: every call to a copy of the app goes out signed in as that copy's owner, the way the page and her Muse do it
+// (POST /api/session, then the token as Authorization: Bearer). scripts/accounts-test.mjs checks the accounts themselves.
+const realFetch = globalThis.fetch;
+const owners = new Map(); // a copy's address -> the handle its owner signs in with
+const tokens = new Map();
+async function ownerToken(origin) {
+  if (!tokens.has(origin)) {
+    const r = await realFetch(`${origin}/api/session`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handle: owners.get(origin), claim: true }) });
+    const j = await r.json();
+    if (!j.token || !j.owner) throw new Error(`smoke couldn't sign in as the owner on ${origin}: ${JSON.stringify(j)}`);
+    tokens.set(origin, j.token);
+  }
+  return tokens.get(origin);
+}
+globalThis.fetch = async (url, opts = {}) => {
+  const origin = new URL(String(url)).origin;
+  if (!owners.has(origin) || new URL(String(url)).pathname === "/api/session") return realFetch(url, opts);
+  const headers = new Headers(opts.headers || {});
+  if (!headers.has("authorization")) headers.set("Authorization", `Bearer ${await ownerToken(origin)}`);
+  return realFetch(url, { ...opts, headers });
+};
+owners.set(new URL(base).origin, "smoke_owner");
 const server = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(PORT), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: DATA,
   COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_POLLEN_SYNC_MS: "3600000",
   COVER_REVIEW_SYMPHONY_URL: `${symBase}/functions/v1/symphony` }, stdio: "pipe" });
@@ -174,6 +198,11 @@ async function withCopy(port, fill, fn) {
   for (const f of ["default-quotes.json", "quiz-quotes.json", "trending-instagram.json"]) copyFileSync(join(REPO_DATA, f), join(dir, f));
   fill(dir);
   const at = `http://localhost:${port}`;
+  // Its owner: the handle in its Instagram connector, if the data it starts with has one, else the first sign-in.
+  let connector = null;
+  try { connector = JSON.parse(readFileSync(join(dir, "settings.json"), "utf8")).connectors?.instagram?.handle || null; } catch { /* none */ }
+  owners.set(new URL(at).origin, String(connector || "smoke_owner").replace(/^@+/, "").toLowerCase());
+  tokens.delete(new URL(at).origin);
   const child = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(port), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: dir,
     COVER_REVIEW_POLLEN_SYNC_MS: "3600000" }, stdio: "ignore" });
   try {

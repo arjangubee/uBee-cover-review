@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { post } from "./api.js";
 import Icon from "./icons.jsx";
+import { setRestrictSignups, signOut, useSession } from "./session.js";
 
-// Behind the info button: adding photos, setup, Pollen, the quote quiz and "Something wrong?".
+// Behind the info button: adding photos, setup, Pollen, the quote quiz, "Something wrong?" and her account (1.15.0).
 // Everything that used to sit under the cover lives here now, one tap away.
 
 export default function InfoSheet({ status, pollen, quotesStatus, quizQuotes, list, currentId, onClose, onUpload, onSortDump, onConsent,
@@ -12,6 +14,8 @@ export default function InfoSheet({ status, pollen, quotesStatus, quizQuotes, li
   const [grievance, setGrievance] = useState("");
   const [receipt, setReceipt] = useState(null);
   const [grievanceError, setGrievanceError] = useState(null);
+  const session = useSession();
+  const [signupNote, setSignupNote] = useState("");
   const closeRef = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -26,6 +30,12 @@ export default function InfoSheet({ status, pollen, quotesStatus, quizQuotes, li
   async function connect() {
     setPollenNote("");
     try { await onConnectPollen(pollenCode.trim()); setPollenCode(""); } catch (e) { setPollenNote(e.message); }
+  }
+  // The owner's switch (1.15.0): off by default, so any username can sign in; on, only usernames this copy knows.
+  async function toggleSignups() {
+    setSignupNote("");
+    try { setRestrictSignups((await post("/api/accounts/signups", { restrict: !session.restrictSignups })).restrictSignups); }
+    catch (e) { setSignupNote(e.message); }
   }
   async function sendGrievance() {
     const text = grievance.trim();
@@ -133,6 +143,23 @@ export default function InfoSheet({ status, pollen, quotesStatus, quizQuotes, li
             <li>Tap the text on the cover to edit it. Undo and redo sit at the top.</li>
             <li>On a computer: left and right arrow keys move between covers.</li>
           </ul>
+        </section>
+
+        <section className="infoBlock">
+          <h3>Account</h3>
+          <p>Signed in as @{session.handle}{session.owner ? ", the owner of this copy" : ""}.</p>
+          {session.owner && (
+            <>
+              <button type="button" role="switch" aria-checked={session.restrictSignups} className="callSwitch" onClick={toggleSignups}>
+                <span className="track" aria-hidden="true"><span className="knob" /></span>
+                <span className="callLabel">Only usernames already on this copy can sign in</span>
+              </button>
+              {signupNote && <p className="problem">{signupNote}</p>}
+            </>
+          )}
+          <div className="stackBtns">
+            <button type="button" className="secondaryBtn" onClick={signOut}>Log out</button>
+          </div>
         </section>
       </div>
     </div>

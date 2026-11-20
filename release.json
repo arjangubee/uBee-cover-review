@@ -1,9 +1,9 @@
 {
-  "version": "1.14.1",
+  "version": "1.15.0",
   "date": "2026-11-20",
   "whatsNew": [
-    "The cover fills the screen edge to edge again, and the magnifier moved next to the pencil",
-    "Play opens the Spotify card without moving the cover: the header steps up out of its way",
-    "Color lock on Randomize layout: on keeps the color, off picks a new one each time"
+    "Sign in with your Instagram username. Each account sees only its own covers, photos, quotes and chats",
+    "Save and Hide on the Songs screen: new covers and Shuffle try your saved songs first and never pick one you hid",
+    "Log out is in the info sheet, under Account, where the owner can also stop new sign-ups"
   ]
 }

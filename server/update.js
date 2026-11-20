@@ -17,7 +17,10 @@ import { join } from "node:path";
 // built page) and keeps running, the page shows a notice, and that version isn't tried again on its own: Try again,
 // a restart of the app, or a newer version tries again.
 
-const DATA_FILES = ["db.json", "settings.json", "grievances.json", "quotes.json", "trending.json", "song-pool.json", "drive-plan.json", "last-update.json"];
+const DATA_FILES = ["db.json", "settings.json", "grievances.json", "quotes.json", "trending.json", "song-pool.json", "drive-plan.json", "last-update.json",
+  "accounts.json"];
+// Each account's own files (1.15.0), backed up from data/accounts/<handle>/ the same way.
+const ACCOUNT_FILES = ["db.json", "settings.json", "grievances.json", "quotes.json", "trending.json"];
 const KEEP_BACKUPS = 10;
 const CHECK_EVERY_MS = 2 * 60 * 1000;
 const QUIET_MS = 60 * 1000;
@@ -137,6 +140,12 @@ export function createUpdater({ root, dataDir, branch = "main", remote = null, c
     const dir = join(dataDir, "backups", stamp);
     mkdirSync(dir, { recursive: true });
     for (const f of DATA_FILES) if (existsSync(join(dataDir, f))) copyFileSync(join(dataDir, f), join(dir, f));
+    let handles = [];
+    try { handles = readdirSync(join(dataDir, "accounts"), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch { /* none */ }
+    for (const h of handles) {
+      const from = join(dataDir, "accounts", h), to = join(dir, "accounts", h);
+      for (const f of ACCOUNT_FILES) if (existsSync(join(from, f))) { mkdirSync(to, { recursive: true }); copyFileSync(join(from, f), join(to, f)); }
+    }
     const all = readdirSync(join(dataDir, "backups")).sort();
     for (const old of all.slice(0, Math.max(0, all.length - KEEP_BACKUPS))) rmSync(join(dataDir, "backups", old), { recursive: true, force: true });
     return dir;

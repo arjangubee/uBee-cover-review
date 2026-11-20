@@ -4,6 +4,7 @@
 // it for 30 minutes, so the code never reaches the page. Hook clips go through /api/symphony/clips/:id, which redirects
 // to a signed link, so a cover stores a stable "symphony:<id>" and never a link that expires. Nothing changes until a
 // code is connected.
+import { musicOf } from "./music.js";
 import { store } from "./store.js";
 
 export const SYMPHONY_URL = process.env.COVER_REVIEW_SYMPHONY_URL || "https://evmqkvnclbqcijlyezrr.supabase.co/functions/v1/symphony";
@@ -117,7 +118,8 @@ function readFeed(doc) {
 }
 
 // ---------- The connection and the cached feed ----------
-const sym = () => store.settings.symphony || null;
+// The Symphony connection is the copy's, shared by every account (1.15.0); only the owner changes it.
+const sym = () => store.shared.symphony || null;
 export const symphonyConnected = () => Boolean(sym()?.code);
 
 let feed = null; // { at, updatedAt, day, linksExpireAt, hot, songs, byId, picks }
@@ -139,8 +141,8 @@ async function fetchFeed(code) {
 }
 
 function revoke() {
-  store.settings.symphony = { revoked: true, revokedAt: Date.now() };
-  store.saveSettings();
+  store.shared.symphony = { revoked: true, revokedAt: Date.now() };
+  store.saveShared();
   generation += 1;
   feed = null;
 }
@@ -223,8 +225,8 @@ export function symphonyStatus() {
 /** Connects with a code (checked by reading the feed with it), or disconnects with null. Covers keep their songs. */
 export async function connectSymphony(code) {
   if (code == null || String(code).trim() === "") {
-    delete store.settings.symphony;
-    store.saveSettings();
+    delete store.shared.symphony;
+    store.saveShared();
     generation += 1;
     feed = null; lastError = null;
     return { ok: true, ...symphonyStatus() };
@@ -233,8 +235,8 @@ export async function connectSymphony(code) {
   if (c.length < 32 || c.length > 256 || /\s/.test(c)) throw new SymphonyError(REFUSED, 400);
   const next = await fetchFeed(c);
   generation += 1;
-  store.settings.symphony = { code: c, connectedAt: Date.now() };
-  store.saveSettings();
+  store.shared.symphony = { code: c, connectedAt: Date.now() };
+  store.saveShared();
   feed = { ...next, at: Date.now() };
   lastError = null;
   return { ok: true, ...symphonyStatus() };
@@ -255,8 +257,9 @@ export function registerSymphony(app) {
     res.set("Cache-Control", "no-store");
     const f = await ensureFresh();
     const empty = { hot: { date: null, rows: [] }, songs: [] };
-    if (!f) return res.json({ ...symphonyStatus(), ...empty });
-    res.json({ ...symphonyStatus(), stale: !fresh(f), hot: f.hot, songs: f.songs.map(pageSong) });
+    const music = musicOf(); // her Save and Hide, for the Songs screen (1.15.0)
+    if (!f) return res.json({ ...symphonyStatus(), ...empty, music });
+    res.json({ ...symphonyStatus(), stale: !fresh(f), hot: f.hot, songs: f.songs.map(pageSong), music });
   });
   // Where the page plays a clip from (1.13.2): here, the stable address below, which doesn't expire, so there's no
   // expiresAt. A ported space answers with an address its own host can play, with expiresAt when that address expires.

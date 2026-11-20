@@ -1,23 +1,62 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 // COVER_REVIEW_DATA_DIR lets tests (and a second workspace) keep data somewhere else.
 export const DATA_DIR = process.env.COVER_REVIEW_DATA_DIR ? resolve(process.env.COVER_REVIEW_DATA_DIR) : join(root, "data");
-export const UPLOAD_DIR = join(DATA_DIR, "uploads");
-export const DUMP_DIR = join(DATA_DIR, "dump");
-export const LIBRARY_DIR = join(DATA_DIR, "library");
-for (const d of [DATA_DIR, UPLOAD_DIR, DUMP_DIR, LIBRARY_DIR]) mkdirSync(d, { recursive: true });
 
-const DB_PATH = join(DATA_DIR, "db.json");
-const SETTINGS_PATH = join(DATA_DIR, "settings.json");
+// Accounts (1.15.0, room #735 and #742). Each account's personal data lives in its own space: the copy's owner in the
+// data folder itself, where everything saved before accounts already is, so no row is rewritten, and every other account
+// in data/accounts/<handle>/, with the same files and folders. A request runs inside its account's space, so every read
+// and write of personal data below goes to that account only. Work outside a request (start-up, timers) runs in the
+// owner's space unless it asks for another one. What the whole copy shares (Symphony, the songs folder, the trending
+// list, the quote pack and quiz pool, the updater, the 1.13.9 recheck tally) stays in the data folder for everyone.
+export const OWNER_SPACE = "";
+export const ACCOUNTS_DIR = join(DATA_DIR, "accounts");
+const scope = new AsyncLocalStorage();
 
-function readJson(path, fallback) {
+/** The folder a space keeps its personal data in. */
+export function spaceDir(space = currentSpace()) {
+  return space ? join(ACCOUNTS_DIR, space) : DATA_DIR;
+}
+/** The space this code runs in: the signed-in account's, or the owner's. */
+export function currentSpace() {
+  const s = scope.getStore();
+  return typeof s === "string" ? s : OWNER_SPACE;
+}
+/** Runs fn in a space, and everything it starts (awaits, timers) stays in it. */
+export function runIn(space, fn) {
+  return scope.run(String(space || ""), fn);
+}
+/** Every space with data on this copy: the owner's, then each account folder. */
+export function knownSpaces() {
+  let names = [];
+  try { names = readdirSync(ACCOUNTS_DIR, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort(); } catch { /* none yet */ }
+  return [OWNER_SPACE, ...names];
+}
+
+// A space's own files and folders.
+export const spaceFile = (name, space = currentSpace()) => join(spaceDir(space), name);
+const made = new Set();
+const folder = (name, space) => {
+  const d = join(spaceDir(space), name);
+  if (!made.has(d)) { mkdirSync(d, { recursive: true }); made.add(d); }
+  return d;
+};
+export const uploadsDir = (space = currentSpace()) => folder("uploads", space);
+export const dumpDir = (space = currentSpace()) => folder("dump", space);
+export const libraryDir = (space = currentSpace()) => folder("library", space);
+export const rendersDir = (space = currentSpace()) => folder("renders", space);
+for (const d of [DATA_DIR, uploadsDir(OWNER_SPACE), dumpDir(OWNER_SPACE), libraryDir(OWNER_SPACE)]) mkdirSync(d, { recursive: true });
+
+export function readJson(path, fallback) {
   if (!existsSync(path)) return structuredClone(fallback);
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return structuredClone(fallback); }
 }
-function writeJson(path, value) {
+export function writeJson(path, value) {
+  mkdirSync(dirname(path), { recursive: true });
   const tmp = path + ".tmp";
   writeFileSync(tmp, JSON.stringify(value, null, 1));
   renameSync(tmp, path);
@@ -38,11 +77,30 @@ const defaultSettings = {
   workspace: { mode: "own_drive", clientName: null }, // ubee_shared for uBee clients
 };
 
+// Each space's db and settings, read once and kept in memory, written back on save.
+const spaces = new Map();
+function space(name = currentSpace()) {
+  let s = spaces.get(name);
+  if (!s) {
+    const dir = spaceDir(name);
+    s = { db: readJson(join(dir, "db.json"), defaultDb), settings: readJson(join(dir, "settings.json"), defaultSettings) };
+    spaces.set(name, s);
+  }
+  return s;
+}
+
 export const store = {
-  db: readJson(DB_PATH, defaultDb),
-  settings: readJson(SETTINGS_PATH, defaultSettings),
-  saveDb() { writeJson(DB_PATH, this.db); },
-  saveSettings() { writeJson(SETTINGS_PATH, this.settings); },
+  /** The signed-in account's covers, voice samples and Chats items. */
+  get db() { return space().db; },
+  set db(v) { space().db = v; },
+  /** The signed-in account's own settings. */
+  get settings() { return space().settings; },
+  set settings(v) { space().settings = v; },
+  /** What the whole copy shares, kept with the owner's settings where it always was: the same object in the owner's space. */
+  get shared() { return space(OWNER_SPACE).settings; },
+  saveDb() { writeJson(spaceFile("db.json"), space().db); },
+  saveSettings() { writeJson(spaceFile("settings.json"), space().settings); },
+  saveShared() { writeJson(spaceFile("settings.json", OWNER_SPACE), space(OWNER_SPACE).settings); },
   addItem(partial) {
     const item = {
       id: this.db.nextId++,

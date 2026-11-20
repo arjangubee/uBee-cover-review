@@ -5,7 +5,8 @@ Follow this in order the first time a creator opens this repo with you. Steps 2 
 ## 1. Get it running, get photos in
 
 1. Run `npm run setup`, then `npm start`. Open http://localhost:4173 with the creator.
-2. If the creator already has photos on their phone or computer, have them tap "Add photos" in the app. Review can start right there. Everything below runs alongside review, never before it.
+2. She signs in with her Instagram username (1.15.0), no password. On a copy that already has her covers, the first username asks whether they're hers. You sign in too, as her, with POST /api/session {"handle": "<her username>"}, and send the token it answers as `Authorization: Bearer <token>` on every call after that. Keep the token out of files, commits, grievances, logs and chats.
+3. If the creator already has photos on their phone or computer, have them tap "Add photos" in the app. Review can start right there. Everything below runs alongside review, never before it.
 
 ## 2. Connect Drive, create the folders automatically
 

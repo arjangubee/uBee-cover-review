@@ -12,6 +12,59 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.15.0: sign in by Instagram username, and each account's own data
+
+Room #735, ruled in #742 with Arjang's #739 and Symphony's #737. A sign-in screen comes first: one field, her Instagram
+username, and Continue. No password: anyone who types a handle opens that account. That is fine for a closed test and
+is not real security. Every account sees only its own covers, photos, quotes, quiz answers, grievances, Chats and
+settings. Everyone gets the copy's shared music library, with their own Save and Hide on top.
+
+1. **No row is rewritten.** Export every table and count (rule 1). Add an `accounts` table (handle, unique; created_at;
+   owner, true on one row) and a `sessions` table (token_hash, unique; handle; created_at; last_seen_at). Add an
+   `account` column that may be empty to photos, my_quotes, quiz_verdicts, grievances, settings and the dm_ tables. A row
+   with an empty account belongs to the owner, and rows made after the port carry their account. In her space the owner
+   is the handle Arjang named in #739: add it to her space's accounts with owner true. It goes in her data only, never in
+   a repo. Undo: drop the new tables and the new column; the old rows were never touched.
+2. **Counts after the port**, all under the owner, and another handle sees none of them: photos 173 (queue 170,
+   approved 2, rejected 1), my_quotes 78, quiz_verdicts 66, grievances 1, settings her space's live count,
+   dm_practice_items 8.
+3. **The session actions.** `GET /api/session` answers `{ signedIn, handle, owner, restrictSignups }` and renews the
+   cookie. `POST /api/session { handle, claim? }` signs in and answers the same with `token`, making the account on its
+   first sign-in. `DELETE /api/session` ends the sessions it carries and clears the cookie; nothing of hers is deleted.
+   The handle is cleaned the way Instagram has it: no @, lower case, 1 to 30 letters, numbers, periods or underscores,
+   no period at either end and never two in a row. Anything else answers 400 with "That isn't an Instagram username.
+   Use 1 to 30 letters, numbers, periods or underscores."
+4. **The token.** 32 random bytes, base64url. Keep only its sha256 hash. The cookie is `cr_session_<port>`, named for the
+   copy's port so two copies on one computer never share it (Path=/, Max-Age 400 days, HttpOnly, SameSite=Lax, Secure
+   on https), renewed by every visit, so a used session never runs out. The
+   page keeps a copy in its storage (`cr-session`) and sends it as `Authorization: Bearer <token>`, which is what keeps
+   her signed in on a host where cookies don't get through.
+5. **The owner of what was saved before accounts.** Upstream: the handle in that data's Instagram connector; else, when
+   there are old covers or quotes, the first new handle answers `{ needsClaim: true, counts: { photos, quotes } }` and
+   the page asks "This copy has N photos and M quotes saved before accounts. Are they yours?" (claim true makes the
+   owner, false an empty account); on a copy with nothing saved, the first sign-in is the owner. Her space already has
+   its owner from 1, so the question never shows there.
+6. **Sign-ups.** Open by default. `POST /api/accounts/signups { restrict }` is the owner's switch: on, a handle the copy
+   doesn't know answers 403 with "This copy isn't taking new sign-ups. Ask its owner." Store it with the accounts.
+7. **Every action scoped.** Every read and write of personal data goes through the signed-in account, and a photo's
+   address opens only for its own account. Without a session every action answers 401
+   `{ error: "Sign in first, with your Instagram username.", signedIn: false }`, except the session actions, the update
+   status, the page's activity, and a health check that says nothing personal.
+8. **What the copy shares.** The quote pack, the quiz pool, the trending list, the Symphony connection, the songs
+   folder, the updater and the 1.13.9 recheck tally are the copy's, read from the owner's rows for everyone. Only the
+   owner changes the Symphony connection and the songs folder (403 "Only this copy's owner can change that."). A
+   trending refresh by any other account is that account's own list on top of the shared one.
+9. **Save and Hide** (Symphony #737). Per account, keyed by Symphony's song id (`^[a-z0-9][a-z0-9-]{0,119}$`), a song
+   is saved or hidden, never both. `GET /api/music` answers `{ saved, hidden }`; `POST /api/music/save` and
+   `/api/music/hide` take `{ id, on }` and answer the same; `GET /api/symphony` adds `music`. Picks: a hidden song is
+   never picked. A new cover takes one of her saved songs in turn (by cover number) when she has any, else picks as
+   before. Shuffle with saved songs takes the song after the cover's own in her saved songs then the rest, each in the
+   feed's order, and starts over after the last; without saved songs it picks as before.
+10. **Client.** Bring client/src over whole: session.js, SignIn.jsx, the gate in main.jsx, the header in api.js, the
+    Account section of the info sheet (Log out, and the owner's sign-up switch), and Save, Hide, Saved and Hidden on
+    the Songs screen. Chats keeps the owner's labels on this device under the same key as before.
+11. **Check after the port**: the counts in 2, then screenshots of the sign-in screen, the cover screen after signing
+    in, the Account section and the Songs screen's Hidden list.
 ## 1.14.1: the cover edge to edge, the magnifier by the pencil, play without moving the cover, Color lock
 
 Arjang's #790, ruled in Quill's #793. Client only: no new field, setting or action, so no data moves and the counts

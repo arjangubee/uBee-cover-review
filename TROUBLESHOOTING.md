@@ -31,5 +31,6 @@ Common issues:
 | Her covers are gone after signing in | Signed in with a different username, or a handle that isn't the owner of the covers saved before accounts | Sign out and in with the right username. data/accounts.json shows which handle is the owner: covers saved before 1.15.0 stay in data/, other accounts' in data/accounts/<handle>/ |
 | Someone can't sign up | The owner turned on "Only usernames already on this copy can sign in" | The owner turns it off in the info sheet's Account section, or POST /api/accounts/signups {"restrict": false} |
 | A song keeps being picked, or never is | Her Save and Hide on the Songs screen (1.15.0) | GET /api/music shows her saved and hidden songs. Unhide in Library's Hidden list |
+| A remix says it didn't land, or never comes | Her quote list has no other quote, every song is hidden or the cover has the only one, or the page closed before the remix was placed (1.17.0) | GET /api/remixes lists the ones still waiting, and the cover's lastRemix says why one didn't land. A waiting one starts again when the page opens, and a done one goes next. Add quotes or unhide songs, then remix again |
 
 Never fix by deleting creator data. Back up data/db.json and data/settings.json before any repair, and say in the resolution what you changed and how you verified it.

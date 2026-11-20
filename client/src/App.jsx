@@ -10,6 +10,7 @@ import { CoverHeader, ModeSwitch, SongRow } from "./CoverTop.jsx";
 import Icon from "./icons.jsx";
 import InfoSheet from "./InfoSheet.jsx";
 import LibraryView from "./LibraryView.jsx";
+import RemixSheet from "./RemixSheet.jsx";
 import { STYLE_DEFAULTS, canvasMeasureAt, ensureFonts, normalizePlacement, randomizeLayout, renderCover, withDefaults } from "./renderCover.js";
 import { changedFields, displayTitle, valueForStars } from "./reviewMath.js";
 import ScheduleSheet from "./ScheduleSheet.jsx";
@@ -60,6 +61,8 @@ export default function App() {
   const [symphony, setSymphony] = useState(null); // Symphony online (1.12): connected means the Songs screen is there
   const [songsFrom, setSongsFrom] = useState("cover"); // where the Songs screen goes back to: a cover, or all covers
   const [toast, setToast] = useState(null);
+  const [remixOpen, setRemixOpen] = useState(false); // the remix menu (1.17.0)
+  const [remixing, setRemixing] = useState([]); // remixes still being made: each comes next once it's done
   const [burst, setBurst] = useState(0); // the heart that pops on the cover when she likes it
   const [drawnId, setDrawnId] = useState(null); // the cover whose photo is on screen: only that one can be decided
   const [loads, setLoads] = useState(0); // counts finished loads; each one starts the caption fill loop (1.9)
@@ -198,7 +201,7 @@ export default function App() {
 
   const current = items[index] || null;
   // An editor or a sheet open means she's busy: the update notes above both screens wait for a quiet minute (1.13.10, 1.14).
-  const inUse = Boolean(draft) || infoOpen || Boolean(sheet);
+  const inUse = Boolean(draft) || infoOpen || Boolean(sheet) || remixOpen;
   useEffect(() => { setScreenBusy("covers", inUse); }, [inUse]);
   useEffect(() => () => setScreenBusy("covers", false), []);
   const shown = draft && current && draft.id === current.id ? draft : current;
@@ -343,11 +346,62 @@ export default function App() {
     });
     setBusy(false);
   }
-  const remix = () => attempt(async () => {
-    const { item } = await post(`/api/items/${current.id}/remix`);
-    say(`Remixed. Version ${item.revision} is in your queue.`);
-    if (list === "queue") await load();
-  });
+  // The remix menu (1.17.0; Rose #796 and #797, Quill #798): Remix opens the sheet, and the remix is made in the background
+  // while she reviews. Once it's done, the page puts it right after the cover she's on, so it comes next wherever she got
+  // to, and she stays where she is. One that can't pick lands nothing: a note says why, here and on the cover it came from.
+  const where = useRef({ list, id: null });
+  where.current = { list, id: current?.id ?? null };
+  useEffect(() => { if (remixOpen && (!current || view !== "cover")) setRemixOpen(false); }, [remixOpen, current, view]);
+  const closeRemix = useCallback(() => {
+    setRemixOpen(false);
+    requestAnimationFrame(() => document.querySelector(".remixBtn")?.focus({ preventScroll: true }));
+  }, []);
+  async function submitRemix(parts) {
+    const src = current;
+    if (!src) return false;
+    try {
+      const { remix } = await post(`/api/items/${src.id}/remix`, parts);
+      setItems((prev) => prev.map((i) => (i.id === src.id ? { ...i, lastRemix: null } : i))); // a new try clears the old note
+      waitingFor.current.add(remix.id);
+      setRemixing((r) => [...r, remix]);
+      closeRemix();
+      return true;
+    } catch (e) { say(e.message); return false; }
+  }
+  const settling = useRef(false);
+  const waitingFor = useRef(new Set()); // the remixes this page is waiting for
+  const settleRemixes = useCallback(async () => {
+    if (settling.current) return;
+    settling.current = true;
+    try {
+      const { remixes } = await api("/api/remixes");
+      let landed = 0, failed = null, elsewhere = 0;
+      // One that left the list was placed or shown by another page of hers (her phone and her computer): reload for it too.
+      for (const id of [...waitingFor.current]) if (!remixes.some((r) => r.id === id)) { waitingFor.current.delete(id); elsewhere += 1; }
+      for (const r of remixes) {
+        if (r.status === "pending") { waitingFor.current.add(r.id); continue; }
+        waitingFor.current.delete(r.id);
+        const here = where.current; // off the queue, it goes to the front of the queue
+        // The other page may have placed it a moment before this one asks: it's in the queue either way.
+        await post(`/api/remixes/${r.id}/ack`, r.status === "done" ? { after: here.list === "queue" ? here.id : null } : {}).catch(() => {});
+        if (r.status === "done") landed += 1; else failed = r.error;
+      }
+      setRemixing(remixes.filter((r) => r.status === "pending"));
+      if (landed || failed || elsewhere) {
+        if (where.current.id != null) pendingId.current = where.current.id;
+        await load();
+        if (landed || failed) say(failed ? `A remix didn't land. ${failed}` : landed === 1 ? "Your remix is next." : `Your ${landed} remixes are next.`);
+      }
+    } catch { /* the next look tries again */ }
+    settling.current = false;
+  }, [load, say]);
+  useEffect(() => {
+    if (!remixing.length) return undefined;
+    const t = setInterval(settleRemixes, 1200);
+    return () => clearInterval(t);
+  }, [remixing.length, settleRemixes]);
+  // A remix from before this page opened: one that's done goes next, one still being made is waited for.
+  useEffect(() => { if (loads === 1) settleRemixes(); }, [loads]); // eslint-disable-line react-hooks/exhaustive-deps
   const download = () => attempt(async () => {
     const blob = await renderCover(current, { quoteOn, free }); // as the deck shows it, held boxes and all (1.13.8)
     const name = `${displayTitle(current.title)}-cover.jpg`;
@@ -628,7 +682,7 @@ export default function App() {
 
   useEffect(() => {
     function onKey(e) {
-      if (draft || zoom || infoOpen || sheet || view !== "cover") return;
+      if (draft || zoom || infoOpen || sheet || remixOpen || view !== "cover") return;
       if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); step(e.shiftKey ? "redo" : "undo"); return; }
       if (e.key === "ArrowRight") { e.preventDefault(); if (e.shiftKey) setSlide((s) => Math.min(activeSlides.length, s + 1)); else goTo(index + 1); }
@@ -650,7 +704,7 @@ export default function App() {
           onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} />
       ) : (
         <>
-        <main className="review" inert={zoom ? true : undefined}>
+        <main className="review" inert={zoom || remixOpen ? true : undefined}>
           <CoverHeader list={list} count={counts?.[list] ?? items.length} position={index + 1} total={items.length}
             canUndo={history.current.canUndo()} canRedo={history.current.canRedo()} locked={Boolean(draft)} away={playerUp}
             onBack={showLibrary} onInfo={() => setInfoOpen(true)} onUndo={() => step("undo")} onRedo={() => step("redo")} />
@@ -677,10 +731,15 @@ export default function App() {
                 pickMode={pickMode} onPick={onPick} onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} burst={burst} onDrawn={setDrawnId}
                 onZoom={setZoom} zoomRef={zoomRef} onTapOff={() => sheetDismiss.current?.()} free={free} onFree={freeBox} />
               <div className="behind" inert={draft ? true : undefined}>
-                <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={remix} onDownload={download}
+                <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={() => setRemixOpen(true)} onDownload={download}
                   quote={{ on: quoteOn, locked: !quotesStatus?.unlocked, onTap: tapQuote, onHold: holdQuotes }}
                   onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)}
                   onZoom={zoomable ? () => zoomRef.current?.() : null} />
+                {remixing.length > 0 && (
+                  <p className="remixMarker" role="status"><span className="loadingDot" aria-hidden="true" />
+                    {remixing.length === 1 ? "Your remix is on its way. It comes next." : `${remixing.length} remixes are on their way. They come next.`}</p>
+                )}
+                {current.lastRemix?.status === "failed" && <p className="problem remixNote">This cover's last remix didn't land. {current.lastRemix.error}</p>}
                 {story && <StoryControls item={current} onPan={pan} onPanDone={panDone} />}
                 <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={addSlide} onRemoveSlide={removeSlide}
                   canPrevPost={index > 0} canNextPost={index < items.length - 1} onPrevPost={() => goTo(index - 1)} onNextPost={() => goTo(index + 1)} />
@@ -742,6 +801,10 @@ export default function App() {
         <ScheduleSheet items={sheet.items} ctas={ctas} quotesUnlocked={Boolean(quotesStatus?.unlocked)} quoteOverlay={quotesStatus?.quoteOverlay ?? null} api={api} post={post}
           onClose={() => { setSheet(null); load().catch(() => {}); }}
           onDone={() => { sheet.stop(); setSheet(null); load().catch(() => {}); }} />
+      )}
+
+      {remixOpen && current && view === "cover" && (
+        <RemixSheet quotesLocked={!quotesStatus?.unlocked} onSubmit={submitRemix} onClose={closeRemix} />
       )}
 
       {toast && <div className="toast" role="status" aria-live="polite">{toast.text}</div>}

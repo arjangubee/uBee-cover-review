@@ -11,6 +11,7 @@ import { registerMusic } from "./music.js";
 import { getImportStatus, registerFull } from "./full.js";
 import { ctaFor } from "./captionCtas.js";
 import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
+import { registerRemix } from "./remix.js";
 import { cleanHook, cleanSongFile, matchSongClip, registerSongs } from "./songs.js";
 import { DATA_DIR, libraryDir, spaceFile, store, uploadsDir } from "./store.js";
 import { accountCount, inSpace, isOwner, ownerOnly, registerAccounts, requireSession, sessionMiddleware } from "./accounts.js";
@@ -230,6 +231,7 @@ app.get("/api/voice/profile", (_req, res) => res.json({ voiceProfile: store.sett
 
 // ---------- Full feature set (editor, slides, story, ratings, verification) ----------
 registerFull(app, upload);
+registerRemix(app); // the remix menu (1.17.0)
 
 // ---------- Downloaded songs: Symphony's folder of hook clips (1.11) ----------
 app.post("/api/songs/folder", ownerOnly); // the copy's shared music library: only its owner changes it (1.15.0)

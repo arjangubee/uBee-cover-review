@@ -188,6 +188,20 @@ async function postJson(path, body) {
   if (!r.ok) throw new Error(`${path} answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return r.json();
 }
+// The remix menu (1.17.0): ask for a remix, wait for it to be made, put it in place, and answer the new cover.
+async function remixOf(id, body) {
+  const { remix } = await postJson(`/api/items/${id}/remix`, body);
+  for (let i = 0; i < 50; i++) {
+    const r = (await (await fetch(`${base}/api/remixes`)).json()).remixes.find((x) => x.id === remix.id);
+    if (r && r.status !== "pending") {
+      await postJson(`/api/remixes/${r.id}/ack`, { after: null });
+      if (r.status !== "done") throw new Error(`the remix didn't land: ${r.error}`);
+      return (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === r.itemId);
+    }
+    await new Promise((res) => setTimeout(res, 100));
+  }
+  throw new Error("the remix was never made");
+}
 async function newItem(name) {
   const form = new FormData();
   form.append("photos", new Blob([PNG_1PX], { type: "image/png" }), name);
@@ -289,8 +303,8 @@ try {
     assert(withSlide.item.slides.length === 1, "slide should attach");
     const framed = await (await fetch(`${base}/api/items/${item.id}/story-framing`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ storyPanX: 20, storyPanY: 80 }) })).json();
     assert(framed.item.storyPanY === 80, "story framing should save");
-    const remix = await (await fetch(`${base}/api/items/${item.id}/remix`, { method: "POST" })).json();
-    assert(remix.item.parentId === item.id && remix.item.revision === 2, "remix should create revision 2 in queue");
+    const remix = await remixOf(item.id, { quote: { on: true } });
+    assert(remix.parentId === item.id && remix.revision === 2, "remix should create revision 2 in queue");
     const enq = await (await fetch(`${base}/api/items/enqueue`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: [{ imageUrl: "https://example.com/drive-photo.jpg", driveId: "drive123", title: "drive photo" }, { imageUrl: "https://example.com/blurry.jpg", driveId: "drive999", imageQualityStatus: "quarantined" }] }) })).json();
     assert(enq.created.length === 2 && enq.created[0].quote.length > 0, "drive enqueue should assign a stock quote, never textless");
     assert(enq.created[1].status === "rejected", "quarantined photo must not enter the queue");
@@ -878,7 +892,7 @@ try {
     form.append("slide", new Blob([PNG_1PX], { type: "image/png" }), "remix-slide.png");
     await (await fetch(`${base}/api/items/${item.id}/slides`, { method: "POST", body: form })).json();
     await postJson(`/api/items/${item.id}/verify`); // a checked cover: its check and its stamp stay with it (1.13.9)
-    const remix = (await postJson(`/api/items/${item.id}/remix`, {})).item;
+    const remix = await remixOf(item.id, { quote: { on: true } });
     await postJson(`/api/items/${remix.id}/slides/0/remove`, {});
     const original = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === item.id);
     assert(!original.slides[0].deletedAt, "removing the remix's slide removed the original's too");

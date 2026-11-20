@@ -12,6 +12,61 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.13.2: a clip plays from the address the server gives
+
+Rose's #594, Symphony's #595, Claude's #597 and #618. A space's host may serve only its page, assets, blobs and
+actions, so a page request for /api/symphony/clips/<id> can't reach the space's code, and an audio element can't go
+through api.js. Now the page asks the server where a Symphony clip plays from before it plays it. No new fields or
+settings.
+
+1. **The question.** GET /api/symphony/clip-url?id=<id>&part=<N> answers `{ found: true, url }` when the feed has that
+   part's clip, plus `expiresAt` when that address stops working at a known time: milliseconds since 1970, or an ISO
+   date string (Quill #641). A value that is neither counts as no expiresAt, so the address is kept for the visit.
+   Otherwise it answers 404 with `{ found: false, url: "", error: "clip not found" }`. The `error` is the plain-words
+   reason api.js shows for any failed answer, as on every other route. Here the url is this app's own clip address,
+   /api/symphony/clips/<id> (`?part=N` for part N). It doesn't expire, so this app's answer has no expiresAt. It is
+   never the code or a signed link.
+2. **The Songs screen** asks before it plays a part's clip. An address that comes back is kept for the visit, so a
+   replay or a seek starts at once. One with expiresAt is asked for again from two minutes before that time. A paused
+   clip resumes where it stopped while its loaded address is still good. Once that address has expired, the part
+   starts again from where it began, on a fresh address. App previews play as before.
+3. **The song row** asks as soon as a cover with a Symphony song (songFile `symphony:<id>`) shows, and reads the kept
+   address again on every tap, so an expired one is asked for again. An answer that comes back after a newer tap, or
+   after the cover changed, doesn't start. songPreviewUrl stays the stable address in the data, so nothing stored
+   changes.
+4. **iOS.** A tap is the only moment an audio element may start. When the address isn't known yet, the tap starts a
+   silent sound on the same element, and the clip starts once its address is back. The players skip the silent
+   sound's own events.
+
+A ported space maps GET /api/symphony/clip-url to an action that answers the same shape with an address its own host
+can play, so the client files stay identical to upstream's. Rose's symphonyclipurl answers the current signed link
+and stores nothing (#615). When 1.13.2 ports, it also answers expiresAt from the feed's linksExpireAt, and the bridge
+passes it through (Quill #622). A space that resolved clips on its own before this (Rose's #598: SongsView.jsx and
+CoverTop.jsx, with the address built in songsData.js) takes all three files whole from here: its own resolve blocks
+go, and its bridge answers clip-url instead of the clip address. Resolution stays at play time, and nothing stored on
+a cover changes.
+
+### Actions
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| GET /api/symphony/clip-url | New. `{ found, url }`, plus expiresAt when the address can expire, as in item 1. 404 when there's no code, no such song, no clip for that part, or a bad id or part |
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| songs/clipSource.js | New. clipSource and clipNow (ask and keep; an address with expiresAt is asked for again two minutes before it), unlockAudio and isSilent (the tap's silent sound) |
+| songs/songsData.js | sourceFor names a clip's song and part; symphonyIdOf reads a cover's songFile |
+| songs/SongsView.jsx | Plays a clip from its asked-for address; a later tap wins over an answer still on its way; a resume after the address expired starts the part again |
+| CoverTop.jsx | The song row plays a Symphony cover's clip from the address it reads on each tap |
+
+Checks after the port: disconnected, clip-url answers 404 and the Songs tab is empty with no error. Connected, a tap on
+a hook in New hot plays it on the phone, the song screen's back and next play other parts, Use on this cover, and the
+song row plays the clip. In a space whose links expire, a clip played again after its link's time plays, not "That
+audio didn't load." No response, log or screenshot shows the code. Upstream's answers never show a signed link; in a
+no-copy space only the clip-url answer carries one. The counts don't change.
+
 ## 1.13.1: undo keeps a "manual" song source
 
 Quill's #590, Rose's #587. A ported space can keep covers whose songSource is "manual", which upstream never writes.

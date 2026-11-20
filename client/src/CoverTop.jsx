@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Icon from "./icons.jsx";
 import { displayTitle, parseSong, spotifyEmbedUrl } from "./reviewMath.js";
+import { clipNow, clipSource, isSilent, unlockAudio } from "./songs/clipSource.js";
+import { symphonyIdOf } from "./songs/songsData.js";
 
 // The top of the review screen: the header row that stays put, the Review deck | Story view switch,
 // and the song row.
@@ -56,6 +58,10 @@ export function ModeSwitch({ story, setStory, disabled }) {
 // the Songs screen for this cover.
 export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs }) {
   const { artist, title } = parseSong(item.song);
+  // A Symphony clip plays from the address the server gives for it (1.13.2): asked for as soon as the cover shows,
+  // and read again on every tap, so an address that expires is asked for again.
+  const symId = symphonyIdOf(item.songFile);
+  const tap = useRef(0); // the latest tap: an address that comes back after another tap, or another cover, doesn't start
   const clip = item.songFile && item.songPreviewUrl ? item.songPreviewUrl : "";
   const embed = clip ? "" : spotifyEmbedUrl(item.songSpotifyUrl);
   const preview = clip || item.songPreviewUrl;
@@ -65,6 +71,7 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs }) {
   const [text, setText] = useState(item.song || "");
   const audio = useRef(null);
   useEffect(() => {
+    tap.current += 1;
     setPlaying(false);
     setPlayerOpen(false);
     setEditing(false);
@@ -72,10 +79,27 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs }) {
     audio.current?.pause();
   }, [item.id, item.song, item.songSpotifyUrl, item.songPreviewUrl]);
 
+  useEffect(() => {
+    if (symId) clipSource(symId);
+  }, [symId]);
+
   function toggle() {
     const a = audio.current;
     if (!a) return;
     if (playing) { a.pause(); setPlaying(false); return; }
+    if (symId) {
+      const mine = ++tap.current;
+      const go = (u) => {
+        if (mine !== tap.current) return;
+        if (!u) { setPlaying(false); return; }
+        if (a.src !== new URL(u, window.location.href).href) a.src = u;
+        a.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+      };
+      const now = clipNow(symId);
+      if (now) go(now); else { unlockAudio(a); clipSource(symId).then(go); }
+      return;
+    }
+    if (isSilent(a)) a.src = preview;
     a.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
   }
 
@@ -102,7 +126,7 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs }) {
         <>
           <button type="button" className="playBtn" onClick={toggle}
             aria-label={clip ? (playing ? "Pause the hook" : "Play the hook") : (playing ? "Pause the song preview" : "Play the song preview")}><Icon name={playing ? "pause" : "play"} size={26} /></button>
-          <audio ref={audio} src={preview} preload="none" onEnded={() => setPlaying(false)} />
+          <audio ref={audio} src={symId ? undefined : preview} preload="none" onEnded={() => setPlaying(false)} />
         </>
       ) : null}
       {onSongs && <button type="button" className="iconBtn" onClick={onSongs} aria-label="Pick a song from Symphony"><Icon name="note" /></button>}

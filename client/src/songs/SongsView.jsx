@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
 import Icon from "../icons.jsx";
+import { clipNow, clipSource, isSilent, unlockAudio } from "./clipSource.js";
 import { MiniPlayer, NowPlaying } from "./SongsPlayer.jsx";
 import { ShareSheet } from "./SongsSheets.jsx";
 import { HotTab, LibraryTab, SearchTab, TabBar } from "./SongsTabs.jsx";
@@ -33,6 +34,7 @@ export default function SongsView({ forCover, closeLabel, onClose, onUse }) {
   const audio = useRef(null);
   const toastTimer = useRef(null);
   const finished = useRef(null);
+  const ticket = useRef(0); // the latest play request: a clip address that comes back after a newer tap doesn't start
 
   // A message at the bottom. With an action (a link), it stays longer so there's time to tap it.
   const say = useCallback((text, action = null) => {
@@ -50,7 +52,7 @@ export default function SongsView({ forCover, closeLabel, onClose, onUse }) {
       setData(d);
       if (d.connected && d.message) say(d.message);
     }).catch((e) => { if (live) setProblem(e.message); });
-    return () => { live = false; el?.pause(); clearTimeout(toastTimer.current); };
+    return () => { live = false; ticket.current += 1; el?.pause(); clearTimeout(toastTimer.current); };
   }, [say]);
 
   const songs = useMemo(() => data?.songs || [], [data]);
@@ -70,18 +72,27 @@ export default function SongsView({ forCover, closeLabel, onClose, onUse }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [sheet, openId]);
 
-  const stop = () => { audio.current?.pause(); setPlaying(false); };
+  const stop = () => { ticket.current += 1; audio.current?.pause(); setPlaying(false); };
   const youtube = (s) => (s.watch ? { label: s.links?.youtube ? "Watch on YouTube" : "Find on YouTube", href: s.watch } : null);
 
   const playRange = useCallback((s, from, to, queue = null) => {
     const src = sourceFor(s, from, to);
     if (!src) { say("This part has no clip yet.", youtube(s)); return false; }
     const a = audio.current;
-    a.src = src.url;
-    a.currentTime = src.at;
-    a.play().then(() => setPlaying(true)).catch(() => say("That audio didn't load.", youtube(s)));
+    const mine = ++ticket.current;
+    const start = (url) => {
+      if (mine !== ticket.current) return;
+      if (!url) { a.pause(); setPlaying(false); say("That audio didn't load.", youtube(s)); return; }
+      a.src = url;
+      a.currentTime = src.at;
+      a.play().then(() => setPlaying(true)).catch(() => say("That audio didn't load.", youtube(s)));
+    };
+    // A clip plays from the address the server gives for it (1.13.2). Until that's known, the tap starts a silent sound.
+    if (!src.clip) start(src.url);
+    else if (clipNow(src.clip.id, src.clip.part)) start(clipNow(src.clip.id, src.clip.part));
+    else { unlockAudio(a); clipSource(src.clip.id, src.clip.part).then(start); }
     const { idx, label } = partLabel(s, from, to);
-    setNp({ id: s.id, song: s, part: idx, from, to, songStart: src.songStart, label, queue });
+    setNp({ id: s.id, song: s, part: idx, from, to, songStart: src.songStart, label, queue, clip: src.clip || null });
     setAt(from);
     return true;
   }, [say]);
@@ -95,7 +106,7 @@ export default function SongsView({ forCover, closeLabel, onClose, onUse }) {
 
   // The end of the part, by the clock or by the clip running out: stop, and with Play all go on to the next hook.
   function finish() {
-    if (!np || finished.current === np) return;
+    if (!np || finished.current === np || isSilent(audio.current)) return;
     finished.current = np;
     stop();
     if (np.queue) {
@@ -105,7 +116,7 @@ export default function SongsView({ forCover, closeLabel, onClose, onUse }) {
   }
   const onTime = () => {
     const a = audio.current;
-    if (!np || !a) return;
+    if (!np || !a || isSilent(a)) return;
     const t = np.songStart + a.currentTime;
     setAt(t);
     if (t >= np.to) finish();
@@ -114,7 +125,16 @@ export default function SongsView({ forCover, closeLabel, onClose, onUse }) {
   const toggle = () => {
     if (playing) { stop(); return; }
     const s = detail || np?.song;
-    if (np && s && np.id === s.id && at != null && at < np.to - 0.3) { audio.current.play().then(() => setPlaying(true)).catch(() => {}); return; }
+    if (np && s && np.id === s.id && at != null && at < np.to - 0.3 && !isSilent(audio.current)) {
+      // Resume where it stopped while the loaded address is still good. Once it has expired, the part starts again
+      // from where it began, on a fresh address.
+      const good = np.clip ? clipNow(np.clip.id, np.clip.part) : null;
+      if (!np.clip || (good && audio.current.src === new URL(good, window.location.href).href)) {
+        audio.current.play().then(() => setPlaying(true)).catch(() => {});
+        return;
+      }
+      if (playRange(s, np.from, np.to, np.queue)) return;
+    }
     if (s) playSong(s);
   };
   const step = (dir) => {

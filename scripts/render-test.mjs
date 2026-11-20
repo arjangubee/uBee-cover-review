@@ -6,11 +6,15 @@ import { createHistory } from "../client/src/undo.js";
 import { RANDOM_LAYOUTS, ZOOM_REST, changedFields, displayTitle, parseSong, randomEditorialLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars, zoomPan, zoomSettle, zoomTo } from "../client/src/reviewMath.js";
 import { LOCKED, badgeFor, formatDay, selectable } from "../client/src/pollenView.js";
 import { RELEASE_URL, newer, releaseBanner } from "../client/src/release.js";
-import { canUse, clipAddress, coverSongEdit, hotList, librarySorted, moveText, onCover, partLabel, partsOf, replayPath, searchSongs, sourceFor, statusLine, topGenres } from "../client/src/songs/songsData.js";
+import { canUse, clipAddress, coverSongEdit, hotList, librarySorted, moveText, onCover, partLabel, partsOf, replayPath, searchSongs, sourceFor, statusLine, symphonyIdOf, topGenres } from "../client/src/songs/songsData.js";
+import { clipNow, clipSource } from "../client/src/songs/clipSource.js";
 
 let failed = 0;
 function check(name, fn) {
   try { fn(); console.log(`PASS ${name}`); } catch (e) { failed++; console.error(`FAIL ${name}: ${e.message}`); }
+}
+async function checkAsync(name, fn) {
+  try { await fn(); console.log(`PASS ${name}`); } catch (e) { failed++; console.error(`FAIL ${name}: ${e.message}`); }
 }
 const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
 const tenPerChar = (s) => s.length * 10;
@@ -413,6 +417,67 @@ check("songs: a moment plays from its part's clip, then an app preview that cove
   assert(sourceFor(SONG, 70, 99) === null, "Spotify's start with no preview link plays nothing");
   assert(sourceFor({ ...SONG, previewUrl: {} }, 50, 70) === null, "a range that runs past its part isn't that part's clip");
   assert(clipAddress("sym-b--two") === "/api/symphony/clips/sym-b--two" && clipAddress("sym-b--two", 2) === "/api/symphony/clips/sym-b--two?part=2", "clip addresses");
+});
+check("songs: a clip knows its song and part, and a cover's Symphony song is read from its songFile (1.13.2)", () => {
+  assert(JSON.stringify(sourceFor(SONG, 44.4, 59.4).clip) === JSON.stringify({ id: "sym-a--song-one", part: 0 }), "the hook's clip");
+  assert(JSON.stringify(sourceFor(SONG, 95, 105).clip) === JSON.stringify({ id: "sym-a--song-one", part: 1 }), "part 2's clip");
+  assert(!("clip" in sourceFor(SONG, 30, 59)), "an app preview isn't a Symphony clip");
+  assert(symphonyIdOf("symphony:sym-a--song-one") === "sym-a--song-one", "a Symphony songFile");
+  for (const f of ["hooks/x.m4a", "symphony:", "symphony:Bad Id!", "symphony:../x", "xsymphony:sym-a", null, undefined, ""]) assert(symphonyIdOf(f) === null, `not a Symphony song: ${f}`);
+});
+await checkAsync("songs: a clip's address is kept for the visit, and one that expires is asked for again before it does (1.13.2)", async () => {
+  const realFetch = globalThis.fetch, realNow = Date.now;
+  let now = 1_800_000_000_000;
+  const asked = [];
+  const n = (id) => asked.filter((a) => a.id === id).length;
+  const answers = {
+    keeps: () => ({ found: true, url: "/api/symphony/clips/keeps" }),
+    soon: () => ({ found: true, url: `https://cdn.example/soon?v=${n("soon")}`, expiresAt: now + 60_000 }),
+    later: () => ({ found: true, url: `https://cdn.example/later?v=${n("later")}`, expiresAt: now + 60 * 60_000 }),
+    isoSoon: () => ({ found: true, url: `https://cdn.example/iso-soon?v=${n("isoSoon")}`, expiresAt: new Date(now + 60_000).toISOString() }),
+    isoLater: () => ({ found: true, url: `https://cdn.example/iso-later?v=${n("isoLater")}`, expiresAt: new Date(now + 60 * 60_000).toISOString() }),
+    junk: () => ({ found: true, url: "https://cdn.example/junk", expiresAt: "soon" }),
+  };
+  globalThis.fetch = async (path) => {
+    const q = new URL(path, "http://test").searchParams;
+    asked.push({ id: q.get("id"), part: q.get("part") });
+    const answer = answers[q.get("id")];
+    return answer ? { ok: true, status: 200, json: async () => answer() }
+      : { ok: false, status: 404, statusText: "Not Found", json: async () => ({ found: false, url: "", error: "clip not found" }) };
+  };
+  Date.now = () => now;
+  try {
+    const [a, b] = await Promise.all([clipSource("keeps"), clipSource("keeps")]);
+    assert(a === "/api/symphony/clips/keeps" && b === a && n("keeps") === 1, `two taps share one question: ${a} ${b} ${n("keeps")}`);
+    now += 5 * 3600_000;
+    assert(clipNow("keeps") === a && (await clipSource("keeps")) === a && n("keeps") === 1, "an address with no expiresAt is kept for the visit");
+    assert((await clipSource("keeps", 1)) === a && n("keeps") === 2 && asked.at(-1).part === "1" && asked[0].part === "0", "each part is asked for on its own");
+
+    assert((await clipSource("soon")) === "https://cdn.example/soon?v=1", "the first address");
+    assert(clipNow("soon") === null, "an address within two minutes of expiring isn't used");
+    assert((await clipSource("soon")) === "https://cdn.example/soon?v=2" && n("soon") === 2, "so it's asked for again");
+
+    assert((await clipSource("later")) === "https://cdn.example/later?v=1", "the first address");
+    now += 57 * 60_000;
+    assert(clipNow("later") === "https://cdn.example/later?v=1" && n("later") === 1, "kept while it has more than two minutes left");
+    now += 2 * 60_000;
+    assert(clipNow("later") === null, "not used once it's about to expire");
+    assert((await clipSource("later")) === "https://cdn.example/later?v=2" && n("later") === 2, "an expiring address is asked for again");
+    assert(clipNow("later") === "https://cdn.example/later?v=2", "and the fresh one is kept");
+
+    assert((await clipSource("isoSoon")) === "https://cdn.example/iso-soon?v=1" && clipNow("isoSoon") === null, "an ISO date 60 s out isn't used");
+    assert((await clipSource("isoSoon")) === "https://cdn.example/iso-soon?v=2" && n("isoSoon") === 2, "so it's asked for again, like the number");
+    assert((await clipSource("isoLater")) === "https://cdn.example/iso-later?v=1" && clipNow("isoLater") === "https://cdn.example/iso-later?v=1", "an ISO date an hour out is kept");
+    now += 59 * 60_000;
+    assert(clipNow("isoLater") === null && (await clipSource("isoLater")) === "https://cdn.example/iso-later?v=2", "and asked for again near its time");
+    assert((await clipSource("junk")) === "https://cdn.example/junk" && clipNow("junk") === "https://cdn.example/junk" && n("junk") === 1, "an expiresAt that's neither counts as none: kept for the visit");
+
+    assert((await clipSource("gone")) === null && clipNow("gone") === null, "a clip the server doesn't have plays nothing");
+    assert((await clipSource("gone")) === null && n("gone") === 2, "and nothing is kept for it");
+  } finally {
+    globalThis.fetch = realFetch;
+    Date.now = realNow;
+  }
 });
 check("songs: the player names the hook, another part, or just the times", () => {
   assert(partLabel(SONG, 44.4, 59.4).label === "Hook 0:44 to 0:59", partLabel(SONG, 44.4, 59.4).label);

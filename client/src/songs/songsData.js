@@ -13,7 +13,7 @@ export function sourceFor(s, from, to) {
   const parts = partsOf(s);
   for (let i = 0; i < parts.length; i++) {
     if (s.clips?.[i] && from >= parts[i].start - 0.5 && from < parts[i].end - 0.5 && to <= parts[i].end + 0.5) {
-      return { url: clipAddress(s.id, i), at: from - parts[i].start, songStart: parts[i].start };
+      return { url: clipAddress(s.id, i), at: from - parts[i].start, songStart: parts[i].start, clip: { id: s.id, part: i } };
     }
   }
   for (const k of ["apple", "spotify"]) {
@@ -68,6 +68,12 @@ export const statusLine = (s) => (s.hook ? `Hook ${clock(s.hook.start)}` : s.err
 /** A song a cover can take: it has a hook and the hook's clip. */
 export const canUse = (s) => Boolean(s?.hook && s.clips?.[0]);
 export const onCover = (item, s) => Boolean(item && s && item.songFile === `symphony:${s.id}`);
+
+/** The Symphony song id in a cover's songFile ("symphony:<id>"), else null. Its clip plays from clipSource (1.13.2). */
+export function symphonyIdOf(file) {
+  const m = /^symphony:([a-z0-9][a-z0-9-]{0,119})$/.exec(String(file ?? ""));
+  return m ? m[1] : null;
+}
 
 /** The edit Use on this cover sends: the song whole, clip and hook included, the way undo sends a song back. */
 export function coverSongEdit(s) {

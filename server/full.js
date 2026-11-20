@@ -181,15 +181,24 @@ function quotesUnlocked() {
 function quoteDrawn(item) {
   return quotesUnlocked() && quoteShown(item, store.settings.quoteOverlay);
 }
-export function verifyItem(item) {
-  const quotes = loadQuotes().map((q) => q.text.toLowerCase());
-  const quoteInStock = quoteDrawn(item) ? Boolean(item.quote) && quotes.includes(item.quote.trim().toLowerCase()) : null;
+/** QUOTE_IN_STOCK's test: the quote is on her quote list, in any case and without the spaces around it. The remix menu
+ * checks its pick with it (1.17.0). */
+export function quoteInStock(quote) {
+  const quotes = loadQuotes().map((q) => String(q?.text ?? "").trim().toLowerCase());
+  return Boolean(quote) && quotes.includes(String(quote).trim().toLowerCase());
+}
+/** SONG_IN_POOL's test: the song pool, her Spotify library or the songs folder has the song, or it came from trending. */
+export function songInPool(item) {
   const pool = loadSongPool().map((s) => `${s.artist} - ${s.title}`.toLowerCase());
   const spotify = (store.settings.spotifyLibrary || []).map((s) => `${s.artist} - ${s.title}`.toLowerCase());
   const downloaded = downloadedSongs().map((s) => `${s.artist} - ${s.title}`.toLowerCase()); // 1.11: the songs folder's list
-  const songInPool = Boolean(item.song) && (pool.includes(item.song.trim().toLowerCase()) || spotify.includes(item.song.trim().toLowerCase())
+  return Boolean(item.song) && (pool.includes(item.song.trim().toLowerCase()) || spotify.includes(item.song.trim().toLowerCase())
     || downloaded.includes(item.song.trim().replace(/\s+/g, " ").toLowerCase()) || item.songSource === "trending");
-  const beacons = { QUOTE_IN_STOCK: quoteInStock, SONG_IN_POOL: songInPool, STEPS_VERIFIED: quoteInStock !== false && songInPool && Boolean(item.imageUrl) };
+}
+export function verifyItem(item) {
+  const quoteOk = quoteDrawn(item) ? quoteInStock(item.quote) : null;
+  const songOk = songInPool(item);
+  const beacons = { QUOTE_IN_STOCK: quoteOk, SONG_IN_POOL: songOk, STEPS_VERIFIED: quoteOk !== false && songOk && Boolean(item.imageUrl) };
   item.beacons = beacons;
   item.composeAttestedAt = beacons.STEPS_VERIFIED ? Date.now() : null;
   item.beaconsVersion = BEACONS_VERSION;
@@ -241,6 +250,13 @@ export function quotesStatus() {
     quizRemaining: quizPool().filter((q) => !store.settings.quizDecisions[q.text]).length,
     quoteOverlay: overlayOf(store.settings.quoteOverlay), // 1.13.3: the one switch for every cover, or null when it isn't set
   };
+}
+
+// A new revision is its own cover: a deep copy (so slides and image edits never change both), with no
+// Pollen booking and no compose check carried over from the cover it came from. v1.4. The remix menu (1.17.0) builds on it.
+export function revisionOf(src) {
+  const { id, status, decidedAt, pollen, pollenRender, beacons, composeAttestedAt, beaconsVersion, ...rest } = structuredClone(src);
+  return rest;
 }
 
 export function registerFull(app, upload) {
@@ -421,20 +437,7 @@ export function registerFull(app, upload) {
     res.json({ item });
   });
 
-  // A new revision is its own cover: a deep copy (so slides and image edits never change both), with no
-  // Pollen booking and no compose check carried over from the cover it came from. v1.4.
-  function revisionOf(src) {
-    const { id, status, decidedAt, pollen, pollenRender, beacons, composeAttestedAt, beaconsVersion, ...rest } = structuredClone(src);
-    return rest;
-  }
-
-  // Remix: duplicate as a new revision in the queue. Original: remixcover.
-  app.post("/api/items/:id/remix", (req, res) => {
-    const src = mustItem(req, res); if (!src) return;
-    const copy = store.addItem({ ...revisionOf(src), status: "queue", parentId: src.id, revision: (src.revision || 1) + 1, title: `${src.title} (remix)` });
-    res.json({ item: copy });
-  });
-
+  // Remix lives in remix.js since 1.17.0 (the remix menu).
   // Reject and revise: sends the cover back as a fresh queue revision with a note.
   app.post("/api/items/:id/reject-revise", (req, res) => {
     const src = mustItem(req, res); if (!src) return;

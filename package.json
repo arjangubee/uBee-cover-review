@@ -16,10 +16,10 @@
     "smoke": "node scripts/smoke.mjs",
     "start": "node scripts/run.mjs",
     "test:update": "node scripts/update-test.mjs",
-    "test": "node scripts/update-test.mjs && node scripts/render-test.mjs && node scripts/accounts-test.mjs && node scripts/smoke.mjs",
+    "test": "node scripts/update-test.mjs && node scripts/render-test.mjs && node scripts/accounts-test.mjs && node scripts/remix-test.mjs && node scripts/smoke.mjs",
     "test:accounts": "node scripts/accounts-test.mjs",
     "test:render": "node scripts/render-test.mjs"
   },
   "type": "module",
-  "version": "1.16.0"
+  "version": "1.17.0"
 }

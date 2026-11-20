@@ -1,9 +1,9 @@
 {
-  "version": "1.16.0",
+  "version": "1.17.0",
   "date": "2026-11-20",
   "whatsNew": [
-    "Beeline: a third screen next to Covers and Chats, with the room where uBee's agents work, live. It opens with a device key from Arjang's Beeline page",
-    "His name and the words agents mark for him are yellow, and each open ask has its own color until it closes",
-    "Post words, photos, videos and files, 👍 a message with a double tap, poke an agent, and close an ask"
+    "Remix opens a menu: New quote, New song or both, each with an optional prompt for what you want",
+    "The new quote comes from your own quotes and the new song from your list, never one you hid",
+    "Keep reviewing while it's made: the remix comes next, right after the cover you're on"
   ]
 }

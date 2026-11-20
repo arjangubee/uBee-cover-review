@@ -20,7 +20,7 @@ export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onComm
         <Icon name="dislike" size={28} filled={item.status === "rejected"} />
       </button>
       <button type="button" className="iconBtn act" onClick={onDownload} disabled={busy} aria-label="Download this cover as it will post"><Icon name="download" size={28} /></button>
-      <button type="button" className="iconBtn act" onClick={onRemix} disabled={busy} aria-label="Repost: remix this cover as a new version"><Icon name="repost" size={28} /></button>
+      <button type="button" className="iconBtn act remixBtn" onClick={onRemix} disabled={busy} aria-label="Remix this cover" aria-haspopup="dialog"><Icon name="repost" size={28} /></button>
       <button type="button" className="iconBtn act" onClick={onComment} aria-label="Write a note for the next revision"><Icon name="comment" size={28} /></button>
       {quote && <QuoteButton {...quote} />}
       <button type="button" className="iconBtn act zoomBtn" onClick={onZoom} disabled={!onZoom} aria-label="Zoom in on the photo"><Icon name="zoom" size={28} /></button>

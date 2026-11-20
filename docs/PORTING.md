@@ -12,6 +12,65 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.17.0: the remix menu
+
+Rose's #796 and #797, Quill's #798 and #811. Remix opens a menu instead of making an instant copy.
+
+1. **The menu.** The remix icon opens "Remix this cover": New quote and New song, each a button with a small prompt box
+   under it, then Cancel and Submit. Submit stays off until one is ticked. Typing in a box ticks its button. Unticking
+   keeps the words but leaves them out. Prompts are optional, 300 characters at most. While quotes are locked, New
+   quote can't be ticked. Escape, Cancel and a tap off the menu close it and make nothing.
+2. **The work runs in the background.** Submit closes the menu, and the cover she's on stays exactly as it is. A line
+   under the icons says the remix is on its way and comes next, so she can go on and complete the next post.
+3. **The pick, with no model (#811).** New quote: her prompt (counts 3), what the photo shows (2) and the cover's quote
+   (1), word by word, against her own quote stock only, never the cover's current quote. New song: her prompt (3), the
+   quote (2) and what the photo shows (1) against the songs folder (or Symphony online) with her hidden songs left out
+   and her saved songs winning ties, else her Spotify library, else trending, never the cover's current song. Both
+   ticked: the quote first, then the song against the new quote. Words are compared in lower case, without accents,
+   common words or plain endings (s, ing, ed, e). With nothing to match, picks take turns. A space with a model may make
+   the same pick with it, under the same stock, pool and hidden rules and the same gate.
+4. **The gate.** A pick lands only when it passes its part of the compose gate: QUOTE_IN_STOCK for a new quote,
+   SONG_IN_POOL for a new song. The new cover itself starts unchecked, like any new cover.
+5. **The new cover.** A new queue row with the same photo: revision plus one, parent the cover she remixed, the title
+   with " (remix)", and everything the old instant remix copied (layout, text style and color, slides, photo edits, her
+   note), plus the picks. What was about the old quote or song doesn't carry: why it matches, and the stars of the part
+   that changed. A new quote gets a fresh offline caption draft (captionSource placeholder), and it shows, even where
+   she had turned the old cover's quote off. No Pollen booking and no compose check carry over, as before.
+6. **Next in the queue (#797).** It lands right after the cover she remixed. When the page sees it done, it moves it
+   right after the cover she's on (to the front of the queue when she's off the queue screen), so it comes next even
+   when she completed another post while it was made, and she stays where she is.
+7. **When it can't pick.** No row lands and the slot is free. The page says why, and the cover she remixed keeps a note
+   until her next remix of it.
+
+### Server
+
+| Action | Change |
+| --- | --- |
+| POST /api/items/:id/remix | Now `{ quote: { on, prompt }, song: { on, prompt } }` with at least one on: 400 "Tick New quote, New song or both." when none is, 400 for a ticked prompt over 300 characters, 404 for a cover that isn't there. Answers `{ remix }` (status pending) right away and makes it in the background. The old instant copy is gone |
+| GET /api/remixes | New. `{ remixes }`: the ones the page hasn't placed or shown, each `{ id, sourceId, quote, song, status, itemId, error, createdAt, finishedAt }` with status pending, done or failed. One a restart left pending starts again here |
+| POST /api/remixes/:id/ack | New. `{ after }`: a done remix's cover moves right after that cover, or to the front of the queue when after is null or not there; a failed one has been shown. Either way it leaves the list. 409 while it's still pending, 404 when it isn't waiting. Answers `{ remix }` with placed |
+
+Data: add a `remixes` table (id, account, source_id, quote and song as json, status, item_id, error, created_at,
+finished_at); done and failed rows go once acked. Add `last_remix` (json, may be empty) to photos: `{ status: "failed",
+error, at, remixId }`, set by a remix that can't pick and cleared by the next remix of that cover. No existing row is
+rewritten. Upstream these live in server/remix.js, and full.js now exports revisionOf, quoteInStock and songInPool
+(verifyItem uses the same two tests). A space whose actions can't run work after answering may make the pick inside the
+remix action and answer it already done: the page places it the same way.
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| RemixSheet.jsx | New. The menu |
+| App.jsx | Remix opens the menu. While a remix is made, the page asks GET /api/remixes every 1.2 seconds, acks each finished one with the cover on screen, then reloads in place. The line under the icons, and the note on a cover whose remix didn't land |
+| CoverDetails.jsx | The remix button is named "Remix this cover" and opens the menu |
+| styles.css | The menu, the line and the note |
+
+Checks after the port: the counts don't change from the port itself. Then prove, on a test account or a copy of her
+space and never with her rows (every remix is a new photos row, #798 step 7): Submit stays off with nothing ticked,
+typing ticks its button, New quote, New song and both each land right after the cover, and the remix comes next even
+after she completes another post while it's made.
+
 ## 1.16.0: the Beeline screen
 
 Arjang's ask of Nov 20 (09:23), Quill's #772, #774 and #778. Client only: no server actions, data, settings or tables,

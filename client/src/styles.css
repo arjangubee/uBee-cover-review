@@ -443,6 +443,31 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 @media (min-width: 700px) { .sheetBackdrop { align-items: center; } .sheet { border-radius: 20px; padding-bottom: 20px; } }
 .sheetHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sheetHead h2 { margin: 0; font-size: 19px; }
+/* ---------- The remix menu (1.17.0): New quote and New song, each a toggle with its prompt box, then Cancel and Submit ---------- */
+.remixSheet .hint { margin: 6px 0 16px; }
+/* Each option is one card: its button on top, its prompt box under it. A ticked card has the brand edge. */
+.remixOption { padding: 2px 12px 12px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--surface); }
+.remixOption.on { border-color: var(--accent); }
+.remixOption + .remixOption { margin-top: 12px; }
+.remixToggle { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 2px; border: 0; border-radius: 10px;
+  background: none; color: #fff; font-size: 17px; font-weight: 700; text-align: left; }
+.remixToggle .tick { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border: 2px solid var(--muted); border-radius: 50%; }
+.remixToggle[aria-pressed="true"] .tick { border: 0; color: var(--accent); }
+.remixToggle:active:not(:disabled) { transform: scale(0.99); }
+.remixToggle:disabled { color: var(--off); }
+.remixToggle:disabled .tick { border-color: var(--off); }
+.remixPrompt.field { min-height: 44px; padding: 10px 12px; border-radius: 12px; font-size: 16px; }
+.remixPrompt::placeholder { color: var(--muted); }
+.remixOption:not(.on) .remixPrompt { color: var(--muted); } /* her words stay, left out until she ticks it again */
+.remixPrompt:disabled { opacity: 0.5; }
+.remixSheet .remixLocked { margin: 8px 0 0; }
+.remixActions { display: flex; gap: 10px; margin-top: 22px; }
+.remixActions > button { flex: 1; }
+/* While a remix is made: a quiet line under the icons, where she asked for it. */
+.remixMarker { display: flex; align-items: center; gap: 10px; margin: 6px 0 0; color: var(--text-2); font-size: 14px; line-height: 1.4; }
+.remixMarker .loadingDot { flex: none; background: var(--accent); }
+.remixNote { margin: 6px 0 0; }
+@media (prefers-reduced-motion: reduce) { .remixMarker .loadingDot { animation: none; } }
 .channels { display: grid; gap: 6px; }
 @media (min-width: 520px) { .channels { grid-template-columns: 1fr 1fr; } }
 .channel { display: flex; align-items: center; gap: 10px; margin: 0; padding: 10px 12px; background: #141414; border: 1px solid #2c2c2c; border-radius: 10px; color: var(--text); font-size: 14px; cursor: pointer; }

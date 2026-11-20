@@ -1,7 +1,7 @@
 {
-  "version": "1.13.3",
+  "version": "1.13.4",
   "date": "2026-11-20",
   "whatsNew": [
-    "Quote on all covers: one switch in the editor shows or hides the quote on every cover at once"
+    "One row under the cover for the slides stepper and the cover arrows, and Randomize layout on the first screen of a phone"
   ]
 }

@@ -35,8 +35,9 @@ export function CoverHeader({ list, count, position, total, canUndo, canRedo, on
       </button>
       <button type="button" className="iconBtn info" onClick={onInfo} disabled={locked} aria-label="Setup and help"><Icon name="info" /></button>
       <span className="coverCount" ref={countRef} aria-live="polite">{total ? <><span className="word">Cover </span>{position} of {total}</> : null}</span>
-      <button type="button" className="iconBtn small" onClick={onUndo} disabled={locked || !canUndo} aria-label="Undo"><Icon name="undo" size={22} /></button>
-      <button type="button" className="iconBtn small" onClick={onRedo} disabled={locked || !canRedo} aria-label="Redo"><Icon name="redo" size={22} /></button>
+      {/* Undo and redo work with the editor open too (1.13.5), so they follow the stack, not the editor. */}
+      <button type="button" className="iconBtn small" onClick={onUndo} disabled={!canUndo} aria-label="Undo"><Icon name="undo" size={22} /></button>
+      <button type="button" className="iconBtn small" onClick={onRedo} disabled={!canRedo} aria-label="Redo"><Icon name="redo" size={22} /></button>
       <img src="/brand/ubee-bee-chartreuse.png" alt="uBee" className="bee" />
     </header>
   );

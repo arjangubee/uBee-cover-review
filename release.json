@@ -1,7 +1,7 @@
 {
-  "version": "1.13.4",
+  "version": "1.13.5",
   "date": "2026-11-20",
   "whatsNew": [
-    "One row under the cover for the slides stepper and the cover arrows, and Randomize layout on the first screen of a phone"
+    "Undo and redo inside the text editor, on the same history as the ones up top"
   ]
 }

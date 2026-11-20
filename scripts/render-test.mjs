@@ -231,6 +231,17 @@ check("extra text boxes always draw, the quote only when it's on, each with full
   assert(off.length === 1 && off[0].quote === "extra one", "quote off still draws her extra box");
   assert(on[1].textColor === "#FB0909" && on[1].fontSize === 58 && on[1].horizontalPosition === 50, "extra box gets defaults");
 });
+check("peek shows the step undo or redo would take next, without taking it (1.13.5)", () => {
+  const h = createHistory(5);
+  assert(h.peek("undo") === null && h.peek("redo") === null, "an empty history has nothing to show");
+  h.push({ label: "a" }); h.push({ label: "b" });
+  assert(h.peek("undo")?.label === "b" && h.peek("redo") === null, "the next undo is the last change");
+  assert(h.peek("undo")?.label === "b" && h.canUndo(), "peeking doesn't take it");
+  h.undo();
+  assert(h.peek("undo")?.label === "a" && h.peek("redo")?.label === "b", "after an undo, both sides show");
+  h.redo();
+  assert(h.peek("redo") === null && h.peek("undo")?.label === "b", "after a redo, nothing to redo");
+});
 check("undo and redo walk back and forth, and a new change clears redo", () => {
   const h = createHistory(3);
   assert(!h.canUndo() && !h.canRedo(), "starts empty");

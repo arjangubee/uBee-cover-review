@@ -21,6 +21,11 @@ export function createHistory(limit = 50) {
       if (entry) done.push(entry);
       return entry;
     },
+    /** The step undo or redo would take next, without taking it, or null (1.13.5). */
+    peek(direction) {
+      const side = direction === "undo" ? done : undone;
+      return side[side.length - 1] || null;
+    },
     canUndo: () => done.length > 0,
     canRedo: () => undone.length > 0,
   };

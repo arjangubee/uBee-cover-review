@@ -1,7 +1,7 @@
 {
-  "version": "1.13.0",
+  "version": "1.13.1",
   "date": "2026-11-20",
   "whatsNew": [
-    "Your last choice on Quote on the cover now carries over to the next covers you open, and a cover you've set keeps its own"
+    "Undo on a song brings back where the song came from, for every kind of song"
   ]
 }

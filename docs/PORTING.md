@@ -12,6 +12,12 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.13.1: undo keeps a "manual" song source
+
+Quill's #590, Rose's #587. A ported space can keep covers whose songSource is "manual", which upstream never writes.
+The edit action only takes back a source that's on its list, so undo would leave a "manual" cover with the wrong
+source. "manual" is on the list now. Nothing else changes: no new fields, no new settings, and the counts hold.
+
 ## 1.13.0: the quote switch carries over
 
 Arjang via Rose's #559 and #567, Quill's #562 and #569. Her last choice on "Quote on the cover" carries over to the

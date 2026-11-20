@@ -159,7 +159,7 @@ app.post("/api/items/:id/decide", (req, res) => {
   store.saveDb();
   res.json({ item });
 });
-const SONG_SOURCES = ["spotify", "trending", "none", "downloaded", ""]; // what undo may send back with a song
+const SONG_SOURCES = ["spotify", "trending", "none", "downloaded", "manual", ""]; // what undo may send back with a song (manual: a ported space's own source, 1.13.1)
 app.post("/api/items/:id/edit", (req, res) => {
   const item = store.getItem(req.params.id);
   if (!item) return res.status(404).json({ error: "item not found" });

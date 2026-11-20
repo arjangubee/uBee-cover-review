@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, post, upload } from "./api.js";
 import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, ImageInfo, NoteComposer, Ratings, Steppers, StoryControls, TitleRow, WhyMatches } from "./CoverDetails.jsx";
 import CoverEditor from "./CoverEditor.jsx";
@@ -153,6 +153,25 @@ export default function App() {
   const coverReady = Boolean(current) && drawnId === current.id;
   useEffect(() => { if (loads) fillCaptions(current?.id ?? null); }, [loads]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (slide > activeSlides.length) setSlide(activeSlides.length); }, [activeSlides.length, slide]);
+
+  // On a phone the cover sizes itself so Randomize layout ends on the first screen (1.13.4, #559 item 2): the room is the
+  // screen's height less the Muse tab bar, the page above the cover, and the rows under it down to Randomize layout.
+  // The rule that uses it is in styles.css (.stage, pointer: coarse). Neither part depends on the cover's own size.
+  const appRef = useRef(null);
+  const randomizeRef = useRef(null);
+  useLayoutEffect(() => {
+    const app = appRef.current, btn = randomizeRef.current, stage = app?.querySelector(".stage");
+    if (!app || !btn || !stage) return undefined;
+    const fit = () => {
+      const s = stage.getBoundingClientRect(), b = btn.getBoundingClientRect();
+      const used = Math.ceil(s.top + window.scrollY + (b.bottom - s.bottom) + 8);
+      app.style.setProperty("--fit-h", `calc(100svh - var(--host-bar) - env(safe-area-inset-bottom, 0px) - ${used}px)`);
+    };
+    fit();
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    ro?.observe(app);
+    return () => ro?.disconnect();
+  }, [current?.id, story, Boolean(draft), list]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patchItem = (item) => setItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
   const bumpHistory = () => setHistoryTick((t) => t + 1);
@@ -515,7 +534,7 @@ export default function App() {
 
   const counts = status?.counts;
   return (
-    <div className={draft ? "app editing" : "app"}>
+    <div ref={appRef} className={draft ? "app editing" : "app"}>
       <UpdateBanner />
       {view === "songs" ? (
         <SongsView forCover={songsFrom === "cover" ? current : null} closeLabel={songsFrom === "cover" ? "Back to the cover" : "Back to all covers"}
@@ -558,7 +577,7 @@ export default function App() {
                 {story && <StoryControls item={current} onPan={pan} onPanDone={panDone} />}
                 <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={addSlide} onRemoveSlide={removeSlide}
                   canPrevPost={index > 0} canNextPost={index < items.length - 1} onPrevPost={() => goTo(index - 1)} onNextPost={() => goTo(index + 1)} />
-                <button type="button" className="outlineBtn wide" onClick={randomize}><Icon name="sparkle" size={20} /> Randomize layout</button>
+                <button type="button" ref={randomizeRef} className="outlineBtn wide randomize" onClick={randomize}><Icon name="sparkle" size={20} /> Randomize layout</button>
                 <NoteComposer item={current} onPost={postNote} onDraft={(v) => setPending(current.id, "note", v)} inputRef={noteRef} />
                 <TitleRow item={current} />
                 {list === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}

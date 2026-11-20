@@ -12,6 +12,32 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.13.4: one row under the cover, and Randomize layout on a phone's first screen
+
+Arjang's #559 item 2, Quill's #660. Layout only: no new fields, settings or actions, and slides and covers move exactly
+as before.
+
+1. **One row.** The Slides row and the Posts row are one row: the cover arrows (Previous cover, Next cover) at the two
+   ends, and the slides stepper (Previous slide, Add a slide, Remove this slide, Next slide) centered between them.
+   Steppers in CoverDetails.jsx, .navRow in styles.css.
+2. **The first screen on a phone.** The page measures the room above the cover and the rows under it down to Randomize
+   layout, and on a phone (pointer: coarse) the cover sizes itself so Randomize layout ends above the Muse tab bar
+   (--host-bar). It keeps 4:5, stays centered, and never gets narrower than 260px, so on a very small phone Randomize
+   can still sit below the first screen. On a computer the cover keeps its full width. The measuring is a layout
+   effect in App.jsx that sets --fit-h on .app, and the rule is .stage under pointer: coarse in styles.css.
+3. **Randomize layout** is a little shorter (46px) with less space above it. Its action doesn't change.
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| CoverDetails.jsx | Steppers is one .navRow: cover arrows at the ends, the slides stepper centered |
+| App.jsx | Measures the room for the cover (--fit-h on .app); Randomize layout gets a ref and the randomize class |
+| styles.css | .navRow replaces .stepRow, .stepLabel and .postsRow; .outlineBtn.randomize; the .stage rule for phones |
+
+Checks after the port: the counts don't change. On her phone, the cover arrows and the slides stepper share one row,
+and Randomize layout shows without scrolling, above the tab bar.
+
 ## 1.13.3: one switch for every cover's quote
 
 Arjang's #621 and #630, Quill's #624. The quote switch in the editor shows or hides the quote on every cover at once.

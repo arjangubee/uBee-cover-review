@@ -69,6 +69,13 @@ img { max-width: 100%; }
 
 /* ---------- The stage: a 4:5 frame, the cover drawn by the same code that makes the post ---------- */
 .stage { position: relative; display: flex; align-items: center; justify-content: center; margin: 4px -16px 0; background: var(--bg); overflow: hidden; }
+/* On a phone (1.13.4, #559 item 2): the cover sizes itself so Randomize layout ends above the Muse tab bar on the
+   first screen. --fit-h is the room the page measures for it. It keeps 4:5, stays centered, and never gets
+   narrower than 260px. On a computer it keeps its full width. */
+@media (pointer: coarse) {
+  .stage { --stage-w: min(calc(100% + 32px), max(min(260px, calc(100% + 32px)), calc(var(--fit-h, 100vh) * 0.8)));
+    width: var(--stage-w); margin-left: calc((100% - var(--stage-w)) / 2); margin-right: 0; }
+}
 .stageSingle { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 .coverWrap { position: relative; flex: none; }
 .coverCanvas { display: block; width: 100%; height: 100%; }
@@ -104,18 +111,19 @@ img { max-width: 100%; }
 .actionRow { display: flex; gap: 0; margin: 8px -8px 0; }
 .iconBtn.act { width: 44px; height: 44px; }
 .iconBtn.act.liked { color: var(--heart); }
-.stepRow { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
-.stepLabel { color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .stepper { display: flex; border: 1px solid var(--surface-2); border-radius: 14px; background: var(--surface); overflow: hidden; }
 .stepper button { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-left: 1px solid var(--surface-2); background: transparent; color: #fff; }
 .stepper button:first-child { border-left: 0; }
 .stepper button:disabled { color: var(--off); }
 .stepper button.danger { color: var(--red); }
-.postsRow { display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; gap: 8px; margin-top: 10px; text-align: center; }
+/* One row (1.13.4): the cover arrows at the two ends, the slides stepper centered between them. */
+.navRow { display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; justify-items: center; gap: 8px; margin-top: 6px; }
+.navRow .postBtn { width: 100%; }
 .postBtn { display: grid; place-items: center; height: 44px; padding: 0; border: 1px solid var(--surface-2); border-radius: 14px; background: var(--surface); color: #fff; }
 .postBtn:disabled { background: #0d0d0d; border-color: #161616; color: var(--off); }
 .outlineBtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 52px; padding: 0 18px; border: 1px solid var(--line-strong); border-radius: 16px; background: transparent; color: #fff; font-size: 16px; font-weight: 600; }
 .outlineBtn.wide { width: 100%; margin-top: 12px; }
+.outlineBtn.randomize { height: 46px; margin-top: 8px; }
 .outlineBtn:active { transform: scale(0.99); }
 .noteRow { display: flex; align-items: center; gap: 10px; margin-top: 12px; border-bottom: 1px solid var(--line); }
 .noteInput { flex: 1; min-width: 0; padding: 14px 0; border: 0; background: transparent; color: #fff; font-size: 17px; }

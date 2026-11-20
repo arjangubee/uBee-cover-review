@@ -26,26 +26,22 @@ export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onComm
   );
 }
 
+// One row (1.13.4, Arjang's #559 item 2, Quill #660): the cover arrows at the two ends, the slides stepper centered
+// between them. Slides and posts move exactly as they did in their own rows.
 export function Steppers({ slide, total, onSlide, onAddSlide, onRemoveSlide, canPrevPost, canNextPost, onPrevPost, onNextPost }) {
   const fileRef = useRef(null);
   return (
-    <>
-      <div className="stepRow">
-        <span className="stepLabel" id="slidesLabel">Slides</span>
-        <div className="stepper" role="group" aria-labelledby="slidesLabel">
-          <button type="button" aria-label="Previous slide" disabled={slide <= 0} onClick={() => onSlide(slide - 1)}><Icon name="back" size={22} /></button>
-          <button type="button" aria-label="Add a slide" onClick={() => fileRef.current?.click()}><Icon name="plus" size={22} /></button>
-          <button type="button" className={slide > 0 ? "danger" : ""} aria-label="Remove this slide" disabled={slide <= 0} onClick={onRemoveSlide}><Icon name="minus" size={22} /></button>
-          <button type="button" aria-label="Next slide" disabled={slide >= total - 1} onClick={() => onSlide(slide + 1)}><Icon name="forward" size={22} /></button>
-        </div>
-        <input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) onAddSlide(f); }} />
+    <div className="navRow">
+      <button type="button" className="postBtn" aria-label="Previous cover" disabled={!canPrevPost} onClick={onPrevPost}><Icon name="back" size={22} /></button>
+      <div className="stepper" role="group" aria-label="Slides">
+        <button type="button" aria-label="Previous slide" disabled={slide <= 0} onClick={() => onSlide(slide - 1)}><Icon name="back" size={22} /></button>
+        <button type="button" aria-label="Add a slide" onClick={() => fileRef.current?.click()}><Icon name="plus" size={22} /></button>
+        <button type="button" className={slide > 0 ? "danger" : ""} aria-label="Remove this slide" disabled={slide <= 0} onClick={onRemoveSlide}><Icon name="minus" size={22} /></button>
+        <button type="button" aria-label="Next slide" disabled={slide >= total - 1} onClick={() => onSlide(slide + 1)}><Icon name="forward" size={22} /></button>
       </div>
-      <div className="postsRow">
-        <button type="button" className="postBtn" aria-label="Previous cover" disabled={!canPrevPost} onClick={onPrevPost}><Icon name="back" size={22} /></button>
-        <span className="stepLabel">Posts</span>
-        <button type="button" className="postBtn" aria-label="Next cover" disabled={!canNextPost} onClick={onNextPost}><Icon name="forward" size={22} /></button>
-      </div>
-    </>
+      <button type="button" className="postBtn" aria-label="Next cover" disabled={!canNextPost} onClick={onNextPost}><Icon name="forward" size={22} /></button>
+      <input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) onAddSlide(f); }} />
+    </div>
   );
 }
 

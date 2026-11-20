@@ -1,9 +1,9 @@
 {
-  "version": "1.14.0",
+  "version": "1.14.1",
   "date": "2026-11-20",
   "whatsNew": [
-    "Chats: practice replies to your DMs and comments. Your Muse drafts in your voice, and Send hands only the texts you approved to your Muse to send",
-    "Change your voice and a draft still waiting is written again when you open its chat. Approved ones only say the voice changed",
-    "A story reply shows the words they wrote, or says they weren't captured"
+    "The cover fills the screen edge to edge again, and the magnifier moved next to the pencil",
+    "Play opens the Spotify card without moving the cover: the header steps up out of its way",
+    "Color lock on Randomize layout: on keeps the color, off picks a new one each time"
   ]
 }

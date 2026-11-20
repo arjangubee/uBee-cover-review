@@ -8,10 +8,10 @@ import { displayTitle, parseSong, starsFor } from "./reviewMath.js";
 // Everything under the cover: the icon row, Slides and Posts, Randomize layout, her note, the caption,
 // the Compose check, Why it matches, Image info and the star ratings.
 
-export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onComment, onEdit, busy, quote }) {
+export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onComment, onEdit, onZoom, busy, quote }) {
   return (
     // Order from the original, with dislike and repost swapped (Arjang, Nov 18): like, dislike, download, repost, comment,
-    // then the T icon (1.13.9) and edit.
+    // then the T icon (1.13.9), the magnifier (1.14.1, Arjang #790 item 2) and edit.
     <div className="actionRow" role="toolbar" aria-label="Cover actions">
       <button type="button" className={item.status === "approved" ? "iconBtn act liked" : "iconBtn act"} onClick={onLike} disabled={busy} aria-label="Like: approve this cover" aria-pressed={item.status === "approved"}>
         <Icon name="heart" size={28} filled={item.status === "approved"} />
@@ -23,6 +23,7 @@ export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onComm
       <button type="button" className="iconBtn act" onClick={onRemix} disabled={busy} aria-label="Repost: remix this cover as a new version"><Icon name="repost" size={28} /></button>
       <button type="button" className="iconBtn act" onClick={onComment} aria-label="Write a note for the next revision"><Icon name="comment" size={28} /></button>
       {quote && <QuoteButton {...quote} />}
+      <button type="button" className="iconBtn act zoomBtn" onClick={onZoom} disabled={!onZoom} aria-label="Zoom in on the photo"><Icon name="zoom" size={28} /></button>
       <button type="button" className="iconBtn act" onClick={onEdit} aria-label="Edit the text on the cover"><Icon name="edit" size={28} /></button>
     </div>
   );

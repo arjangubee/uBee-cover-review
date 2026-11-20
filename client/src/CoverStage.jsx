@@ -14,7 +14,7 @@ const FREE = 3; // a drag past this many pixels lets the box leave the safe rect
 
 export default function CoverStage({
   item, quoteOn, slides, slide, setSlide, story, editing, activeBox, onStartEdit, onSelectBox, onMoveBox,
-  pickMode, onPick, onMosaicsChange, burst = 0, onDrawn, onZoom, onTapOff, free = null, onFree,
+  pickMode, onPick, onMosaicsChange, burst = 0, onDrawn, onZoom, zoomRef, onTapOff, free = null, onFree,
 }) {
   const [showBurst, setShowBurst] = useState(false);
   useEffect(() => {
@@ -139,6 +139,12 @@ export default function CoverStage({
   const shownSlide = !single && slide > 0 ? slides[slide - 1] : null;
   const zoomable = Boolean(onZoom) && !story && shownSlide?.mediaType !== "video";
   const zoomSource = () => stageRef.current?.querySelector(single ? ".coverCanvas" : ".slideItem.current .coverCanvas, .slideItem.current img") || null;
+  // Its button is in the action row now (1.14.1, Arjang #790 item 2): it opens the zoom through zoomRef.
+  useLayoutEffect(() => {
+    if (!zoomRef) return undefined;
+    zoomRef.current = zoomable ? () => { if (zoomSource()) onZoom({ source: zoomSource, slideUrl: shownSlide?.mediaUrl || null }); } : null;
+    return () => { zoomRef.current = null; };
+  });
 
   const cover = (maxW, maxH, extra = {}) => (
     <CoverCanvas item={item} quoteOn={quoteOn} maxW={maxW} maxH={maxH} story={story} safe={safe} free={free} canvasRef={canvasRef} onDrawn={onDrawn}
@@ -173,12 +179,6 @@ export default function CoverStage({
             </div>
           ))}
         </div>
-      )}
-      {zoomable && (
-        <button type="button" className="zoomBtn" aria-label="Zoom in on the photo"
-          onClick={() => { const el = zoomSource(); if (el) onZoom({ source: zoomSource, slideUrl: shownSlide?.mediaUrl || null }); }}>
-          <Icon name="zoom" size={22} />
-        </button>
       )}
       {pickMode && <p className="pickHint" role="status">Tap the photo to pick a color</p>}
       {showBurst && <span key={burst} className="likeBurst" aria-hidden="true"><Icon name="heart" size={110} filled /></span>}

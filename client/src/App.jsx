@@ -205,6 +205,8 @@ export default function App() {
   const quoteOn = Boolean(quoteShown(shown, quotesStatus?.quoteOverlay) && quotesStatus?.unlocked); // 1.13.9: global hide, else the post's own (on by default)
   const activeSlides = useMemo(() => (shown?.slides || []).map((s, at) => ({ ...s, at }))
     .filter((s) => !s.deletedAt).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)), [shown]);
+  // The magnifier works on the cover or a photo slide, never in Story view or on a video (1.7).
+  const zoomable = !story && !(slide > 0 && activeSlides[slide - 1]?.mediaType === "video");
   useEffect(() => { setSlide(0); setPickMode(false); }, [current?.id]);
   // The editor belongs to one cover: if that cover leaves the screen, the editor closes with it.
   useEffect(() => { if (draft && current?.id !== draft.id) finishEdit(); }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -227,27 +229,12 @@ export default function App() {
   const freeBox = useCallback((i) => setFree((f) => (f.has(i) ? f : new Set([...f, i]))), []);
   useEffect(() => { if (slide > activeSlides.length) setSlide(activeSlides.length); }, [activeSlides.length, slide]);
 
-  // On a phone the cover sizes itself so Randomize layout ends on the first screen (1.13.4, #559 item 2): the room is the
-  // screen's height less the Muse tab bar, the page above the cover, and the rows under it down to Randomize layout.
-  // The rule that uses it is in styles.css (.stage, pointer: coarse). Neither part depends on the cover's own size.
-  const appRef = useRef(null);
-  const randomizeRef = useRef(null);
-  useLayoutEffect(() => {
-    const app = appRef.current, btn = randomizeRef.current, stage = app?.querySelector(".stage");
-    if (!app || !btn || !stage) return undefined;
-    const fit = () => {
-      const s = stage.getBoundingClientRect(), b = btn.getBoundingClientRect();
-      // The Spotify card opens above the song row (1.13.7) and is left out, so play never shrinks the cover.
-      const card = app.querySelector(".spotifyEmbed");
-      const cardRoom = card ? card.getBoundingClientRect().height + (parseFloat(getComputedStyle(card).marginBottom) || 0) : 0;
-      const used = Math.ceil(s.top + window.scrollY - cardRoom + (b.bottom - s.bottom) + 8);
-      app.style.setProperty("--fit-h", `calc(100svh - var(--host-bar) - env(safe-area-inset-bottom, 0px) - ${used}px)`);
-    };
-    fit();
-    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
-    ro?.observe(app);
-    return () => ro?.disconnect();
-  }, [current?.id, story, Boolean(draft), list]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 1.14.1 (Arjang #790): the cover fills the column edge to edge (1.13.4's phone fit is gone). The magnifier's button
+  // sits in the action row and opens the zoom through zoomRef. While the Spotify card is open, the header and the view
+  // switch move up out of its way, so the cover never moves. Color lock rides on Randomize layout, on by default.
+  const zoomRef = useRef(null);
+  const [playerUp, setPlayerUp] = useState(false);
+  const [colorLock, setColorLock] = useState(true);
 
   const patchItem = (item) => setItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
   const bumpHistory = () => setHistoryTick((t) => t + 1);
@@ -404,10 +391,13 @@ export default function App() {
   };
   const randomize = () => attempt(async () => {
     // The original's six layouts, kept inside the safe zone (1.8). Layout only: never the color, the font or the weight.
+    // With Color lock off (1.14.1, Arjang #790 item 4) it also picks a new color from the palette.
     const img = await loadImage(imageUrlFor(current));
     const box = effectiveStyle(current);
     const measure = canvasMeasureAt(box) || ((px) => (t) => t.length * px * 0.5);
     const patch = randomizeLayout({ ...box, quote: current.quote || "" }, img.naturalWidth / img.naturalHeight, measure);
+    const others = colorLock ? [] : palette.palette.filter((c) => c.hex.toUpperCase() !== String(box.textColor || "").toUpperCase());
+    if (others.length) patch.textColor = others[Math.floor(Math.random() * others.length)].hex;
     await record("Randomize", current.id, { style: pickStyle(current, Object.keys(patch)) }, { style: patch });
   });
   // Takes one of her custom colors off her list (1.9.1). Covers that use it keep it.
@@ -650,7 +640,7 @@ export default function App() {
 
   const counts = status?.counts;
   return (
-    <div ref={appRef} className={draft ? "app editing" : "app"}>
+    <div className={draft ? "app editing" : "app"}>
       {view === "songs" ? (
         <SongsView forCover={songsFrom === "cover" ? current : null} closeLabel={songsFrom === "cover" ? "Back to the cover" : "Back to all covers"}
           onClose={closeSongs} onUse={putSongOnCover} />
@@ -662,7 +652,7 @@ export default function App() {
         <>
         <main className="review" inert={zoom ? true : undefined}>
           <CoverHeader list={list} count={counts?.[list] ?? items.length} position={index + 1} total={items.length}
-            canUndo={history.current.canUndo()} canRedo={history.current.canRedo()} locked={Boolean(draft)}
+            canUndo={history.current.canUndo()} canRedo={history.current.canRedo()} locked={Boolean(draft)} away={playerUp}
             onBack={showLibrary} onInfo={() => setInfoOpen(true)} onUndo={() => step("undo")} onRedo={() => step("redo")} />
           {!current ? (
             <div className="emptyCover">
@@ -678,22 +668,28 @@ export default function App() {
             <>
               {/* While the editor sheet is open, the review screen stays behind it, seen but not reachable. */}
               <div className="behind" inert={draft ? true : undefined}>
-                <ModeSwitch story={story} setStory={setStory} />
+                <ModeSwitch story={story} setStory={setStory} away={playerUp} />
                 <SongRow item={current} onShuffle={() => regenerate("song")} onSetSong={setSong} onDraft={(v) => setPending(current.id, "song", v)}
-                  onSongs={symphony?.connected ? () => showSongs("cover") : null} />
+                  onSongs={symphony?.connected ? () => showSongs("cover") : null} onPlayer={setPlayerUp} />
               </div>
               <CoverStage item={shown} quoteOn={quoteOn} slides={activeSlides} slide={slide} setSlide={setSlide} story={story && !draft}
                 editing={Boolean(draft)} activeBox={activeBox} onStartEdit={(box) => startEdit(box)} onSelectBox={setActiveBox} onMoveBox={moveBox}
                 pickMode={pickMode} onPick={onPick} onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} burst={burst} onDrawn={setDrawnId}
-                onZoom={setZoom} onTapOff={() => sheetDismiss.current?.()} free={free} onFree={freeBox} />
+                onZoom={setZoom} zoomRef={zoomRef} onTapOff={() => sheetDismiss.current?.()} free={free} onFree={freeBox} />
               <div className="behind" inert={draft ? true : undefined}>
                 <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={remix} onDownload={download}
                   quote={{ on: quoteOn, locked: !quotesStatus?.unlocked, onTap: tapQuote, onHold: holdQuotes }}
-                  onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)} />
+                  onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)}
+                  onZoom={zoomable ? () => zoomRef.current?.() : null} />
                 {story && <StoryControls item={current} onPan={pan} onPanDone={panDone} />}
                 <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={addSlide} onRemoveSlide={removeSlide}
                   canPrevPost={index > 0} canNextPost={index < items.length - 1} onPrevPost={() => goTo(index - 1)} onNextPost={() => goTo(index + 1)} />
-                <button type="button" ref={randomizeRef} className="outlineBtn wide randomize" onClick={randomize}><Icon name="sparkle" size={20} /> Randomize layout</button>
+                <div className="randomizeBar">
+                  <button type="button" className="randomizeMain" onClick={randomize}><Icon name="sparkle" size={20} /> Randomize layout</button>
+                  <button type="button" className="colorLock" aria-pressed={colorLock} onClick={() => setColorLock((on) => !on)}>
+                    <Icon name={colorLock ? "lock" : "unlock"} size={16} /> Color lock
+                  </button>
+                </div>
                 <NoteComposer item={current} onPost={postNote} onDraft={(v) => setPending(current.id, "note", v)} inputRef={noteRef} />
                 <TitleRow item={current} />
                 {list === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}

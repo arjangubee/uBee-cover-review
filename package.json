@@ -20,5 +20,5 @@
     "test:render": "node scripts/render-test.mjs"
   },
   "type": "module",
-  "version": "1.14.0"
+  "version": "1.14.1"
 }

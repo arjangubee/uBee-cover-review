@@ -258,6 +258,19 @@ export function registerSymphony(app) {
     if (!f) return res.json({ ...symphonyStatus(), ...empty });
     res.json({ ...symphonyStatus(), stale: !fresh(f), hot: f.hot, songs: f.songs.map(pageSong) });
   });
+  // Where the page plays a clip from (1.13.2): here, the stable address below, which doesn't expire, so there's no
+  // expiresAt. A ported space answers with an address its own host can play, with expiresAt when that address expires.
+  // Found only when the feed has that part's clip. Never the code or a signed link.
+  app.get("/api/symphony/clip-url", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const id = String(req.query.id || "");
+    const part = Number.parseInt(String(req.query.part ?? "0"), 10);
+    const missing = () => res.status(404).json({ found: false, url: "", error: "clip not found" });
+    if (!ID.test(id) || !Number.isInteger(part) || part < 0 || part >= MAX_PARTS) return missing();
+    const f = await ensureFresh();
+    if (!f?.byId.get(id)?.clipLinks[part]) return missing();
+    res.json({ found: true, url: symphonyClipUrl(id, part) });
+  });
   // A stable address for a clip: it redirects to the signed link, read again first when the links are about to expire.
   app.get("/api/symphony/clips/:id", async (req, res) => {
     const id = String(req.params.id || "");

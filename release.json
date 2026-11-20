@@ -1,7 +1,7 @@
 {
-  "version": "1.13.1",
+  "version": "1.13.2",
   "date": "2026-11-20",
   "whatsNew": [
-    "Undo on a song brings back where the song came from, for every kind of song"
+    "Symphony's hook clips play in every copy of the app, including a Muse space"
   ]
 }

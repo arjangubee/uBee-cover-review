@@ -702,6 +702,18 @@ try {
       assert(bad.status === 404, `${path} answered ${bad.status}`);
     }
   });
+  await check("v1.13.2 the page asks where a clip plays from: this app's own clip address, which doesn't expire, never the code or a signed link", async () => {
+    const hook = await fetch(`${base}/api/symphony/clip-url?id=sym-a--song-one`);
+    assert(hook.ok && hook.headers.get("cache-control") === "no-store", `the hook: ${hook.status}`);
+    assert(JSON.stringify(await hook.json()) === JSON.stringify({ found: true, url: "/api/symphony/clips/sym-a--song-one" }), "the hook's address");
+    const two = await getJson("/api/symphony/clip-url?id=sym-a--song-one&part=1");
+    assert(JSON.stringify(two) === JSON.stringify({ found: true, url: "/api/symphony/clips/sym-a--song-one?part=1" }), `part 2, with no expiresAt: ${JSON.stringify(two)}`);
+    for (const q of ["id=sym-a--song-one&part=2", "id=sym-a--song-one&part=-1", "id=sym-a--song-one&part=x", "id=nope", "id=sym-c--no-hook", "id=sym-d--elsewhere", "id=..%2Fetc", "id=Bad%20Id!", ""]) {
+      const r = await fetch(`${base}/api/symphony/clip-url?${q}`);
+      const text = await r.text();
+      assert(r.status === 404 && text === JSON.stringify({ found: false, url: "", error: "clip not found" }) && !text.includes("token=") && !text.includes(SYM_CODE), `${q} answered ${r.status} ${text}`);
+    }
+  });
   await check("v1.12 with no songs folder, new covers and Shuffle pick Symphony's songs, New hot first, each with its hook clip", async () => {
     const list = await getJson("/api/songs");
     assert(list.connected === false && list.source === "symphony" && list.songs.map((s) => s.id).join(",") === "sym-b--song-two,sym-a--song-one", `picks: ${JSON.stringify(list)}`);
@@ -790,6 +802,7 @@ try {
     const page = await getJson("/api/symphony");
     assert(page.connected === false && page.songs.length === 0, "no Songs data");
     assert((await fetch(`${base}/api/symphony/clips/sym-a--song-one`, { redirect: "manual" })).status === 404, "no clips");
+    assert((await fetch(`${base}/api/symphony/clip-url?id=sym-a--song-one`)).status === 404, "no clip addresses");
     const kept = (await getJson("/api/items?status=queue")).items.find((i) => i.id === symCover.id);
     assert(kept.songFile === "symphony:sym-a--song-one", "nothing stored is rewritten");
   });

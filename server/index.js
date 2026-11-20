@@ -7,11 +7,13 @@ import { fileURLToPath } from "node:url";
 import { CONNECTORS, createDriveFolders, drivePlan, sortLocalDump, spotifyAuthUrl } from "./connectors.js";
 import { buildVoiceProfile, generateCaption, loadQuotes, loadTrending, saveTrending, suggestQuote, suggestSong } from "./services.js";
 import { registerDm } from "./dm.js";
+import { registerMusic } from "./music.js";
 import { getImportStatus, registerFull } from "./full.js";
 import { ctaFor } from "./captionCtas.js";
 import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
 import { cleanHook, cleanSongFile, matchSongClip, registerSongs } from "./songs.js";
-import { DATA_DIR, LIBRARY_DIR, UPLOAD_DIR, store } from "./store.js";
+import { DATA_DIR, libraryDir, spaceFile, store, uploadsDir } from "./store.js";
+import { accountCount, inSpace, isOwner, ownerOnly, registerAccounts, requireSession, sessionMiddleware } from "./accounts.js";
 import { registerSymphony, startSymphony, symphonyStatus } from "./symphony.js";
 import { createUpdater } from "./update.js";
 
@@ -20,27 +22,37 @@ const BOOT = randomUUID(); // changes on every start, so the page can tell the n
 const updater = createUpdater({ root: ROOT, dataDir: DATA_DIR });
 const app = express();
 app.use(express.json({ limit: "10mb" }));
+// Accounts (1.15.0): who is signed in, and every request after this runs in that account's space. Personal calls and
+// photos need a session; the session, the update status and a health check without personal data answer without one.
+app.use(sessionMiddleware);
+app.use(requireSession);
+registerAccounts(app);
 
-const upload = multer({
+const multerUpload = multer({
   storage: multer.diskStorage({
-    destination: UPLOAD_DIR,
+    destination: (req, _file, cb) => cb(null, uploadsDir(req.space)), // each account's photos in its own folder (1.15.0)
     filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[^\w.\-]+/g, "_")}`),
   }),
   limits: { fileSize: 50 * 1024 * 1024 },
 });
+// multer finishes the upload outside the request's space, so the route after it is handed back to the account's space.
+const upload = { single: (f) => inSpace(multerUpload.single(f)), array: (f, n) => inSpace(multerUpload.array(f, n)) };
 
 // ---------- Health + grievances: the creator's AI debugs from these ----------
 // GET /api/health is the first thing their AI checks when something feels off.
 // POST /api/grievances is the in-app "tell your AI what is wrong" box: the
 // grievance lands in data/grievances.json with app context attached, and the
 // creator's AI works it under the debugging protocol in AGENTS.md.
-const GRIEVANCE_PATH = join(DATA_DIR, "grievances.json");
-function readGrievances() { try { return JSON.parse(readFileSync(GRIEVANCE_PATH, "utf8")); } catch { return []; } }
-function saveGrievances(list) { writeFileSync(GRIEVANCE_PATH, JSON.stringify(list, null, 1)); }
-app.get("/api/health", (_req, res) => {
+const grievancePath = () => spaceFile("grievances.json"); // each account's own (1.15.0)
+function readGrievances() { try { return JSON.parse(readFileSync(grievancePath(), "utf8")); } catch { return []; } }
+function saveGrievances(list) { writeFileSync(grievancePath(), JSON.stringify(list, null, 1)); }
+// Signed out, health says only what the whole copy is (1.15.0): no covers, connectors or anything else of anyone's.
+app.get("/api/health", (req, res) => {
   const v = updater.versionInfo();
+  const copy = { ok: true, app: "ubee-cover-review", version: v.version, commit: v.commit, boot: BOOT, accounts: accountCount(), signedIn: Boolean(req.account) };
+  if (!req.account) return res.json({ ...copy, signIn: "POST /api/session with { handle }, then send the token it answers as Authorization: Bearer <token>." });
   res.json({
-    ok: true, app: "ubee-cover-review", version: v.version, commit: v.commit, boot: BOOT,
+    ...copy, account: req.account, owner: isOwner(req),
     items: { total: store.db.items.length, queue: store.db.items.filter((i) => i.status === "queue").length },
     connectors: store.settings.connectors, workspace: store.settings.workspace,
     pollen: (({ connected, revoked }) => ({ connected, revoked }))(pollenStatus()),
@@ -192,7 +204,7 @@ app.post("/api/items/:id/edit", (req, res) => {
   if (req.body.regenerateCaption) { item.caption = generateCaption(item, store.settings.voiceProfile); item.captionSource = "placeholder"; }
   // The Comment CTA switch (1.10, renamed in 1.10.1): a keyword on the space's list turns it on, null turns it off.
   if (req.body.cta !== undefined) { if (cta) item.cta = cta.keyword; else delete item.cta; }
-  if (req.body.shuffleSong) Object.assign(item, suggestSong({ ...item, id: item.id + Math.floor(Math.random() * 7) + 1 }));
+  if (req.body.shuffleSong) Object.assign(item, suggestSong(item, { shuffle: true }));
   if (req.body.shuffleQuote) item.quote = suggestQuote({ ...item, id: item.id + Math.floor(Math.random() * 13) + 1 }, loadQuotes());
   store.saveDb();
   res.json({ item });
@@ -220,9 +232,12 @@ app.get("/api/voice/profile", (_req, res) => res.json({ voiceProfile: store.sett
 registerFull(app, upload);
 
 // ---------- Downloaded songs: Symphony's folder of hook clips (1.11) ----------
+app.post("/api/songs/folder", ownerOnly); // the copy's shared music library: only its owner changes it (1.15.0)
+registerMusic(app); // her own Save and Hide on top of it (1.15.0)
 registerSongs(app);
 
 // ---------- Symphony online: its songs and hook clips with a Symphony code (1.12) ----------
+app.post("/api/connectors/symphony", ownerOnly);
 registerSymphony(app);
 startSymphony();
 
@@ -252,8 +267,11 @@ app.post("/api/update/apply", (_req, res) => {
 if (process.env.COVER_REVIEW_NO_UPDATE_LOOP !== "1") updater.start();
 
 // ---------- Static: uploads, library, brand, built client ----------
-app.use("/uploads", express.static(UPLOAD_DIR));
-app.use("/api/library", express.static(LIBRARY_DIR));
+// A photo's address opens only in its own account's space (1.15.0): the same file name in another account isn't there.
+const statics = new Map();
+const staticIn = (dir) => { if (!statics.has(dir)) statics.set(dir, express.static(dir)); return statics.get(dir); };
+app.use("/uploads", (req, res, next) => staticIn(uploadsDir(req.space))(req, res, next));
+app.use("/api/library", (req, res, next) => staticIn(libraryDir(req.space))(req, res, next));
 app.use("/brand", express.static(join(ROOT, "public", "brand")));
 const clientDist = join(ROOT, "client", "dist");
 if (existsSync(clientDist)) app.use(express.static(clientDist));

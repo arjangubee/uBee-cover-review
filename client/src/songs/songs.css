@@ -43,6 +43,8 @@
 .symRow.active .symRowTitle { color: var(--sym-play); }
 .symRowSub { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--sym-muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .symClipMark { flex: none; color: var(--sym-play); }
+.symSavedMark { flex: none; color: var(--sym-play); }
+.symUnhide { flex: none; min-height: 44px; margin-right: -4px; padding: 0 14px; border: 1px solid var(--sym-muted); border-radius: 999px; background: none; color: #fff !important; font-size: 14px; font-weight: 700; }
 .symRowMore { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin-right: -10px; padding: 0; border: 0; background: none; color: var(--sym-muted) !important; }
 
 /* ---------- Library ---------- */

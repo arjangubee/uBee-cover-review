@@ -11,7 +11,7 @@ How a creator's Muse and uBee's Claude change this app without overwriting each 
 
 1. Start from a fresh `main`: `git pull --ff-only upstream main`.
 2. One branch per change, for example `fix/grievance-receipt`.
-3. Run `npm test` before pushing. It must end with UPDATE TEST OK, RENDER TEST OK and SMOKE OK.
+3. Run `npm test` before pushing. It must end with UPDATE TEST OK, RENDER TEST OK, ACCOUNTS TEST OK and SMOKE OK.
 4. Push the branch to her fork only. No pull request, and never merge into her fork's `main`: a fix merged there blocks her updates.
 5. Tell uBee's Claude the branch name. Claude folds it into uBee's dev repo, a second AI reviews it, then it ships to every creator and comes back to her copy as an update.
 6. Delete the branch once it's in a release.

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { BUCKETS, classifyFile } from "./services.js";
-import { DUMP_DIR, LIBRARY_DIR, store } from "./store.js";
+import { dumpDir, libraryDir, store } from "./store.js";
 
 // Connector registry. The user's Muse reads this list (GET /api/connectors)
 // and walks the creator through each setup. Review NEVER blocks on any connector.
@@ -178,13 +178,14 @@ export async function createDriveFolders() {
 // classification in Drive using classify results returned here.
 export function sortLocalDump() {
   const moved = [];
-  if (!existsSync(DUMP_DIR)) return moved;
-  for (const name of readdirSync(DUMP_DIR)) {
+  const dump = dumpDir(), library = libraryDir(); // the signed-in account's own DUMP and library (1.15.0)
+  if (!existsSync(dump)) return moved;
+  for (const name of readdirSync(dump)) {
     if (name.startsWith(".")) continue;
     const bucket = classifyFile(name);
-    const destDir = join(LIBRARY_DIR, bucket);
+    const destDir = join(library, bucket);
     mkdirSync(destDir, { recursive: true });
-    renameSync(join(DUMP_DIR, name), join(destDir, name));
+    renameSync(join(dump, name), join(destDir, name));
     const isPhoto = bucket === "Images";
     moved.push({ name, bucket, queuedForReview: isPhoto });
     if (isPhoto) store.addItem({ title: name, imageUrl: `/api/library/Images/${encodeURIComponent(name)}`, source: "dump" });

@@ -43,6 +43,7 @@ const PATHS = {
   more: <><circle cx="5.5" cy="12" r="1.3" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" /><circle cx="18.5" cy="12" r="1.3" fill="currentColor" stroke="none" /></>,
   lock: <><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></>,
   unlock: <><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 7.6-1.7" /></>,
+  minusCircle: <><circle cx="12" cy="12" r="9" /><path d="M8 12h8" /></>,
   plusCircle: <><circle cx="12" cy="12" r="9.25" /><path d="M12 8v8" /><path d="M8 12h8" /></>,
   checkCircle: <><circle cx="12" cy="12" r="10" fill="currentColor" stroke="none" /><path d="M7.6 12.4l3 3 5.8-6" stroke="#000" strokeWidth="2.2" /></>,
   prev: <><path d="M6.5 5.5v13" /><path d="M18.5 5.8v12.4l-9.6-6.2z" fill="currentColor" stroke="none" /></>,

@@ -18,3 +18,5 @@ data/last-update.json
 data/backups/
 data/renders/
 public/brand/*.png
+data/accounts.json
+data/accounts/

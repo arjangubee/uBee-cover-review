@@ -27,7 +27,7 @@ function setup() {
   mkdirSync(join(pub, "server"), { recursive: true });
   mkdirSync(join(pub, "data"), { recursive: true });
   writeFileSync(join(pub, "package.json"), JSON.stringify({ name: "x", version: "1.1.0" }));
-  writeFileSync(join(pub, ".gitignore"), "data/db.json\ndata/settings.json\ndata/backups/\n");
+  writeFileSync(join(pub, ".gitignore"), "data/db.json\ndata/settings.json\ndata/backups/\ndata/accounts.json\ndata/accounts/\n");
   writeFileSync(join(pub, "server", "a.js"), "export const a = 1;\n");
   writeFileSync(join(pub, "server", "b.js"), "export const b = 1;\n");
   writeFileSync(join(pub, "data", "seed.json"), "[]\n");
@@ -39,6 +39,10 @@ function setup() {
   git(tmp, "clone", "-q", origin, copy);
   writeFileSync(join(copy, "data", "db.json"), JSON.stringify({ items: [{ id: 1, note: "her note" }] }));
   writeFileSync(join(copy, "data", "settings.json"), JSON.stringify({ setupComplete: true }));
+  // 1.15.0: the accounts, and another account's own data in its folder.
+  writeFileSync(join(copy, "data", "accounts.json"), JSON.stringify({ accounts: [{ handle: "her", owner: true }, { handle: "pal" }], sessions: [] }));
+  mkdirSync(join(copy, "data", "accounts", "pal"), { recursive: true });
+  writeFileSync(join(copy, "data", "accounts", "pal", "db.json"), JSON.stringify({ items: [{ id: 1, note: "pal's note" }] }));
 }
 function publish(file, text, subject) {
   writeFileSync(join(pub, file), text);
@@ -77,6 +81,9 @@ try {
     assert(backups.length === 1, "one backup folder expected");
     const saved = JSON.parse(readFileSync(join(copy, "data", "backups", backups[0], "db.json"), "utf8"));
     assert(saved.items[0].note === "her note", "her data should be in the backup");
+    assert(existsSync(join(copy, "data", "backups", backups[0], "accounts.json")), "the accounts are in the backup (1.15.0)");
+    const pal = JSON.parse(readFileSync(join(copy, "data", "backups", backups[0], "accounts", "pal", "db.json"), "utf8"));
+    assert(pal.items[0].note === "pal's note", "and every other account's own data (1.15.0)");
     assert(JSON.parse(readFileSync(join(copy, "data", "db.json"), "utf8")).items[0].note === "her note", "her data stays in place");
     assert(restarts === 1, `restart should run once, ran ${restarts}`);
     assert((await u.check()).available === false, "nothing left to update");

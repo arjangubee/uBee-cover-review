@@ -457,3 +457,19 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 .asleep { background: #141414; border: 1px solid #444; border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.45; margin-top: 12px; }
 .sheetActions { display: flex; gap: 10px; margin-top: 14px; }
 .sheetActions button { flex: 1; padding: 14px; font-size: 15px; }
+
+/* Sign-in (1.15.0): one field and Continue, on the app's own black, sized for a phone first. */
+.signIn { display: grid; min-height: 100vh; min-height: 100dvh; place-items: center; padding: 24px 16px calc(var(--host-bar) + 24px); }
+.signInCard { width: min(400px, 100%); }
+.signInCard h1 { margin: 0; font-size: 30px; font-weight: 800; line-height: 1.15; }
+.signInBy { margin: 4px 0 20px; }
+.handleField { position: relative; }
+.handleField > span { position: absolute; top: 50%; left: 14px; color: var(--muted); font-size: 17px; transform: translateY(-50%); pointer-events: none; }
+.handleField .field { padding-left: 32px; }
+.signInCard .primaryBtn, .signInCard .secondaryBtn { width: 100%; margin-top: 12px; }
+.signInQuestion { margin: 0 0 4px; color: var(--text); font-size: 17px; line-height: 1.45; }
+.signInQuestion:focus { outline: none; }
+.signInBack { margin-top: 8px; }
+.signInError { margin: 14px 0 0; color: var(--red); font-size: 15px; line-height: 1.4; }
+.signInFoot { margin: 18px 0 0; }
+.infoBlock .callSwitch { margin: 4px 0 8px; text-align: left; }

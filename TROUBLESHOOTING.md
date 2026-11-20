@@ -3,9 +3,9 @@
 Work grievances from this runbook first. The full debugging protocol is in AGENTS.md.
 
 First checks, always:
-1. `GET /api/health` - app version, item counts, connector states, open grievances.
+1. `GET /api/health` - app version and how many accounts. Signed in, also item counts, connector states, open grievances.
 2. `GET /api/grievances` - what the creator reported, in their words.
-3. `npm test` - the updater test plus the smoke test (setup, quotes, quiz lock, connectors, Drive plan, workspace, consent gate, upload and approve, the full editor, trending, updates, health and grievances). It runs in a throwaway data folder.
+3. `npm test` - the updater, render and accounts tests plus the smoke test (setup, quotes, quiz lock, connectors, Drive plan, workspace, consent gate, upload and approve, the full editor, trending, updates, health and grievances). It runs in a throwaway data folder.
 
 Common issues:
 
@@ -27,5 +27,9 @@ Common issues:
 | Update says it went back to the old version | The new version downloaded but install or build failed, so the app put the old one back (1.13.10) | Check data/backups and the error, run `npm run setup` and `npm run build` on the new version by hand, then `npm start` |
 | Update note says a local fix clashed | Your code fix and the new version changed the same lines | Open data/backups/<time>/local-changes.patch, re-apply what is still needed |
 | Data looks wrong right after an update | Rare, but backups exist | Every update first copies the data files to data/backups/<time>/ |
+| The app shows the sign-in screen again, or a call answers 401 | Logged out on that device, the session was ended elsewhere, or the browser cleared its storage (1.15.0) | Sign in again with the same username: everything of hers is still there. Her AI signs in with POST /api/session |
+| Her covers are gone after signing in | Signed in with a different username, or a handle that isn't the owner of the covers saved before accounts | Sign out and in with the right username. data/accounts.json shows which handle is the owner: covers saved before 1.15.0 stay in data/, other accounts' in data/accounts/<handle>/ |
+| Someone can't sign up | The owner turned on "Only usernames already on this copy can sign in" | The owner turns it off in the info sheet's Account section, or POST /api/accounts/signups {"restrict": false} |
+| A song keeps being picked, or never is | Her Save and Hide on the Songs screen (1.15.0) | GET /api/music shows her saved and hidden songs. Unhide in Library's Hidden list |
 
 Never fix by deleting creator data. Back up data/db.json and data/settings.json before any repair, and say in the resolution what you changed and how you verified it.

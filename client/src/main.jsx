@@ -1,10 +1,12 @@
-import React, { Suspense, lazy, useState } from "react";
+import React, { Suspense, lazy, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App.jsx";
+import SignIn from "./SignIn.jsx";
 import UpdateBanner from "./UpdateBanner.jsx";
 import { useAnyBusy } from "./busy.js";
 import { BUILT_VERSION } from "./release.js";
+import { checkSession, useSession } from "./session.js";
 // TikTok Sans (SIL Open Font License), served from this app so the cover text looks the same everywhere.
 import "@fontsource/tiktok-sans/latin-400.css";
 import "@fontsource/tiktok-sans/latin-500.css";
@@ -21,7 +23,7 @@ const ChatsApp = lazy(() => import("./dm/App.jsx").then((m) => ({ default: m.App
 // The page (1.14): Covers, the review screen, and Chats, the DM reply simulator, with the switch between them.
 // Once open, both stay mounted, so neither loses its place when she switches. The version and the update notes sit
 // above both (1.13.10): the version small at the top right, the notes over the switch.
-function Shell() {
+function Screens() {
   const busy = useAnyBusy();
   const [screen, setScreen] = useState("covers");
   const [chatsOpened, setChatsOpened] = useState(false);
@@ -31,7 +33,7 @@ function Shell() {
   );
   return (
     <>
-      <p className="versionTag"><span className="srOnly">Version </span>{BUILT_VERSION}</p>
+      {versionTag}
       <div className="shellTop"><UpdateBanner inUse={busy} /></div>
       <nav className="screenSwitch" aria-label="Covers or Chats">
         {tab("covers", "Covers")}
@@ -49,6 +51,19 @@ function Shell() {
       </div>
     </>
   );
+}
+
+const versionTag = <p className="versionTag"><span className="srOnly">Version </span>{BUILT_VERSION}</p>;
+
+// 1.15.0: the sign-in screen comes before anything else. Each account gets the screens fresh (keyed by its handle, with
+// Chats' cached answers cleared), so nothing of one account ever shows in another.
+function Shell() {
+  const session = useSession();
+  useEffect(() => { checkSession(); }, []);
+  useEffect(() => { queryClient.clear(); }, [session.handle]);
+  if (session.status === "checking") return versionTag;
+  if (session.status !== "in") return <>{versionTag}<SignIn note={session.note} /></>;
+  return <Screens key={session.handle} />;
 }
 
 createRoot(document.getElementById("root")).render(

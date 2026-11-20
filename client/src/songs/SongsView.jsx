@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api.js";
+import { api, post } from "../api.js";
 import Icon from "../icons.jsx";
 import { clipNow, clipSource, isSilent, unlockAudio } from "./clipSource.js";
 import { MiniPlayer, NowPlaying } from "./SongsPlayer.jsx";
@@ -22,6 +22,8 @@ export default function SongsView({ forCover, closeLabel, onClose, onUse }) {
   const [problem, setProblem] = useState(null);
   const [tab, setTab] = useState("hot");
   const [genre, setGenre] = useState(null);
+  const [shelf, setShelf] = useState(null); // Library's Saved or Hidden list (1.15.0)
+  const [music, setMusic] = useState({ saved: [], hidden: [] }); // her Save and Hide, on top of the shared library
   const [sort, setSort] = useState("data");
   const [q, setQ] = useState("");
   const [focusKey, setFocusKey] = useState(0);
@@ -50,6 +52,7 @@ export default function SongsView({ forCover, closeLabel, onClose, onUse }) {
     api("/api/symphony").then((d) => {
       if (!live) return;
       setData(d);
+      if (d.music) setMusic(d.music);
       if (d.connected && d.message) say(d.message);
     }).catch((e) => { if (live) setProblem(e.message); });
     return () => { live = false; ticket.current += 1; el?.pause(); clearTimeout(toastTimer.current); };
@@ -57,10 +60,22 @@ export default function SongsView({ forCover, closeLabel, onClose, onUse }) {
 
   const songs = useMemo(() => data?.songs || [], [data]);
   const byId = useMemo(() => new Map(songs.map((s) => [s.id, s])), [songs]);
-  const hotRows = useMemo(() => hotList(data), [data]);
-  const genres = useMemo(() => topGenres(songs), [songs]);
-  const library = useMemo(() => librarySorted(genre ? songs.filter((s) => s.genre === genre) : songs, sort), [songs, genre, sort]);
-  const found = useMemo(() => searchSongs(songs, q), [songs, q]);
+  // 1.15.0: a song she hid leaves New hot, the Library and Search, and shows only in Library's Hidden list.
+  const savedIds = useMemo(() => new Set(music.saved), [music]);
+  const hiddenIds = useMemo(() => new Set(music.hidden), [music]);
+  const shown = useMemo(() => songs.filter((s) => !hiddenIds.has(s.id)), [songs, hiddenIds]);
+  const savedCount = shown.filter((s) => savedIds.has(s.id)).length;
+  const hiddenCount = songs.filter((s) => hiddenIds.has(s.id)).length;
+  const hotRows = useMemo(() => hotList(data).filter((r) => !hiddenIds.has(r.id)), [data, hiddenIds]);
+  const genres = useMemo(() => topGenres(shown), [shown]);
+  const library = useMemo(() => {
+    const pool = shelf === "saved" ? shown.filter((s) => savedIds.has(s.id)) : shelf === "hidden" ? songs.filter((s) => hiddenIds.has(s.id))
+      : genre ? shown.filter((s) => s.genre === genre) : shown;
+    return librarySorted(pool, sort);
+  }, [songs, shown, shelf, genre, sort, savedIds, hiddenIds]);
+  const found = useMemo(() => searchSongs(shown, q), [shown, q]);
+  // A list that empties (her last hidden song unhidden) goes back to every song.
+  useEffect(() => { if ((shelf === "saved" && !savedCount) || (shelf === "hidden" && !hiddenCount)) setShelf(null); }, [shelf, savedCount, hiddenCount]);
   const detail = openId ? byId.get(openId) || null : null;
 
   useEffect(() => {
@@ -153,6 +168,15 @@ export default function SongsView({ forCover, closeLabel, onClose, onUse }) {
     else say(`Hook ${s.hook.label}.`);
   };
 
+  // Save and Hide (1.15.0): hers only, never a change to the library. New covers and Shuffle try saved songs first and
+  // never pick a hidden one.
+  async function adjust(kind, s, on) {
+    try {
+      setMusic(await post(`/api/music/${kind}`, { id: s.id, on }));
+      say(kind === "save" ? (on ? "Saved. New covers and Shuffle try it first." : "Taken out of Saved.") : (on ? "Hidden. Covers won't pick it." : "Unhidden."));
+    } catch (e) { say(e.message); }
+  }
+
   // The player stays put across loading and the tabs, so leaving the screen always stops it.
   const player = <audio ref={audio} onTimeUpdate={onTime} onEnded={finish} onPause={() => setPlaying(false)} onPlay={() => setPlaying(true)} preload="none" />;
   const back = (
@@ -178,12 +202,13 @@ export default function SongsView({ forCover, closeLabel, onClose, onUse }) {
   return (
     <section className={`symView${np ? " withMini" : ""}`} aria-label="Songs">
       {player}
-      {tab === "hot" && <HotTab rows={hotRows} date={data.hot?.date} playingId={playingId} closeLabel={closeLabel} onClose={onClose}
+      {tab === "hot" && <HotTab rows={hotRows} date={data.hot?.date} playingId={playingId} savedIds={savedIds} closeLabel={closeLabel} onClose={onClose}
         onPlayAll={playAll} onPlay={onRowPlay} onOpen={setOpenId} />}
       {tab === "library" && <LibraryTab rows={library.slice(0, LIBRARY_ROWS)} total={library.length} genres={genres} genre={genre} setGenre={setGenre}
+        shelf={shelf} setShelf={setShelf} savedCount={savedCount} hiddenCount={hiddenCount} savedIds={savedIds}
         sort={sort} setSort={setSort} playingId={playingId} closeLabel={closeLabel} onClose={onClose} onPlay={onRowPlay} onOpen={setOpenId}
-        onSearch={() => { setTab("search"); setFocusKey((n) => n + 1); }} />}
-      {tab === "search" && <SearchTab q={q} setQ={setQ} rows={found} playingId={playingId} focusKey={focusKey} onPlay={onRowPlay} onOpen={setOpenId} />}
+        onSearch={() => { setTab("search"); setFocusKey((n) => n + 1); }} onUnhide={(s) => adjust("hide", s, false)} />}
+      {tab === "search" && <SearchTab q={q} setQ={setQ} rows={found} playingId={playingId} savedIds={savedIds} focusKey={focusKey} onPlay={onRowPlay} onOpen={setOpenId} />}
 
       {np && !detail && (
         <MiniPlayer np={np} playing={playing} progress={progress} forCover={Boolean(forCover)} used={onCover(forCover, np.song)}
@@ -198,7 +223,8 @@ export default function SongsView({ forCover, closeLabel, onClose, onUse }) {
       )}
       {sheet && shareSong && (
         <ShareSheet song={shareSong} forCover={Boolean(forCover)} used={onCover(forCover, shareSong)} onClose={() => setSheet(false)} onUse={use}
-          onCopy={() => copy(shareSong)} />
+          saved={savedIds.has(shareSong.id)} hidden={hiddenIds.has(shareSong.id)} onSave={(on) => adjust("save", shareSong, on)}
+          onHide={(on) => adjust("hide", shareSong, on)} onCopy={() => copy(shareSong)} />
       )}
       {toast && (
         <div className={`symToast${toast.action ? " withAction" : ""}`} role="status">

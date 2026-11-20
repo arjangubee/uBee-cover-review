@@ -10,7 +10,7 @@ function Back({ label, onClose }) {
   return <button type="button" className="iconBtn" onClick={onClose} aria-label={label}><Icon name="back" /></button>;
 }
 
-export function HotTab({ rows, date, playingId, closeLabel, onClose, onPlayAll, onPlay, onOpen }) {
+export function HotTab({ rows, date, playingId, savedIds, closeLabel, onClose, onPlayAll, onPlay, onOpen }) {
   const playable = rows.filter((r) => r.hook);
   const mosaic = rows.filter((r) => r.artwork).slice(0, 4);
   const day = date ? new Date(`${date}T12:00:00`).toLocaleDateString([], { month: "short", day: "numeric" }) : "";
@@ -36,7 +36,7 @@ export function HotTab({ rows, date, playingId, closeLabel, onClose, onPlayAll, 
       {!rows.length && <p className="symEmpty">Nothing rising yet. Symphony reads the US charts every morning.</p>}
       <ol className="symRows">
         {rows.map((r) => (
-          <SongsRow key={r.id} s={r} active={playingId === r.id} onPlay={onPlay} onOpen={onOpen}
+          <SongsRow key={r.id} s={r} active={playingId === r.id} saved={savedIds.has(r.id)} onPlay={onPlay} onOpen={onOpen}
             line={<>{r.artist}{r.badges.length ? ` · ${r.badges.slice(0, 2).map((b) => b.text).join(" · ")}` : ""}</>} />
         ))}
       </ol>
@@ -44,7 +44,9 @@ export function HotTab({ rows, date, playingId, closeLabel, onClose, onPlayAll, 
   );
 }
 
-export function LibraryTab({ rows, total, genres, genre, setGenre, sort, setSort, playingId, closeLabel, onClose, onPlay, onOpen, onSearch }) {
+// 1.15.0: Saved and Hidden sit before the genres. Hidden is the only place hidden songs show, each with Unhide.
+export function LibraryTab({ rows, total, genres, genre, setGenre, shelf, setShelf, savedCount, hiddenCount, savedIds, sort, setSort, playingId,
+  closeLabel, onClose, onPlay, onOpen, onSearch, onUnhide }) {
   const next = SORTS[(SORTS.findIndex(([id]) => id === sort) + 1) % SORTS.length];
   const name = SORTS.find(([id]) => id === sort)[1];
   return (
@@ -54,10 +56,15 @@ export function LibraryTab({ rows, total, genres, genre, setGenre, sort, setSort
         <h1 className="symTabTitle">Library</h1>
         <button type="button" className="iconBtn" onClick={onSearch} aria-label="Search the library"><Icon name="search" /></button>
       </header>
-      {genres.length > 0 && (
-        <div className="symChips" role="group" aria-label="Genre">
-          {genre && <button type="button" className="symChip clear" onClick={() => setGenre(null)} aria-label="Show every genre"><Icon name="close" size={18} /></button>}
-          {(genre ? [genre] : genres).map((g) => (
+      {(genres.length > 0 || savedCount > 0 || hiddenCount > 0) && (
+        <div className="symChips" role="group" aria-label="Show">
+          {(genre || shelf) && (
+            <button type="button" className="symChip clear" onClick={() => { setGenre(null); setShelf(null); }} aria-label="Show every song"><Icon name="close" size={18} /></button>
+          )}
+          {!genre && [["saved", "Saved", savedCount], ["hidden", "Hidden", hiddenCount]].filter(([id, , n]) => n > 0 && (!shelf || shelf === id)).map(([id, name]) => (
+            <button type="button" key={id} className={`symChip${shelf === id ? " on" : ""}`} aria-pressed={shelf === id} onClick={() => setShelf(shelf === id ? null : id)}>{name}</button>
+          ))}
+          {!shelf && (genre ? [genre] : genres).map((g) => (
             <button type="button" key={g} className={`symChip${genre === g ? " on" : ""}`} aria-pressed={genre === g} onClick={() => setGenre(genre === g ? null : g)}>{g}</button>
           ))}
         </div>
@@ -66,17 +73,18 @@ export function LibraryTab({ rows, total, genres, genre, setGenre, sort, setSort
         <button type="button" className="symSortBtn" onClick={() => setSort(next[0])} aria-label={`Sorted by ${name}. Sort by ${next[1]}`}>
           <Icon name="sort" size={18} /> {name}
         </button>
-        <span className="symCount">{total} songs</span>
+        <span className="symCount">{total} {total === 1 ? "song" : "songs"}</span>
       </div>
       {!rows.length && <p className="symEmpty">No songs yet. Symphony adds today's US charts and the most streamed songs every morning.</p>}
       <ul className="symRows">
-        {rows.map((r) => <SongsRow key={r.id} s={r} active={playingId === r.id} onPlay={onPlay} onOpen={onOpen} />)}
+        {rows.map((r) => <SongsRow key={r.id} s={r} active={playingId === r.id} saved={savedIds.has(r.id)} onPlay={onPlay} onOpen={onOpen}
+          onUnhide={shelf === "hidden" ? onUnhide : undefined} />)}
       </ul>
     </section>
   );
 }
 
-export function SearchTab({ q, setQ, rows, playingId, focusKey, onPlay, onOpen }) {
+export function SearchTab({ q, setQ, rows, playingId, savedIds, focusKey, onPlay, onOpen }) {
   const input = useRef(null);
   useEffect(() => { if (focusKey) input.current?.focus(); }, [focusKey]);
   const typed = q.trim();
@@ -96,7 +104,7 @@ export function SearchTab({ q, setQ, rows, playingId, focusKey, onPlay, onOpen }
         </div>
       )}
       <ul className="symRows">
-        {rows.map((r) => <SongsRow key={r.id} s={r} active={playingId === r.id} onPlay={onPlay} onOpen={onOpen} />)}
+        {rows.map((r) => <SongsRow key={r.id} s={r} active={playingId === r.id} saved={savedIds.has(r.id)} onPlay={onPlay} onOpen={onOpen} />)}
       </ul>
       {typed && !rows.length && <p className="symEmpty">No song matches. Symphony adds new songs every morning.</p>}
     </section>

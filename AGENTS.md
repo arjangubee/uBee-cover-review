@@ -17,6 +17,8 @@ Hard rules:
 - uBee clients save into the uBee shared Drive, in Creators / their name, in the friendly client folder structure. Everyone else saves into their own Drive. Check GET /api/workspace before creating any folders.
 - Write like a person in outward copy. Short, plain, human. No em-dashes.
 - Pollen (uBee clients only): connect with POST /api/connectors/pollen {code}. The code is a secret. Never write it into a file in this repo, a commit, a grievance, a log or a chat. The app keeps it in data/settings.json, which is gitignored and backed up locally only.
+- Sign in first (1.15.0). Every call except GET /api/health needs a session: POST /api/session {"handle": "<her Instagram username>"} answers a token, and every call after that sends `Authorization: Bearer <token>`. The token is hers: never write it into a file in this repo, a commit, a grievance, a log or a chat. A call that answers 401 means sign in again. There's no password, so anyone who types a handle opens that account: keep the app's address to people she trusts.
+- One copy, many accounts (1.15.0). Each account sees only its own covers, photos, quotes, quiz answers, grievances, Chats and settings. Her data from before accounts belongs to the copy's owner: the handle in its Instagram connector, or the first username that says those covers are hers. Only the owner changes what the whole copy shares: the Symphony connection, the songs folder and the sign-up switch.
 - Symphony (uBee clients only): connect with POST /api/connectors/symphony {code}. The same rules as the Pollen code: a secret, kept only in data/settings.json, never in a file in this repo, a commit, a grievance, a log or a chat.
 
 ## Debugging protocol: you are also the repair crew
@@ -24,7 +26,7 @@ Hard rules:
 The creator will point at problems in plain words, in chat or in the app's "Something wrong?" box. Fixing them is your job, end to end:
 
 1. Read the grievance. In-app reports land at GET /api/grievances. Also check GET /api/health first.
-2. Back up data/db.json and data/settings.json before touching anything. Creator data is never the price of a fix.
+2. Back up data/db.json and data/settings.json before touching anything (and data/accounts.json, plus data/accounts/ when other accounts use the copy). Creator data is never the price of a fix.
 3. Reproduce it. Run `npm test` (it runs in a throwaway data folder, so it never touches her photos), read the server log, try the exact thing the creator described.
 4. Read TROUBLESHOOTING.md. Half of all issues are already in that table.
 5. Fix the smallest thing that actually causes it, in the app code. No workarounds that hide the problem from the creator while leaving it broken.
@@ -51,7 +53,7 @@ You may edit any file in this repo to fix a grievance. You may not delete the cr
 - Every release bumps `version` in package.json and release.json together, with 1 to 3 plain lines of what's new in release.json. Hosted copies only hear about a release through release.json.
 
 1. Pull first: `git pull --rebase origin main`. Someone else may have pushed since you last pulled. Never push an older copy over a newer one.
-2. Run `npm test`. It must end with UPDATE TEST OK, RENDER TEST OK and SMOKE OK.
+2. Run `npm test`. It must end with UPDATE TEST OK, RENDER TEST OK, ACCOUNTS TEST OK and SMOKE OK.
 3. Never force-push main.
 4. Push to the dev repo first. A second AI reviews it there. Only then push worldwide.
 5. A worldwide push reaches every creator: their app installs it at its next quiet minute. Only ship what you'd be happy for every creator to install tonight.

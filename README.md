@@ -123,6 +123,15 @@ Since 1.4.0 the cover is the screen, the way Quill's Cover Review looks. Since 1
 - Setup, the quote quiz, Pollen and "Something wrong?" sit behind the info button.
 - Fonts: TikTok Sans ships with the app (SIL Open Font License), so the text looks the same on every phone.
 
+## Signing in
+
+Since 1.15.0 the app opens on a sign-in screen: your Instagram username, then Continue. There's no password, so anyone who types a username opens that account. That's fine for a closed test, and it isn't real security yet: keep your copy's address to people you trust.
+
+- Each account sees only its own covers, photos, quotes, quiz answers, grievances, Chats and settings. One copy can serve several people.
+- You stay signed in. Log out is in the info sheet, under Account.
+- Covers saved before 1.15.0 belong to the copy's owner: the username in its Instagram connector, or the first username that says they're hers. The owner can stop new sign-ups there too.
+- Everyone gets the copy's songs. On the Songs screen, Save and Hide are yours alone: new covers and Shuffle try your saved songs first and never pick one you hid. Library's Hidden list has Unhide.
+
 ## Chats
 
 Since 1.14.0 a switch above the review screen opens Chats, where she practices replies to her Instagram DMs and comments.
@@ -137,7 +146,7 @@ Since 1.14.0 a switch above the review screen opens Chats, where she practices r
 ## How it is built
 
 - Client: React + Vite in client/, plain CSS. The cover is a canvas drawn by client/src/renderCover.js, the same code that makes the posted image. Arrow keys move between covers on a computer.
-- Server: Express in server/, zero native dependencies. State lives in data/db.json and data/settings.json, photos in data/uploads, sorted buckets in data/library. That keeps a clone running in seconds on any laptop. For a bigger deployment, the store in server/store.js is the one file to swap for SQLite or Postgres.
+- Server: Express in server/, zero native dependencies. State lives in data/db.json and data/settings.json, photos in data/uploads, sorted buckets in data/library. Since 1.15.0 that's the owner's: every other account keeps the same files in data/accounts/<username>/, and data/accounts.json holds the accounts and sessions. That keeps a clone running in seconds on any laptop. For a bigger deployment, the store in server/store.js is the one file to swap for SQLite or Postgres.
 - Connectors: server/connectors.js is the registry your Muse reads. Each connector lists what it is for, what it needs, and the exact steps Muse walks you through.
 
 ## For the first creator

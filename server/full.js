@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateCaption, loadQuotes } from "./services.js";
-import { DATA_DIR, LIBRARY_DIR, store } from "./store.js";
+import { DATA_DIR, currentSpace, libraryDir, spaceFile, store } from "./store.js";
 import { nextOpacity } from "./styleRules.js";
 import { canDraft, captionPrompt, captionState, draftProblems, needsDescription } from "./captionDrafts.js";
 import { cleanCtas } from "./captionCtas.js";
@@ -129,13 +129,20 @@ function cleanMosaics(list) {
 // Dedupe by driveId also applies after the window: a driveId already in
 // the queue is never enqueued a second time.
 export const IMPORT_WINDOW_MS = 30_000;
-const importState = { state: "idle", startedAt: null, lastBatchAt: 0, lastBatchSize: 0, totalEnqueued: 0, lastBatchDriveIds: [] };
+// Each account's own import (1.15.0).
+const imports = new Map();
+const importNow = () => {
+  if (!imports.has(currentSpace())) imports.set(currentSpace(), { state: "idle", startedAt: null, lastBatchAt: 0, lastBatchSize: 0, totalEnqueued: 0, lastBatchDriveIds: [] });
+  return imports.get(currentSpace());
+};
 function sameBatchDriveIds(entries) {
+  const importState = importNow();
   const ids = entries.map((e) => e.driveId).filter(Boolean).sort();
   if (!ids.length || ids.length !== importState.lastBatchDriveIds.length) return false;
   return ids.every((id, i) => id === importState.lastBatchDriveIds[i]);
 }
 export function getImportStatus() {
+  const importState = importNow();
   return {
     importState: importState.state,
     importStartedAt: importState.startedAt,
@@ -213,13 +220,13 @@ function recheckChecked() {
 // data/quiz-quotes.json: the default pack with every Arjang-specific quote
 // filtered out (name, rugs, modeling, agency story, return arc). Generalized
 // only, so what a creator steals reads as theirs, never as Arjang's story.
-const CREATOR_QUOTES_PATH = join(DATA_DIR, "quotes.json");
+const creatorQuotesPath = () => spaceFile("quotes.json"); // each account's own quotes (1.15.0)
 function creatorQuotes() {
-  if (!existsSync(CREATOR_QUOTES_PATH)) return [];
-  try { const raw = JSON.parse(readFileSync(CREATOR_QUOTES_PATH, "utf8")); return raw.map((q) => (typeof q === "string" ? q : q.text)).filter(Boolean); } catch { return []; }
+  if (!existsSync(creatorQuotesPath())) return [];
+  try { const raw = JSON.parse(readFileSync(creatorQuotesPath(), "utf8")); return raw.map((q) => (typeof q === "string" ? q : q.text)).filter(Boolean); } catch { return []; }
 }
 function saveCreatorQuotes(texts) {
-  writeFileSync(CREATOR_QUOTES_PATH, JSON.stringify(texts.map((text) => ({ text, source: store.settings.quotesSource })), null, 1));
+  writeFileSync(creatorQuotesPath(), JSON.stringify(texts.map((text) => ({ text, source: store.settings.quotesSource })), null, 1));
 }
 function quizPool() {
   try { return JSON.parse(readFileSync(join(DATA_DIR, "quiz-quotes.json"), "utf8")); } catch { return []; }
@@ -317,7 +324,8 @@ export function registerFull(app, upload) {
   // is checked once more, whatever its status. The page runs it: idle, one cover at a time, the one on screen last.
   // The tally counts the covers rechecked, the covers whose check changed and the beacon values that changed.
   const wantsRecheck = (i) => Boolean(i.beacons) && !(Number(i.beaconsVersion || 0) >= BEACONS_VERSION);
-  const recheckTally = () => ({ rechecked: 0, coversChanged: 0, valuesChanged: 0, ...(store.settings.beaconRecheck || {}) });
+  // The tally is the copy's (1.15.0): only covers saved before 1.13.9, which are the owner's, ever want a recheck.
+  const recheckTally = () => ({ rechecked: 0, coversChanged: 0, valuesChanged: 0, ...(store.shared.beaconRecheck || {}) });
   app.get("/api/beacons/wanted", (_req, res) => {
     res.json({ ids: store.db.items.filter(wantsRecheck).sort((a, b) => a.id - b.id).map((i) => i.id), recheck: recheckTally() });
   });
@@ -326,9 +334,9 @@ export function registerFull(app, upload) {
     if (!wantsRecheck(item)) return res.json({ rechecked: false, reason: "done", item });
     const changed = recheckSaved(item);
     const t = recheckTally();
-    store.settings.beaconRecheck = { rechecked: t.rechecked + 1, coversChanged: t.coversChanged + (changed.length ? 1 : 0), valuesChanged: t.valuesChanged + changed.length };
+    store.shared.beaconRecheck = { rechecked: t.rechecked + 1, coversChanged: t.coversChanged + (changed.length ? 1 : 0), valuesChanged: t.valuesChanged + changed.length };
     store.saveDb();
-    store.saveSettings();
+    store.saveShared();
     res.json({ rechecked: true, changed, item });
   });
 
@@ -634,6 +642,7 @@ export function registerFull(app, upload) {
   // a stock quote is assigned on the way in, per the original queue rule.
   app.post("/api/items/enqueue", (req, res) => {
     const entries = Array.isArray(req.body.items) ? req.body.items : [];
+    const importState = importNow();
     // In-flight guard: only an exact repeat of the same batch, inside the
     // window, is blocked. A different batch (next chunk) goes through.
     if (importState.lastBatchAt && Date.now() - importState.lastBatchAt < IMPORT_WINDOW_MS && sameBatchDriveIds(entries)) {
@@ -679,7 +688,7 @@ export function registerFull(app, upload) {
     const q = String(req.query.q || "").toLowerCase();
     const results = [];
     try {
-      const imagesDir = join(LIBRARY_DIR, "Images");
+      const imagesDir = join(libraryDir(), "Images");
       if (existsSync(imagesDir)) for (const name of readdirSync(imagesDir)) {
         if (!q || name.toLowerCase().includes(q)) results.push({ title: name, imageUrl: `/api/library/Images/${encodeURIComponent(name)}`, source: "library" });
       }

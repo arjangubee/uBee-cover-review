@@ -18,6 +18,7 @@ import SongsView from "./songs/SongsView.jsx";
 import { createHistory } from "./undo.js";
 import { globalHide, ownQuote, quoteShown } from "./quoteOverlay.js";
 import UpdateBanner from "./UpdateBanner.jsx";
+import { BUILT_VERSION } from "./release.js";
 
 const STYLE_KEYS = Object.keys(STYLE_DEFAULTS);
 const MAX_BOXES = 5;
@@ -647,7 +648,10 @@ export default function App() {
   const counts = status?.counts;
   return (
     <div ref={appRef} className={draft ? "app editing" : "app"}>
-      <UpdateBanner />
+      {/* The version this page was built from, small at the top right of every screen (1.13.10, Quill #703). */}
+      <p className="versionTag"><span className="srOnly">Version </span>{BUILT_VERSION}</p>
+      {/* An editor or a sheet open means she's busy: a git copy waits for a quiet minute to update itself (1.13.10). */}
+      <UpdateBanner inUse={Boolean(draft) || infoOpen || Boolean(sheet)} />
       {view === "songs" ? (
         <SongsView forCover={songsFrom === "cover" ? current : null} closeLabel={songsFrom === "cover" ? "Back to the cover" : "Back to all covers"}
           onClose={closeSongs} onUse={putSongOnCover} />

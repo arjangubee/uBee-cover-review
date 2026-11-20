@@ -1,9 +1,9 @@
 {
-  "version": "1.13.9",
+  "version": "1.13.10",
   "date": "2026-11-20",
   "whatsNew": [
-    "Quotes show on every cover. Tap the T next to the pencil to turn one off, and tap again to bring it back",
-    "Hold the T for a second to hide the quote on every cover, and hold it again to bring them back",
-    "Compose checks saved before this version are checked again once, in the background"
+    "A copy installed with git updates itself after a quiet minute: nothing open, nothing touched",
+    "The version shows small at the top right of every screen",
+    "A copy your Muse looks after says when a new version is out, and your Muse brings it in"
   ]
 }

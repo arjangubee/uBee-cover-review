@@ -1110,6 +1110,14 @@ try {
     assert(["idle", "checking", "updating", "restarting", "failed"].includes(u.state), `unexpected state ${u.state}`);
     assert(typeof u.available === "boolean" && Array.isArray(u.whatsNew), "available and whatsNew expected");
   });
+  await check("v1.13.10 the page tells the app when she's busy or idle, so it can update itself at a quiet moment", async () => {
+    const said = await postJson("/api/activity", { busy: true, idleMs: 1200 });
+    assert(said.ok === true, `the app hears the page: ${JSON.stringify(said)}`);
+    const odd = await fetch(`${base}/api/activity`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ busy: "yes", idleMs: -5 }) });
+    assert(odd.ok, `odd values never fail; at most they put an update off a minute: ${odd.status}`);
+    const u = await (await fetch(`${base}/api/update`)).json();
+    assert("failed" in u, `status carries the last failure, or null: ${JSON.stringify(u).slice(0, 200)}`);
+  });
   await check("health reports the real version from package.json", async () => {
     const h = await (await fetch(`${base}/api/health`)).json();
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));

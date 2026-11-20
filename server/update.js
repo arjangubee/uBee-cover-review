@@ -8,10 +8,21 @@ import { join } from "node:path";
 // data, pulls, reinstalls, rebuilds and restarts. Her photos, decisions and notes live in
 // files git never touches. A Muse's local code fix is kept when it doesn't clash with the
 // new version, and saved as a patch in data/backups when it does.
+//
+// 1.13.10 (Arjang #729, Quill #733): it also updates on its own at a quiet moment, the same steps as UPDATE NOW.
+// Quiet means no tap, key, scroll or wheel on any open page for QUIET_MS, and no page has said within BUSY_HOLD_MS
+// that it has an editor, a sheet or a text box open (a page with one open says so every 20 seconds). The minute
+// starts when the app starts, so an open page has time to speak up first. Once a new version is known, it looks for
+// a quiet moment every AUTO_TICK_MS. If an update fails, the old version goes back on disk (code, packages and the
+// built page) and keeps running, the page shows a notice, and that version isn't tried again on its own: Try again,
+// a restart of the app, or a newer version tries again.
 
 const DATA_FILES = ["db.json", "settings.json", "grievances.json", "quotes.json", "trending.json", "song-pool.json", "drive-plan.json", "last-update.json"];
 const KEEP_BACKUPS = 10;
 const CHECK_EVERY_MS = 2 * 60 * 1000;
+const QUIET_MS = 60 * 1000;
+const BUSY_HOLD_MS = 45 * 1000;
+const AUTO_TICK_MS = 15 * 1000;
 // The client's build tool (vite) is a dev package. --include=dev keeps the build working on a machine
 // where npm skips dev packages (NODE_ENV=production or omit=dev).
 export const DEFAULT_COMMANDS = [
@@ -37,7 +48,8 @@ export function defaultRestart() {
   setTimeout(() => process.exit(0), 300); // the new copy retries the port until this one lets go
 }
 
-export function createUpdater({ root, dataDir, branch = "main", remote = null, commands = DEFAULT_COMMANDS, restart = defaultRestart } = {}) {
+export function createUpdater({ root, dataDir, branch = "main", remote = null, commands = DEFAULT_COMMANDS, restart = defaultRestart,
+  now = () => Date.now(), quietMs = QUIET_MS, busyHoldMs = BUSY_HOLD_MS } = {}) {
   const git = (...args) => run("git", args, root, 2 * 60 * 1000);
   // Updates come from uBee's repo. A copy cloned from a creator's own fork names uBee's repo "upstream",
   // so that one wins when it exists; otherwise "origin" is uBee's repo.
@@ -46,9 +58,12 @@ export function createUpdater({ root, dataDir, branch = "main", remote = null, c
     const r = await git("remote");
     return r.ok && r.out.split("\n").map((x) => x.trim()).includes("upstream") ? "upstream" : "origin";
   }
-  const state = { git: null, current: null, latest: null, available: false, whatsNew: [], checkedAt: null, state: "idle", error: null, savedPatch: null };
+  const state = { git: null, current: null, latest: null, available: false, whatsNew: [], checkedAt: null, state: "idle", error: null, savedPatch: null, failed: null };
   let timer = null;
+  let autoTimer = null;
   let checking = null;
+  const activity = { lastInteractionAt: now(), busyUntil: 0 };
+  let failedCommit = null; // the version that failed: not tried again on its own
 
   function packageVersion() {
     try { return JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version || "0.0.0"; } catch { return "0.0.0"; }
@@ -105,8 +120,10 @@ export function createUpdater({ root, dataDir, branch = "main", remote = null, c
     const have = await git("cat-file", "-e", `${sha}^{commit}`);
     if (!have.ok) await git("fetch", "--quiet", src, `+refs/heads/${branch}:refs/remotes/${src}/${branch}`);
     const log = await git("log", "--format=%s", `HEAD..${sha}`);
+    let version = null;
+    try { version = JSON.parse((await git("show", `${sha}:package.json`)).out).version || null; } catch { version = null; }
     state.available = true;
-    state.latest = { commit: sha.slice(0, 7) };
+    state.latest = { commit: sha.slice(0, 7), version };
     state.whatsNew = log.ok ? log.out.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 12) : [];
     return status();
   }
@@ -131,37 +148,60 @@ export function createUpdater({ root, dataDir, branch = "main", remote = null, c
     return { ok: false, error };
   }
 
-  async function apply() {
+  // A failed update puts the old version back on disk, so the code, its packages and the built page all match the
+  // version that keeps running, and her Muse's local fix goes back on top. False if rebuilding the old version failed too.
+  async function putBack(oldHead, localPatch) {
+    await git("reset", "--hard", "--quiet", oldHead);
+    if (localPatch) await git("apply", localPatch);
+    for (const [cmd, args] of commands) if (!(await run(cmd, args, root)).ok) return false;
+    return true;
+  }
+
+  async function apply({ auto = false } = {}) {
     if (state.state === "updating") return { ok: false, error: "An update is already running." };
     state.git = await isGit();
     if (!state.git) return fail("This copy wasn't installed with git, so it can't update itself. Tell your Muse: reinstall Cover Review with git clone.");
+    if (!auto) failedCommit = null; // Try again always tries
     state.state = "updating";
     state.error = null;
+    const fromVersion = packageVersion();
+    const oldHead = (await git("rev-parse", "HEAD")).out;
+    let target = state.latest?.commit || null;
+    const failed = (error) => {
+      failedCommit = target;
+      state.failed = { from: fromVersion, to: state.latest?.version || null, commit: target, at: new Date().toISOString(), auto };
+      return fail(error);
+    };
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const backupDir = backupData(stamp);
 
     // A Muse may have fixed something in the code locally. Keep it out of the way while pulling.
     let stashed = false;
     let savedPatch = null;
+    let localPatch = null; // her Muse's fix as it was, to put back if the update fails
     const dirty = await git("status", "--porcelain", "--untracked-files=no");
     if (dirty.out) {
       const diff = await git("diff", "HEAD");
-      savedPatch = join(backupDir, "local-changes.patch");
+      localPatch = savedPatch = join(backupDir, "local-changes.patch");
       writeFileSync(savedPatch, diff.out + "\n");
       const st = await git("stash", "push", "--quiet", "-m", `cover-review update ${stamp}`);
-      if (!st.ok) return fail("Couldn't set your copy's local changes aside. Tell your Muse: update my Cover Review.");
+      if (!st.ok) return failed("Couldn't set your copy's local changes aside. Tell your Muse: update my Cover Review.");
       stashed = true;
     }
 
     const src = await source();
     const remoteRef = `refs/remotes/${src}/${branch}`;
     const fetched = await git("fetch", "--quiet", src, `+refs/heads/${branch}:${remoteRef}`);
+    if (fetched.ok) {
+      const head = await git("rev-parse", remoteRef);
+      if (head.ok && head.out) target = head.out.slice(0, 7);
+    }
     const merged = fetched.ok ? await git("merge", "--ff-only", "--quiet", remoteRef) : fetched;
     if (!merged.ok) {
       if (stashed) await git("stash", "pop", "--quiet");
-      return fail(fetched.ok
+      return failed(fetched.ok
         ? "Your copy has its own saved changes that the new version can't sit on top of. Tell your Muse: update my Cover Review."
-        : "Couldn't reach GitHub to download the update. Check the internet and tap UPDATE NOW again.");
+        : "Couldn't reach GitHub to download the update. Check the internet and tap Try again.");
     }
 
     if (stashed) {
@@ -176,7 +216,11 @@ export function createUpdater({ root, dataDir, branch = "main", remote = null, c
 
     for (const [cmd, args] of commands) {
       const r = await run(cmd, args, root);
-      if (!r.ok) return fail(`The new version downloaded, but "${cmd} ${args.join(" ")}" failed. Tell your Muse: finish my Cover Review update.`);
+      if (!r.ok) {
+        const rebuilt = await putBack(oldHead, localPatch);
+        return failed(`The new version downloaded, but "${cmd} ${args.join(" ")}" failed, so the app went back to version ${fromVersion}`
+          + `${rebuilt ? "" : ", and rebuilding that version didn't finish either"}. Tell your Muse: check my Cover Review update.`);
+      }
     }
 
     const from = state.current?.commit || null;
@@ -185,7 +229,7 @@ export function createUpdater({ root, dataDir, branch = "main", remote = null, c
     state.whatsNew = [];
     state.current = versionInfo();
     // The restarted app reads this to say "Updated" once, and to point a Muse at a saved patch.
-    writeFileSync(join(dataDir, "last-update.json"), JSON.stringify({ at: new Date().toISOString(), from, to: state.current.commit, version: state.current.version, savedPatch }, null, 1));
+    writeFileSync(join(dataDir, "last-update.json"), JSON.stringify({ at: new Date().toISOString(), from, to: state.current.commit, version: state.current.version, savedPatch, auto }, null, 1));
     restart();
     return { ok: true, state: "restarting", savedPatch };
   }
@@ -198,13 +242,42 @@ export function createUpdater({ root, dataDir, branch = "main", remote = null, c
     return { ...state, current: state.current || versionInfo(), lastUpdate: lastUpdate() };
   }
 
+  // What the page says about her: busy while an editor, a sheet or a text box is open, and how long since her last tap,
+  // key, scroll or wheel (idleMs). The latest word from any page counts.
+  function noteActivity({ busy = false, idleMs = 0 } = {}) {
+    const t = now();
+    const idle = Math.max(0, Math.min(Number(idleMs) || 0, 60 * 60 * 1000));
+    activity.lastInteractionAt = Math.max(activity.lastInteractionAt, t - idle);
+    if (busy) activity.busyUntil = Math.max(activity.busyUntil, t + busyHoldMs);
+  }
+  function quiet() {
+    const t = now();
+    return t - activity.lastInteractionAt >= quietMs && t >= activity.busyUntil;
+  }
+  // One look for a quiet moment. The loop runs it every AUTO_TICK_MS; tests call it directly.
+  async function autoTick() {
+    if (state.state === "updating" || state.state === "restarting") return { applied: false, reason: "updating" };
+    if (!state.git || !state.available || !state.latest?.commit) return { applied: false, reason: "nothing-new" };
+    if (failedCommit && failedCommit === state.latest.commit) return { applied: false, reason: "failed-before" };
+    if (!quiet()) return { applied: false, reason: "not-quiet" };
+    const r = await apply({ auto: true });
+    return r.ok ? { applied: true, reason: "applied" } : { applied: false, reason: "failed", error: r.error };
+  }
+
   function start() {
     if (timer) return;
     setTimeout(() => check().catch(() => {}), 3000);
     timer = setInterval(() => check().catch(() => {}), CHECK_EVERY_MS);
     timer.unref?.();
+    autoTimer = setInterval(() => autoTick().catch(() => {}), AUTO_TICK_MS);
+    autoTimer.unref?.();
   }
-  function stop() { if (timer) clearInterval(timer); timer = null; }
+  function stop() {
+    if (timer) clearInterval(timer);
+    if (autoTimer) clearInterval(autoTimer);
+    timer = null;
+    autoTimer = null;
+  }
 
-  return { check, apply, status, start, stop, versionInfo };
+  return { check, apply, status, start, stop, versionInfo, noteActivity, autoTick };
 }

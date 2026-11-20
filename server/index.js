@@ -229,8 +229,15 @@ startSymphony();
 registerPollen(app);
 startPollenSync();
 
-// ---------- Updates: check on start and every 2 minutes, UPDATE NOW applies ----------
-app.get("/api/update", (_req, res) => res.json(updater.status()));
+// ---------- Updates: check on start and every 2 minutes; apply at a quiet moment (1.13.10) or on UPDATE NOW ----------
+app.get("/api/update", (_req, res) => res.json({ ...updater.status(), boot: BOOT })); // boot: a page sees the app restart (1.13.10)
+// The page's word on her (1.13.10): busy while an editor, a sheet or a text box is open, and how long since her last tap,
+// key, scroll or wheel. The updater waits for a quiet minute before it updates on its own. Odd values only delay it.
+app.post("/api/activity", (req, res) => {
+  const b = req.body || {};
+  updater.noteActivity({ busy: b.busy === true, idleMs: Number.isFinite(b.idleMs) ? b.idleMs : 0 });
+  res.json({ ok: true });
+});
 app.post("/api/update/check", async (_req, res) => res.json(await updater.check()));
 app.post("/api/update/apply", (_req, res) => {
   const s = updater.status();

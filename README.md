@@ -9,7 +9,7 @@ This is the portable edition of the Cover Review app that started inside Arjang'
 - Photos are the only thing it needs. Add photos and start reviewing.
 - Approve, pass, rate, and leave a note on every photo. Nothing gets deleted when you approve, your choice is saved.
 - Every photo gets a quote from the uBee default pack, a song suggestion, and a caption draft.
-- Songs default to what is trending on Instagram. Connect Spotify and your own library goes first. Connect a folder of downloaded songs (Symphony's manifest.json and hook clips) and its songs go first, each playing its hook.
+- Songs default to what is trending on Instagram. Connect Spotify and your own library goes first. Connect a folder of downloaded songs (Symphony's manifest.json and hook clips) and its songs go first, each playing its hook. uBee clients can connect Symphony too: the note next to the song opens New hot and every song's hook, and Use on this cover sets it.
 - Captions draft in your voice once your Muse learns it from your previous Instagram captions, with your consent.
 - Where your Muse can draft with a model, new covers get a caption in your own voice before you see them, on topic of the text on the cover, or about the photo when a cover has no text. A caption you typed is never replaced.
 - If you run comment keyword DMs, your Muse saves your calls ("Comment WORD and I'll send you ...") and each cover gets a switch under the caption, off by default. On, your call leads the caption that posts.

@@ -52,8 +52,9 @@ export function ModeSwitch({ story, setStory, disabled }) {
 // The play button works like the original's: with a Spotify link it opens Spotify's own player for this cover's
 // song, and she taps play inside it (that keeps iOS happy about audio). Closing it, or moving to another cover,
 // removes the player, so playback stops. A song with only a preview plays the preview, as in 1.4. A downloaded song
-// (1.11) plays its hook clip from this app, ahead of any Spotify link.
-export function SongRow({ item, onShuffle, onSetSong, onDraft }) {
+// (1.11) plays its hook clip from this app, ahead of any Spotify link. With Symphony connected (1.12), the note opens
+// the Songs screen for this cover.
+export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs }) {
   const { artist, title } = parseSong(item.song);
   const clip = item.songFile && item.songPreviewUrl ? item.songPreviewUrl : "";
   const embed = clip ? "" : spotifyEmbedUrl(item.songSpotifyUrl);
@@ -104,6 +105,7 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft }) {
           <audio ref={audio} src={preview} preload="none" onEnded={() => setPlaying(false)} />
         </>
       ) : null}
+      {onSongs && <button type="button" className="iconBtn" onClick={onSongs} aria-label="Pick a song from Symphony"><Icon name="note" /></button>}
       <button type="button" className="iconBtn" onClick={onShuffle} aria-label="Shuffle the song"><Icon name="shuffle" /></button>
     </div>
     {embed && playerOpen && (

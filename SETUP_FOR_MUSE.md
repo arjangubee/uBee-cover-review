@@ -53,6 +53,12 @@ Downloaded songs, only when the owner gives you a songs folder (1.11):
 3. From then on, new covers and Shuffle pick from those songs, each with its hook clip, and a song you set that's on the list gets its clip. Covers keep their songs until they're shuffled or changed.
 4. To stop, send `{ "folder": null }`. Covers keep their song names.
 
+Symphony, uBee clients only (1.12):
+1. Ask uBee for the Symphony code. It is a secret: never write it into a file in this repo, a commit, a grievance, a log or a chat.
+2. Connect it with `POST /api/connectors/symphony` as `{ "code": "..." }`. It answers with how many songs Symphony has and how many have hook clips, or the reason the code didn't work.
+3. Tell the creator: the note next to a cover's song opens Symphony's songs. New hot plays what's rising in the US, and Use on this cover puts a song on that cover with its hook. With no songs folder connected, new covers and Shuffle pick Symphony's songs too.
+4. To stop, send `{ "code": null }`. Covers keep their songs.
+
 ## 5. Instagram: trending by default, captions only with consent
 
 Trending, no consent needed:

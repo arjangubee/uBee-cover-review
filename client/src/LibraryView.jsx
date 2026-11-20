@@ -7,7 +7,7 @@ import { displayTitle } from "./reviewMath.js";
 
 const TABS = [["queue", "Queue"], ["approved", "Approved"], ["rejected", "Passed"]];
 
-export default function LibraryView({ list, setList, items, counts, pollenOn, onOpen, onSchedule, onUpload, onClose, canClose }) {
+export default function LibraryView({ list, setList, items, counts, pollenOn, onOpen, onSchedule, onUpload, onClose, canClose, onSongs }) {
   return (
     <section className="library" aria-label="All covers">
       <header className="libraryHead">
@@ -15,6 +15,7 @@ export default function LibraryView({ list, setList, items, counts, pollenOn, on
           ? <button type="button" className="iconBtn" onClick={onClose} aria-label="Back to the cover"><Icon name="back" /></button>
           : <span className="iconBtn" aria-hidden="true" />}
         <h1>Covers</h1>
+        {onSongs && <button type="button" className="iconBtn" onClick={onSongs} aria-label="Songs from Symphony"><Icon name="note" /></button>}
         <label className="addPhotos">
           <Icon name="photoAdd" size={20} /> Add photos
           <input type="file" accept="image/*" multiple hidden onChange={(e) => { const files = [...e.target.files]; e.target.value = ""; if (files.length) onUpload(files); }} />

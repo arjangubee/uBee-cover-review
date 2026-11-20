@@ -12,6 +12,85 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.12.0: songs from Symphony
+
+Arjang's #477, #480 and #483, Quill's #497 and #500, Symphony's #496. Symphony's songs, online, inside Cover Review:
+New hot, the library and every song's hook, in Spotify's hierarchy, with Use on this cover. Additive: until a Symphony
+code is connected nothing changes, and no note button shows.
+
+1. **The code.** A new setting, symphony: `{ code, connectedAt }`, set by her Muse with the Symphony code from uBee. It
+   is a secret, like the Pollen code: data/settings.json only, never in the repo, a log, a grievance or a chat, and no
+   action answers with it. Connecting reads the feed with it once. A code that doesn't work is refused with the reason
+   and nothing is stored. A code that stops working later (Symphony answers 401) becomes `{ revoked: true, revokedAt }`,
+   and the app says to ask uBee for a new one. Sending null disconnects.
+2. **The feed.** The server reads `GET https://evmqkvnclbqcijlyezrr.supabase.co/functions/v1/symphony/feed` with
+   `Authorization: Bearer <code>` and keeps it for 30 minutes, so the code never reaches the page. It reads it again
+   first when the feed's clip links (good for a day) are within 10 minutes of expiring. A failed read keeps the last
+   good one. Only https links are kept, and a clip link has to be on Symphony's own storage.
+3. **Clips.** A cover's Symphony clip is stored as songFile `symphony:<id>` (the id is lowercase letters, digits and
+   dashes). Its address is /api/symphony/clips/<id> (`?part=N` for the song's other popular parts), which redirects to
+   the signed link. A cover never stores a link that expires.
+4. **Picking.** With no songs folder connected, the downloaded list is Symphony's songs that have a hook clip, New hot
+   first. New covers, Shuffle, a typed song, the Compose check and Pollen use it exactly like the folder's list. A
+   connected folder still wins.
+5. **The Songs screen.** With Symphony connected, a note button in the song row (and one in the covers header) opens
+   Symphony's screens: New hot, Search and Library tabs, a mini player, the song screen (the hook in green on the
+   progress bar, back and next between popular parts, hook lyrics, where each app's preview starts, YouTube's most
+   replayed moment, US charts today, the data behind it, Watch on YouTube) and a share sheet. Opened from a cover it
+   adds Use on this cover: the song whole, with its clip and hook, as one Song step that undo takes back.
+6. **Pollen.** Once the Bee Hive takes songs, a Symphony clip goes like a folder clip: the app downloads it from
+   Symphony and uploads it with the cover. A cover whose Symphony clip isn't in the feed right now is flagged in the
+   check and refused before anything is sent.
+
+### New setting
+
+| Setting | Type | Default | What it is |
+| --- | --- | --- | --- |
+| symphony | { code, connectedAt }, or { revoked, revokedAt } | none | The Symphony code (secret) and when it was connected. Adds one settings row once her Muse connects it |
+
+### New values in existing fields (photos table)
+
+| Field | Change |
+| --- | --- |
+| songFile | Can hold `symphony:<id>`, a Symphony clip |
+| songPreviewUrl | Reads /api/symphony/clips/<id> for a Symphony clip |
+
+### Actions
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| GET /api/connectors/symphony | New. { connected, revoked, songs, withClips, updatedAt, day, checkedAt, message }. Never the code |
+| POST /api/connectors/symphony | New. { code } connects (400 when it isn't a code, 401 when Symphony refuses it, 502 when Symphony can't be reached, and nothing is stored); { code: null } disconnects |
+| GET /api/symphony | New. The status above plus stale, hot: { date, rows: [{ id, badges: [{ text }] }] } and songs: [{ id, artist, title, artwork, genre, durationSec, addedAt, analyzed, error, popularity, watch, isrc, links: { apple, spotify, youtube }, today, hook: { start, end, label, level, parts, lines } or null, previewStart, previewUrl: { apple, spotify }, replayPeak, replay, depth, chorusCount, views, clips: [true or false per part] }] |
+| GET /api/symphony/clips/:id | New. 302 to the clip's signed link, `?part=N` for part N. 404 when there's no code, no such song, or no clip |
+| GET /api/songs | Adds source: folder, symphony or null. With no folder, songs are Symphony's |
+| POST /api/items/:id/edit | songFile may be `symphony:<id>` (undo, and Use on this cover). Any other songFile that isn't a clip path in the folder answers 400 and changes nothing |
+| POST /api/items/upload, POST /api/items/enqueue, POST /api/items/:id/verify | As in 1.11, from Symphony's list when no folder is connected |
+| POST /api/pollen/check, POST /api/pollen/schedule | Symphony clips, as in item 6 |
+| GET /api/health | Adds symphony: { connected, revoked } |
+| GET /api/setup/status | Adds requirements.symphony |
+| GET /api/connectors | Lists Symphony with its Muse steps |
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| songs/ (new folder) | SongsView.jsx, SongsTabs.jsx, SongsPlayer.jsx, SongsSheets.jsx, SongsRow.jsx, songsData.js, artColor.js and songs.css (every class starts with sym, so nothing touches the review screen) |
+| App.jsx | The Songs view; the Symphony status loads with the rest; Use on this cover is a recorded Song edit |
+| CoverTop.jsx | The note button in the song row, only with Symphony connected |
+| LibraryView.jsx | The note button in the covers header, only with Symphony connected |
+| icons.jsx | The icons the Songs screen uses |
+| styles.css | The covers header fits the note button |
+
+A ported space maps GET /api/symphony and the clip address to actions that read the feed on the server with the
+stored code. A space whose actions can't redirect may answer a clip address with the clip's bytes instead, fetched
+from the signed link on the server. Either way the page never sees the code or a signed link.
+
+Checks after the port: with no code, nothing changes and no note shows. Connect the code: the note shows in the song
+row; New hot plays its hooks; Use on this cover gives the cover the song with its clip, the song row plays the hook,
+and undo takes it back; no screen, response, log or screenshot shows the code. Disconnect: the note goes, and covers
+keep their songs. Then the counts (one more settings row once connected).
+
 ## 1.11.0: downloaded songs
 
 Arjang's #477 and #480, Quill's #482 and #492, Symphony's #481 and #491. Covers can take their song from a folder of

@@ -17,6 +17,8 @@ Common issues:
 | Quote toggle refuses to turn on | Working as designed: quotes are locked | Creator connects their quotes with POST /api/quotes/connect, or steals at least one quote in the quiz |
 | Quiz quote feels Arjang specific | The generalized filter is keyword based, a borderline quote slipped through | Remove that text from data/quiz-quotes.json, note it in the grievance resolution |
 | Songs look stale | Trending seed was never refreshed | Refresh through the Instagram connector, POST /api/trending/refresh |
+| No note button next to the song, or the Songs screen says the code doesn't work | Symphony isn't connected, or uBee replaced the code | GET /api/connectors/symphony shows which. Ask uBee for the code and POST /api/connectors/symphony {code}. Never paste the code anywhere else |
+| A Symphony song won't play | Symphony can't be reached, or the song left Symphony's feed | GET /api/connectors/symphony shows any message. Check the internet, then shuffle the song or pick another in the Songs screen |
 | Drive folders exist only as a plan | No Google API credentials in .env, plan mode is expected | Create the folders through your Drive connector, confirm ids with POST /api/drive/folders/confirm |
 | A uBee client's files landed in their personal Drive | Workspace mode is own_drive | POST /api/workspace/configure with mode ubee_shared and the client name, then rebuild their folders inside the uBee shared Drive under Creators / their name |
 | Photos approved but creator cannot find them | Decisions live in data/db.json and the app tabs | Show them the Approved tab. If Drive is connected, mirror approvals into the Approved folder |

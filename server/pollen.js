@@ -10,6 +10,7 @@ import { captionProblems } from "./captionRules.js";
 import { postedCaption } from "./captionCtas.js";
 import { MISSING_CLIP, clipPath, clipType, songMeta } from "./songs.js";
 import { DATA_DIR, LIBRARY_DIR, UPLOAD_DIR, store } from "./store.js";
+import { MISSING_ONLINE_CLIP, isSymphonyFile, symphonyClipBytes, symphonyClipReady } from "./symphony.js";
 
 export const BEE_HIVE_URL = process.env.COVER_REVIEW_BEE_HIVE_URL || "https://ubeeofm.com/api/public/cover-review";
 export const RENDER_DIR = join(DATA_DIR, "renders");
@@ -34,6 +35,11 @@ const takesSongs = () => Boolean(pollen()?.features?.songs);
 /** How a cover's downloaded song fares with Pollen: does it have a clip, will the clip go, and any problem. */
 export function songCheck(item) {
   const hasSongClip = Boolean(item?.songFile);
+  // 1.12: a Symphony clip goes when Symphony's feed has it right now; Pollen gets its bytes from Symphony.
+  if (hasSongClip && isSymphonyFile(item.songFile)) {
+    const ready = symphonyClipReady(item.songFile);
+    return { hasSongClip, songGoes: ready && takesSongs(), clip: null, symphony: ready, problem: takesSongs() && !ready ? MISSING_ONLINE_CLIP : null };
+  }
   const clip = hasSongClip ? clipPath(item.songFile) : null;
   const goes = Boolean(clip) && takesSongs();
   return { hasSongClip, songGoes: goes, clip, problem: hasSongClip && takesSongs() && !clip ? MISSING_CLIP : null };
@@ -159,12 +165,16 @@ async function scheduleOne(id, picked) {
     // 1.11: a cover with a downloaded song sends that exact hook clip too, with its name and hook times.
     let songBody = {};
     if (song.songGoes) {
-      const type = clipType(song.clip);
+      let clip;
+      if (song.symphony) {
+        try { clip = await symphonyClipBytes(item.songFile); } catch (e) { throw new HiveError(e.message, 0); } // never Pollen's 401
+      } else clip = { body: readFileSync(song.clip), type: clipType(song.clip) };
+      const type = clip.type;
       const upSong = await hive("upload_url", { client_key: clientKey, kind: "song", content_type: type });
       let putSong;
       try {
         putSong = await fetch(upSong.signed_url, { method: "PUT", headers: { "Content-Type": type, "x-upsert": "true" },
-          body: readFileSync(song.clip), signal: AbortSignal.timeout(120000) });
+          body: clip.body, signal: AbortSignal.timeout(120000) });
       } catch { throw new HiveError(OFFLINE, 0); }
       if (!putSong.ok) throw new HiveError(`The song clip didn't upload (${putSong.status}). Try again.`, putSong.status);
       songBody = { song: { path: upSong.path, ...songMeta(item), content_type: type } };

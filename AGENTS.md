@@ -17,6 +17,7 @@ Hard rules:
 - uBee clients save into the uBee shared Drive, in Creators / their name, in the friendly client folder structure. Everyone else saves into their own Drive. Check GET /api/workspace before creating any folders.
 - Write like a person in outward copy. Short, plain, human. No em-dashes.
 - Pollen (uBee clients only): connect with POST /api/connectors/pollen {code}. The code is a secret. Never write it into a file in this repo, a commit, a grievance, a log or a chat. The app keeps it in data/settings.json, which is gitignored and backed up locally only.
+- Symphony (uBee clients only): connect with POST /api/connectors/symphony {code}. The same rules as the Pollen code: a secret, kept only in data/settings.json, never in a file in this repo, a commit, a grievance, a log or a chat.
 
 ## Debugging protocol: you are also the repair crew
 

@@ -71,6 +71,19 @@ export const CONNECTORS = [
       "To stop, POST /api/songs/folder with {folder: null}. Covers keep their song names.",
     ],
   },
+  {
+    id: "symphony",
+    name: "Symphony (uBee clients only)",
+    required: false,
+    purpose: "Symphony's songs online: New hot, the library and every song's hook, in a Songs screen opened from the song row, with Use on this cover. With no songs folder connected, new covers and Shuffle pick Symphony's songs, each playing its hook clip. Nothing changes until a code is connected.",
+    env: [],
+    claudeSteps: [
+      "Only for uBee clients. Ask uBee for the Symphony code. Never paste it into a file, a commit, a grievance or a chat log.",
+      "POST /api/connectors/symphony with {code}. The app keeps it in data/settings.json, which never leaves her computer. A code that doesn't work answers 401 with the reason.",
+      "Check GET /api/connectors/symphony: connected, with how many songs and how many have hook clips. The song row now has a Songs button.",
+      "To stop, POST /api/connectors/symphony with {code: null}. Covers keep their song names.",
+    ],
+  },
 ];
 
 export const DRIVE_ROOT_NAME = "uBee Cover Review";

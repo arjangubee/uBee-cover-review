@@ -1,0 +1,164 @@
+/* The Songs screen (1.12): Symphony's screens inside Cover Review. Spotify's hierarchy (tabs, library rows, mini
+   player, song screen, share sheet) in uBee's colors: true black, white type, Spotify's own green for play and what's
+   playing, chartreuse for the bee and for Use on this cover. Every class starts with "sym", so nothing here touches
+   the review screen. */
+.symView { --sym-muted: #a7a7ab; --sym-play: #1ed760; --sym-tab-h: 64px; --sym-mini-h: 64px;
+  display: block; padding-bottom: calc(var(--sym-tab-h) + 8px); }
+.symView.withMini { padding-bottom: calc(var(--sym-tab-h) + var(--sym-mini-h) + 8px); }
+.symView button, .symView a { color: inherit; }
+.symView input { font: inherit; caret-color: var(--accent); }
+.symGrow { flex: 1; }
+
+/* ---------- Tab headers ---------- */
+.symTabHead { display: flex; align-items: center; gap: 8px; min-height: 64px; padding-top: env(safe-area-inset-top); }
+.symTabHead > .iconBtn:first-child { margin-left: -10px; }
+.symTabTitle { flex: 1; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.01em; }
+.symBee { width: 28px; height: 28px; object-fit: contain; }
+
+/* ---------- New hot, as a playlist page ---------- */
+.symHero { display: grid; justify-items: start; gap: 6px; padding: 4px 0 8px; }
+.symMosaic { display: grid; grid-template-columns: 1fr 1fr; justify-self: center; width: min(232px, 62vw); aspect-ratio: 1; margin-bottom: 14px; overflow: hidden; border-radius: 4px; background: var(--surface); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.symMosaic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.symMosaic.n0 { display: grid; place-items: center; grid-template-columns: 1fr; color: var(--sym-muted); }
+.symMosaic.n1, .symMosaic.n2, .symMosaic.n3 { grid-template-columns: 1fr; }
+.symMosaic.n2 img:nth-child(n + 2), .symMosaic.n3 img:nth-child(n + 2) { display: none; }
+.symHeroTitle { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.01em; }
+.symHeroLine { margin: 0; color: var(--sym-muted); font-size: 14px; line-height: 1.4; }
+.symHeroMeta { margin: 0; color: var(--sym-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.symHeroActions { display: flex; align-items: center; width: 100%; margin-top: 4px; }
+.symBigPlay { flex: none; display: grid; place-items: center; width: 56px; height: 56px; padding: 0 0 0 3px; border: 0; border-radius: 50%; background: var(--sym-play); color: #000 !important; }
+.symBigPlay:active:not(:disabled) { transform: scale(0.96); }
+.symBigPlay:disabled { background: var(--surface-2); color: var(--off) !important; }
+.symEmpty { margin: 24px 0; color: var(--sym-muted); font-size: 15px; line-height: 1.45; text-align: center; }
+
+/* ---------- Rows ---------- */
+.symRows { margin: 4px 0 0; padding: 0; list-style: none; }
+.symRow { display: flex; align-items: center; gap: 4px; }
+.symRowMain { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: 72px; padding: 8px 0; border: 0; background: none; text-align: left; }
+.symRowMain:active:not(:disabled) .symRowTitle { opacity: 0.7; }
+.symArt { flex: none; display: block; object-fit: cover; background: var(--surface); }
+.symNoArt { display: grid; place-items: center; color: var(--sym-muted); }
+.symRowText { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.symRowTitle { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.symRow.active .symRowTitle { color: var(--sym-play); }
+.symRowSub { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--sym-muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.symClipMark { flex: none; color: var(--sym-play); }
+.symRowMore { flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin-right: -10px; padding: 0; border: 0; background: none; color: var(--sym-muted) !important; }
+
+/* ---------- Library ---------- */
+.symChips { display: flex; gap: 8px; margin: 0 -16px; padding: 4px 16px 8px; overflow-x: auto; scrollbar-width: none; }
+.symChips::-webkit-scrollbar { display: none; }
+.symChip { flex: none; display: inline-grid; place-items: center; height: 34px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--surface-2); font-size: 14px; font-weight: 500; white-space: nowrap; }
+.symChip.on { background: var(--sym-play); color: #000 !important; }
+.symChip.clear { width: 34px; padding: 0; }
+.symSortRow { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 2px; }
+.symSortBtn { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0; border: 0; background: none; font-size: 14px; font-weight: 600; }
+.symCount { color: var(--sym-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* ---------- Search ---------- */
+.symSearchBar { display: flex; align-items: center; gap: 12px; min-height: 64px; padding-top: env(safe-area-inset-top); }
+.symSearchField { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-radius: 8px; background: var(--surface-2); color: var(--sym-muted); }
+.symSearchField input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: #fff; font-size: 16px; }
+.symSearchField input::placeholder { color: var(--sym-muted); }
+.symSearchField input:focus { outline: none; }
+.symSearchField input::-webkit-search-cancel-button { display: none; }
+.symCancel { flex: none; min-height: 44px; padding: 0; border: 0; background: none; font-size: 15px; font-weight: 600; }
+.symFindHint { padding: 96px 12px 0; text-align: center; }
+.symFindHint h2 { margin: 0 0 8px; font-size: 20px; font-weight: 700; }
+.symFindHint p { margin: 0; color: var(--sym-muted); font-size: 14px; line-height: 1.45; }
+
+/* ---------- Tab bar and mini player ---------- */
+.symTabBar { position: fixed; left: 50%; bottom: 0; z-index: 40; display: grid; grid-template-columns: repeat(3, 1fr); width: 100%; max-width: 560px;
+  padding: 18px 8px calc(6px + var(--host-bar) + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  background: linear-gradient(to top, #000 62%, rgba(0, 0, 0, 0)); }
+.symTabBar button { display: grid; justify-items: center; gap: 3px; min-height: 48px; padding: 0; border: 0; background: none; color: var(--sym-muted); font-size: 11px; font-weight: 600; }
+.symTabBar button.on { color: #fff; }
+.symMini { position: fixed; left: 50%; bottom: calc(var(--sym-tab-h) + var(--host-bar) + env(safe-area-inset-bottom) + 2px); z-index: 45; display: flex; align-items: center;
+  width: calc(min(560px, 100%) - 16px); height: 58px; padding: 0 4px 0 8px; overflow: hidden; border-radius: 8px; transform: translateX(-50%);
+  background: var(--tint, var(--surface-2)); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
+.symMiniMain { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 100%; padding: 0; border: 0; background: none; text-align: left; }
+.symMini .symArt { border-radius: 4px; }
+.symMiniText { min-width: 0; display: grid; gap: 2px; }
+.symMiniTitle { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.symMiniArtist { color: rgba(255, 255, 255, 0.75); font-weight: 500; }
+.symMiniPart { color: var(--sym-play); font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.symUse.on { color: var(--accent); }
+.symMiniProgress { position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; border-radius: 1px; background: #fff; transform-origin: left center; }
+.symMini::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; background: rgba(255, 255, 255, 0.22); }
+
+/* ---------- The song screen ---------- */
+.symNp { position: fixed; inset: 0; z-index: 70; overflow-y: auto; overscroll-behavior: contain;
+  background: linear-gradient(180deg, var(--tint, #2c2c2e) 0, #0b0b0b 72vh, #000 100%); animation: symUp 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes symUp { from { transform: translateY(24px); opacity: 0; } }
+.symNp > * { max-width: 560px; margin-left: auto; margin-right: auto; padding-left: 20px; padding-right: 20px; }
+.symNpHead { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; min-height: 64px; padding-top: env(safe-area-inset-top) !important; }
+.symNpHead .iconBtn { margin: 0 -8px; }
+.symNpFrom { color: #fff; font-size: 13px; font-weight: 700; text-align: center; }
+.symNpArt { margin-top: 12px; margin-bottom: 24px; }
+.symNpArt img, .symNpArt .symArt { display: block; width: 100% !important; height: auto !important; aspect-ratio: 1; border-radius: 8px !important; object-fit: cover; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+.symNpTitleRow { display: flex; align-items: center; gap: 12px; }
+.symNpTitles { flex: 1; min-width: 0; }
+.symNpTitles h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.symNpTitles p { margin: 2px 0 0; color: rgba(255, 255, 255, 0.72); font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.symNpTitleRow .symUse { margin-right: -8px; }
+.symScrub { margin-top: 18px; }
+.symScrubGraph { display: block; width: 100%; height: 26px; }
+.symScrubGraph path { fill: rgba(255, 255, 255, 0.12); }
+.symScrubTrack { position: relative; display: block; width: 100%; height: 24px; padding: 0; border: 0; background: none; }
+.symScrubTrack::before { content: ""; position: absolute; left: 0; right: 0; top: 10px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.28); }
+.symScrubPart, .symScrubHook { position: absolute; top: 10px; height: 4px; border-radius: 2px; }
+.symScrubPart { background: rgba(255, 255, 255, 0.6); }
+.symScrubHook { background: var(--sym-play); }
+.symScrubKnob { position: absolute; top: 6px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); }
+.symScrubTimes { display: flex; justify-content: space-between; color: rgba(255, 255, 255, 0.72); font-size: 12px; font-variant-numeric: tabular-nums; }
+.symNpControls { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+.symNpPlay { display: grid; place-items: center; width: 64px; height: 64px; padding: 0 0 0 3px; border: 0; border-radius: 50%; background: #fff; color: #000 !important; }
+.symNpPlay:active:not(:disabled) { transform: scale(0.96); }
+.symNpPlay:disabled { background: var(--surface-2); color: var(--off) !important; }
+.symNpPartLine { margin-top: 10px; margin-bottom: 0; color: var(--sym-play); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.symNpExtras { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 14px; }
+.symUseRow { margin-top: 16px; }
+.symUseBtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; padding: 0 20px; border: 0; border-radius: 999px;
+  background: var(--accent); color: #101010 !important; font-size: 16px; font-weight: 700; }
+.symUseBtn:disabled { background: rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.72) !important; }
+.symCard { margin-top: 16px; padding-top: 16px !important; padding-bottom: 8px !important; border-radius: 12px; background: rgba(255, 255, 255, 0.07); }
+.symNp > .symCard { width: calc(100% - 40px); padding-left: 16px; padding-right: 16px; }
+@media (min-width: 600px) { .symNp > .symCard { width: 520px; } }
+.symCard h2 { display: flex; align-items: baseline; justify-content: space-between; margin: 0 0 4px; font-size: 16px; font-weight: 700; }
+.symCardCount { color: rgba(255, 255, 255, 0.72); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.symCard.lyrics { background: color-mix(in srgb, var(--tint, #2c2c2e) 78%, #fff 10%); padding-bottom: 16px !important; }
+.symCard.lyrics p { margin: 8px 0 0; font-size: 22px; font-weight: 800; line-height: 1.25; letter-spacing: -0.01em; }
+.symCredits { margin: 0; padding: 0; list-style: none; }
+.symCredit { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 0; }
+.symCreditText { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.symCreditName { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.symCreditRole { color: rgba(255, 255, 255, 0.72); font-size: 13px; line-height: 1.35; }
+.symDot { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border: 1.5px solid rgba(255, 255, 255, 0.4); border-radius: 50%; }
+.symDot.ok { border-color: var(--sym-play); background: var(--sym-play); color: #000; }
+.symPill { flex: none; display: inline-grid; place-items: center; min-width: 44px; height: 34px; padding: 0 14px; border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 999px; background: transparent; font-size: 14px; font-weight: 600; text-decoration: none; font-variant-numeric: tabular-nums; }
+.symPill:active { background: rgba(255, 255, 255, 0.1); }
+.symYtPill { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 18px; font-size: 15px; }
+.symOpenIn { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; margin-bottom: 48px; }
+
+/* ---------- Share sheet ---------- */
+.symSheetBackdrop { position: fixed; inset: 0; z-index: 80; display: flex; align-items: flex-end; justify-content: center; background: rgba(0, 0, 0, 0.66); }
+.symSheet { width: 100%; max-width: 560px; max-height: 92vh; overflow: auto; padding: 16px 16px calc(20px + var(--host-bar) + env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; background: #1a1a1a; }
+@media (min-width: 700px) { .symSheetBackdrop { align-items: center; } .symSheet { border-radius: 16px; } }
+.symHandle { display: block; width: 36px; height: 4px; margin: 0 auto 14px; border-radius: 2px; background: rgba(255, 255, 255, 0.35); }
+.symShareCard { display: flex; align-items: center; gap: 12px; padding: 4px 0 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.symShareCard .symArt { border-radius: 4px; }
+.symTargets { display: flex; gap: 10px; margin: 0 -16px; padding: 16px 16px 4px; overflow-x: auto; scrollbar-width: none; }
+.symTarget { flex: none; display: grid; justify-items: center; gap: 8px; width: 76px; padding: 0; border: 0; background: none; font-size: 12px; text-align: center; line-height: 1.25; }
+.symTargetIcon { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--surface-2); }
+.symTarget.use .symTargetIcon { background: var(--accent); color: #101010; }
+.symTarget:disabled { opacity: 0.4; }
+
+/* ---------- Messages ---------- */
+.symToast { position: fixed; left: 50%; bottom: calc(var(--sym-tab-h) + var(--sym-mini-h) + var(--host-bar) + env(safe-area-inset-bottom) + 12px); z-index: 90; max-width: calc(100% - 32px);
+  padding: 12px 18px; border-radius: 999px; background: #f5f5f5; color: #000; font-size: 15px; font-weight: 600; transform: translateX(-50%);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55); animation: symToastIn 0.24s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes symToastIn { from { opacity: 0; transform: translate(-50%, 10px); } }
+.symToast.withAction { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: calc(100% - 32px); max-width: 528px; padding: 8px 8px 8px 18px; border-radius: 14px; }
+.symNp ~ .symToast { bottom: calc(env(safe-area-inset-bottom) + 24px); } /* over the song screen: no tab bar or mini player there */
+.symToastAction { flex: none; display: inline-grid; place-items: center; min-height: 40px; padding: 0 16px; border-radius: 999px; background: #000; color: #fff !important; font-size: 14px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .symView *, .symView *::before, .symView *::after { animation: none !important; transition: none !important; } }

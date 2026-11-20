@@ -12,6 +12,75 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.13.9: the T icon, quotes on by default
+
+Arjang's direction in Rose's #693 and #694, Quill's #695, #696, #707, #719 and #725. One new field on the cover
+(beaconsVersion), one new setting (beaconRecheck) and two new actions, for the one-time recheck. Everything else reuses
+showQuote and showQuoteSet on the cover and 1.13.3's quoteOverlay setting. Only saved compose checks are rewritten.
+
+1. **The rule** (quoteOverlay.js, read by the server too). Every post shows its quote unless she turned it off for that
+   post: an unmarked post (no showQuoteSet) shows it, whatever its showQuote says. Global hide (quoteOverlay false) hides
+   every quote and never writes a post. Unset brings each post's own choice back. True is still taken but no longer
+   forces quotes on, so a post she turned off stays off.
+2. **The T icon** sits left of the pencil. On: the T in a green circle. Off: the T with a slash, grey like the others. A
+   tap turns this post's quote off or on, marked, for this post only. It's a cover edit, so undo puts back exactly what
+   was there, mark included. A hold of 1000 ms (HOLD_MS in CoverDetails.jsx, the original's deck and quote holds)
+   toggles global hide, and a shorter press is a tap. A hold never also counts as a tap, isn't a step for undo, and
+   Shift+Enter does it from a keyboard. A tap under global hide still sets that post's own choice, and the screen stays
+   hidden until the hold lifts.
+3. **What's gone.** The editor's "Quote on all covers" switch, and 1.13.0's carry-over: the default is fixed on, never
+   learned. The server drops quoteDefault from quotes/status, and an old page's `{ from: "default" }` call changes
+   nothing.
+4. **The toast** lets a press go through it, so it never sits on top of the T icon.
+5. **The one-time recheck.** A compose check saved before 1.13.9 was made when every post started with its quote off,
+   so an unmarked post can carry QUOTE_IN_STOCK null (NOT NEEDED) for a quote it shows now. New field
+   **beaconsVersion** (number; a missing field reads as 0): every check now stamps 1. Each cover with saved beacons and
+   no stamp, whatever its status, is checked once more: idle, one cover at a time, the one on screen last. Beacons
+   only, never showQuote or any other choice of hers, the way 1.13.3's switch rechecks: a cover that stays verified
+   keeps its composeAttestedAt. Only a cover whose check changed is patched on the page. A cover that fails keeps its
+   saved check and is tried on the next load. The tally, **beaconRecheck** in settings, counts the covers rechecked,
+   the covers whose check changed and the beacon values that changed.
+6. **The quote lock on the server.** Until she connects quotes or keeps one from the quiz, the page draws no quote, so
+   the server reads none as shown: QUOTE_IN_STOCK is null and the caption prompt reads no text on the cover. Unlocking
+   (the first connect, or the first quote she keeps) checks every checked cover again, beacons only.
+
+### Server actions
+
+| Action | Change |
+| --- | --- |
+| POST /api/items/:id/quote-toggle | `{ showQuote, set }`: set false takes the mark off (undo). `from: "default"` answers `{ applied: false }`; `from: "switch"` saves no default |
+| GET /api/quotes/status | no quoteDefault |
+| POST /api/settings/quote-overlay | unchanged; false is global hide, null unsets it |
+| POST /api/items/:id/verify | also stamps beaconsVersion 1; a quote counts only when quotes are unlocked |
+| GET /api/beacons/wanted | New. `{ ids, recheck }`: covers with saved beacons and no stamp, by id, and the tally `{ rechecked, coversChanged, valuesChanged }` |
+| POST /api/items/:id/recheck | New. `{ rechecked: true, changed, item }`, changed naming the beacons that changed; `{ rechecked: false, reason: "done", item }` for a stamped cover or one with no check |
+| POST /api/quotes/connect, /api/quiz/decide | when they unlock quotes, every checked cover is checked again |
+| GET /api/items/:id/caption-prompt | a quote counts only when quotes are unlocked |
+| POST /api/items/:id/remix | the copy carries no beaconsVersion, like no beacons |
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| quoteOverlay.js | the rule: globalHide, ownQuote, quoteShown |
+| CoverDetails.jsx | QuoteButton (the T icon) in the action row, HOLD_MS 1000 |
+| App.jsx | tap and hold handlers; the recheck pass (recheckSavedChecks, run before the placement pass); the carry-over and the editor switch's undo path are gone |
+| CoverEditor.jsx | the switch is gone; the locked hint stays |
+| icons.jsx | textOff |
+| styles.css | .quoteBtn and .quoteMark; .toast lets presses through |
+
+### Data
+
+| Where | Change |
+| --- | --- |
+| data/db.json | items gain beaconsVersion when they're checked or rechecked |
+| data/settings.json | New beaconRecheck, the tally |
+
+**For her space:** her space has 1.13.3's switch and no 1.13.0, and her quotes are unlocked, so the lock changes
+nothing there. After the port, every cover she never toggled shows its quote, and the recheck runs once over every
+cover with a saved check. Report that display effect, the tally (rechecked, coversChanged, valuesChanged), and the
+counts re-verified unchanged.
+
 ## 1.13.8: default text placement, from the original
 
 Arjang's #559 item 6, Quill's #685, #687 and #689. One new field, four new actions, and client changes. Read all of it

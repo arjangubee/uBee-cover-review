@@ -3,7 +3,7 @@
 // Run: node scripts/render-test.mjs
 import { FONT_LABELS, HALF_PRESETS, PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, contrastPixel, coverLayout, drawCover, estimatedLineCount, insideSafeZone, mosaicRects, normalizePlacement, presetOn, randomizeLayout, safeZoneFor, textBoxes, textHitBoxes } from "../client/src/renderCover.js";
 import { createHistory } from "../client/src/undo.js";
-import { overlayOf, quoteShown } from "../client/src/quoteOverlay.js";
+import { globalHide, overlayOf, ownQuote, quoteShown } from "../client/src/quoteOverlay.js";
 import { RANDOM_LAYOUTS, ZOOM_REST, changedFields, displayTitle, parseSong, randomEditorialLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars, zoomPan, zoomSettle, zoomTo } from "../client/src/reviewMath.js";
 import { LOCKED, badgeFor, formatDay, selectable } from "../client/src/pollenView.js";
 import { RELEASE_URL, newer, releaseBanner } from "../client/src/release.js";
@@ -538,11 +538,17 @@ check("songs: a moment plays from its part's clip, then an app preview that cove
   assert(sourceFor({ ...SONG, previewUrl: {} }, 50, 70) === null, "a range that runs past its part isn't that part's clip");
   assert(clipAddress("sym-b--two") === "/api/symphony/clips/sym-b--two" && clipAddress("sym-b--two", 2) === "/api/symphony/clips/sym-b--two?part=2", "clip addresses");
 });
-check("the one switch for every cover decides when it's set, and each cover decides when it isn't (1.13.3)", () => {
-  for (const [overlay, own, want] of [[true, false, true], [true, true, true], [false, true, false], [false, false, false], [null, true, true], [null, false, false], [undefined, true, true], ["yes", false, false]]) {
-    assert(quoteShown({ showQuote: own }, overlay) === want, `switch ${overlay}, cover ${own}: ${want}`);
-  }
-  assert(quoteShown(null, null) === false && quoteShown(undefined, true) === true, "no cover: the switch, or nothing");
+check("quotes show by default, a post's own tap decides for that post, and global hide hides every quote (1.13.9)", () => {
+  // Arjang via Rose #693 and #694, Quill #695 and #696. Global hide is the 1.13.3 setting set to false; true no longer
+  // forces every quote on, so a post turned off stays off whatever it says.
+  const unmarkedOff = { showQuote: false }, unmarkedOn = { showQuote: true }, markedOff = { showQuote: false, showQuoteSet: true }, markedOn = { showQuote: true, showQuoteSet: true };
+  for (const [overlay, cover, want] of [
+    [null, unmarkedOff, true], [null, unmarkedOn, true], [null, markedOff, false], [null, markedOn, true],
+    [false, unmarkedOff, false], [false, unmarkedOn, false], [false, markedOn, false],
+    [true, markedOff, false], [true, unmarkedOff, true], [undefined, markedOff, false], ["false", unmarkedOff, true],
+  ]) assert(quoteShown(cover, overlay) === want, `${JSON.stringify(overlay)} on ${JSON.stringify(cover)}: ${want}`);
+  assert(ownQuote(unmarkedOff) === true && ownQuote(markedOff) === false && ownQuote(markedOn) === true && ownQuote(null) === true, "a post's own choice: on unless she turned it off");
+  assert(globalHide(false) === true && [null, undefined, true, "false", 0].every((v) => globalHide(v) === false), "only false hides");
   assert(overlayOf(true) === true && overlayOf(false) === false && overlayOf(null) === null && overlayOf("false") === null && overlayOf(0) === null, "only true and false count as set");
 });
 check("songs: a clip knows its song and part, and a cover's Symphony song is read from its songFile (1.13.2)", () => {

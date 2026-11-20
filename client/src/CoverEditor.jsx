@@ -13,7 +13,7 @@ const ALIGNS = [["left", "L", "Left"], ["center", "C", "Center"], ["right", "R",
 
 export default function CoverEditor({
   draft, activeBox, setActiveBox, setBox, setItem, setImageEdit, palette, fonts, customColors, quotesUnlocked,
-  quoteAll, onQuoteAll, pickMode, setPickMode, onRemoveBox, onNewBox, onAddMosaic, canAddBox, onRemoveCustomColor,
+  pickMode, setPickMode, onRemoveBox, onNewBox, onAddMosaic, canAddBox, onRemoveCustomColor,
 }) {
   // Removing her own colors (1.9.1): Remove colors turns each custom swatch into a remove button until Done.
   const [removing, setRemoving] = useState(false);
@@ -61,19 +61,8 @@ export default function CoverEditor({
       <label className="fieldLabel" htmlFor="quoteField">{isMain ? "Quote" : "Text"}</label>
       <textarea id="quoteField" className="field" rows={3} value={text}
         onChange={(e) => (isMain ? setItem({ quote: e.target.value }) : setBox({ quote: e.target.value }))} />
-      {isMain && (
-        <>
-          {/* One switch for every cover (1.13.3, Arjang #630): it shows or hides the quote on all of them at once. */}
-          <div className="switchRow">
-            <span>Quote on all covers</span>
-            <button type="button" role="switch" aria-checked={Boolean(quoteAll)} aria-label="Quote on all covers" className={quoteAll ? "switch on" : "switch"}
-              disabled={!quotesUnlocked && !quoteAll} onClick={() => onQuoteAll(!quoteAll)}>
-              <span className="knob" />
-            </button>
-          </div>
-          {!quotesUnlocked && <p className="hint">Locked until the quotes are yours. Take the quote quiz behind the info button.</p>}
-        </>
-      )}
+      {/* The quote's on and off moved to the T icon by the pencil (1.13.9). */}
+      {isMain && !quotesUnlocked && <p className="hint">Quotes are locked until they're yours. Take the quote quiz behind the info button.</p>}
 
       <div className="rowBetween">
         <span className="fieldLabel inline">Lines</span>

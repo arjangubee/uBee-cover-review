@@ -23,6 +23,7 @@ const PATHS = {
   star: <path d="M12 3.6l2.6 5.3 5.8.9-4.2 4.1 1 5.8L12 17l-5.2 2.7 1-5.8-4.2-4.1 5.8-.9z" />,
   check: <path d="M6.8 12.6l3.4 3.4 7-7.2" />,
   text: <><path d="M5.5 6.5V5h13v1.5" /><path d="M12 5v14" /><path d="M9.2 19h5.6" /></>,
+  textOff: <><path d="M5.5 6.5V5h13v1.5" /><path d="M12 5v14" /><path d="M9.2 19h5.6" /><path d="M4 4l16 16" /></>,
   mosaic: <><rect x="4" y="4" width="6.5" height="6.5" rx="1.2" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.2" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.2" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.2" /></>,
   eyedropper: <><path d="M14.2 5.6l4.2 4.2" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3l-2.3 2.3-3-3z" /><path d="M14.4 7.8L6 16.2l-1 3.8 3.8-1 8.4-8.4" /></>,
   close: <><path d="M6 6l12 12" /><path d="M18 6L6 18" /></>,

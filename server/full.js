@@ -163,10 +163,20 @@ function loadSongPool() {
 // One deliberate change from the original (1.5.2, Quill's ruling): a cover with its quote off draws no quote, so
 // QUOTE_IN_STOCK reads null (not applicable) and the steps rest on the image and the song. In the original the
 // quote field only ever held stock quotes; here a quote-off cover can hold caption-like text that was never a quote.
+// 1.13.9 (Quill #706, #707 and #719): each check is stamped with the rule it was made under. A saved check with no stamp
+// was made before 1.13.9, when every post started with its quote off; the one-time recheck brings it up to date.
+export const BEACONS_VERSION = 1;
+// The quote lock (1.13.9, Quill #725): until she connects quotes or keeps one from the quiz, the page draws no quote on any
+// cover, so the server reads none as shown either. Unlocked, global hide, then each post's own choice (quoteOverlay.js).
+function quotesUnlocked() {
+  return Boolean(store.settings.quotesUnlocked) || creatorQuotes().length > 0;
+}
+function quoteDrawn(item) {
+  return quotesUnlocked() && quoteShown(item, store.settings.quoteOverlay);
+}
 export function verifyItem(item) {
   const quotes = loadQuotes().map((q) => q.text.toLowerCase());
-  // 1.13.3: the quote shows when the one switch says so, else when the cover's own switch does.
-  const quoteInStock = quoteShown(item, store.settings.quoteOverlay) ? Boolean(item.quote) && quotes.includes(item.quote.trim().toLowerCase()) : null;
+  const quoteInStock = quoteDrawn(item) ? Boolean(item.quote) && quotes.includes(item.quote.trim().toLowerCase()) : null;
   const pool = loadSongPool().map((s) => `${s.artist} - ${s.title}`.toLowerCase());
   const spotify = (store.settings.spotifyLibrary || []).map((s) => `${s.artist} - ${s.title}`.toLowerCase());
   const downloaded = downloadedSongs().map((s) => `${s.artist} - ${s.title}`.toLowerCase()); // 1.11: the songs folder's list
@@ -175,13 +185,31 @@ export function verifyItem(item) {
   const beacons = { QUOTE_IN_STOCK: quoteInStock, SONG_IN_POOL: songInPool, STEPS_VERIFIED: quoteInStock !== false && songInPool && Boolean(item.imageUrl) };
   item.beacons = beacons;
   item.composeAttestedAt = beacons.STEPS_VERIFIED ? Date.now() : null;
+  item.beaconsVersion = BEACONS_VERSION;
   return beacons;
 }
 
+// A saved check, checked again under the rule in force, the 1.13.3 switch's way (Quill #707): beacons only, never
+// showQuote or any other choice of hers, and a cover that stays verified keeps when it was. Answers the beacons that changed.
+function recheckSaved(item) {
+  const was = item.beacons || {}, when = item.composeAttestedAt;
+  const now = verifyItem(item);
+  if (was.STEPS_VERIFIED && now.STEPS_VERIFIED && when) item.composeAttestedAt = when;
+  return Object.keys(now).filter((k) => was[k] !== now[k]);
+}
+// Every checked cover, checked again after what shows changed on all of them. Answers the covers whose check changed.
+function recheckChecked() {
+  const items = [];
+  for (const i of store.db.items) if (i.beacons && recheckSaved(i).length) items.push(i);
+  if (items.length) store.saveDb();
+  return items;
+}
+
 // ---------- Quotes: toggle, connect, and the quote quiz ----------
-// Quote over image is a toggle, OFF by default. It unlocks only when the
-// creator connects their own quotes, or takes the quote quiz and steals
-// generalized quotes from the uBee pack for themselves. The quiz pool is
+// Quote over image is locked at first: no cover draws a quote. It unlocks only
+// when the creator connects their own quotes, or takes the quote quiz and steals
+// generalized quotes from the uBee pack for themselves. Then each post shows its
+// quote unless she turned it off there (1.13.9). The quiz pool is
 // data/quiz-quotes.json: the default pack with every Arjang-specific quote
 // filtered out (name, rugs, modeling, agency story, return arc). Generalized
 // only, so what a creator steals reads as theirs, never as Arjang's story.
@@ -199,12 +227,11 @@ function quizPool() {
 export function quotesStatus() {
   const kept = creatorQuotes();
   return {
-    unlocked: store.settings.quotesUnlocked || kept.length > 0,
+    unlocked: quotesUnlocked(),
     source: store.settings.quotesSource,
     creatorQuoteCount: kept.length,
     quizPoolSize: quizPool().length,
     quizRemaining: quizPool().filter((q) => !store.settings.quizDecisions[q.text]).length,
-    quoteDefault: typeof store.settings.quoteDefault === "boolean" ? store.settings.quoteDefault : null, // 1.13: her last switch choice
     quoteOverlay: overlayOf(store.settings.quoteOverlay), // 1.13.3: the one switch for every cover, or null when it isn't set
   };
 }
@@ -218,10 +245,12 @@ export function registerFull(app, upload) {
     const texts = (Array.isArray(req.body.quotes) ? req.body.quotes : []).map(String).map((s) => s.trim()).filter(Boolean);
     if (!texts.length) return res.status(400).json({ error: "quotes array is empty" });
     const replace = [true, "true"].includes(req.body.replace);
+    const wasLocked = !quotesUnlocked();
     store.settings.quotesSource = "connected";
     saveCreatorQuotes([...new Set(replace ? texts : [...creatorQuotes(), ...texts])]);
     store.settings.quotesUnlocked = true;
     store.saveSettings();
+    if (wasLocked) recheckChecked(); // quotes show now: every checked cover is checked again, beacons only (1.13.9)
     res.json({ ok: true, ...quotesStatus() });
   });
 
@@ -234,6 +263,7 @@ export function registerFull(app, upload) {
     const text = String(req.body.text || "");
     const keep = Boolean(req.body.keep);
     if (!quizPool().some((q) => q.text === text)) return res.status(400).json({ error: "quote is not in the generalized quiz pool" });
+    const wasLocked = !quotesUnlocked();
     store.settings.quizDecisions[text] = keep ? "kept" : "skipped";
     if (keep) {
       store.settings.quotesSource = store.settings.quotesSource === "connected" ? "connected" : "quiz";
@@ -241,6 +271,7 @@ export function registerFull(app, upload) {
       store.settings.quotesUnlocked = true;
     }
     store.saveSettings();
+    if (wasLocked && keep) recheckChecked(); // her first kept quote unlocks them: every checked cover is checked again (1.13.9)
     res.json({ ok: true, ...quotesStatus() });
   });
 
@@ -249,33 +280,25 @@ export function registerFull(app, upload) {
   // over to covers she hasn't set. from "switch" is her own switch (undo and redo too) and becomes the default. Any
   // explicit toggle marks the cover as set, so it keeps its choice. from "default" applies the default to a cover that
   // isn't set yet: it only ever turns a quote on, since a new cover starts with it off.
+  // A post's own quote, from the T icon (1.13.9, Quill #695): showQuote with the mark that she chose it. Undo can take
+  // the mark back off with set: false, so the post shows its quote by default again. 1.13.0's carry-over (from
+  // "default" or "switch") is gone; an old page's carry-over call changes nothing.
   app.post("/api/items/:id/quote-toggle", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
-    if (req.body.from === "default") {
-      // While the one switch for every cover is set (1.13.3), the default changes no cover: it only works underneath.
-      const applies = overlayOf(store.settings.quoteOverlay) === null && store.settings.quoteDefault === true && !item.showQuote && !item.showQuoteSet
-        && quotesStatus().unlocked;
-      if (applies) {
-        Object.assign(item, { showQuote: true, showQuoteSet: true });
-        if (item.beacons) verifyItem(item);
-        store.saveDb();
-      }
-      return res.json({ item, applied: applies, quoteDefault: store.settings.quoteDefault ?? null });
-    }
+    if (req.body.from === "default") return res.json({ item, applied: false });
     const want = Boolean(req.body.showQuote);
     if (want && !quotesStatus().unlocked) {
       return res.status(403).json({ error: "Quote overlay is locked. Connect your quotes, or take the quote quiz and steal quotes that sound like you first." });
     }
     item.showQuote = want;
-    item.showQuoteSet = true;
-    if (item.beacons) verifyItem(item); // a checked cover stays truthful: the quote check depends on the toggle (1.5.2)
+    item.showQuoteSet = req.body.set !== false;
+    if (item.beacons) verifyItem(item); // a checked cover stays truthful: the quote check depends on what shows (1.5.2)
     store.saveDb();
-    if (req.body.from === "switch") { store.settings.quoteDefault = want; store.saveSettings(); }
-    res.json({ item, quoteDefault: store.settings.quoteDefault ?? null });
+    res.json({ item });
   });
 
-  // 1.13.3 (Arjang #621 and #630, Quill #624): one switch shows or hides the quote on every cover. on is true, false,
-  // or null to unset it, which hands each cover its own switch again (with the 1.13 default underneath). It never
+  // 1.13.3's one setting for every cover, which 1.13.9 reads as global hide (Quill #696): false hides every quote, and
+  // null (unset) hands each post its own choice again. True is still taken but no longer forces quotes on. It never
   // rewrites a cover's own choice. A cover that was checked is checked again so its quote check stays truthful, and only
   // a cover whose check comes out different is saved and sent back (a cover still verified keeps when it was).
   app.post("/api/settings/quote-overlay", (req, res) => {
@@ -286,15 +309,27 @@ export function registerFull(app, upload) {
     }
     if (on === null) delete store.settings.quoteOverlay; else store.settings.quoteOverlay = on;
     store.saveSettings();
-    const items = [];
-    for (const i of store.db.items.filter((x) => x.beacons)) {
-      const was = JSON.stringify(i.beacons), wasVerified = Boolean(i.beacons.STEPS_VERIFIED), when = i.composeAttestedAt;
-      verifyItem(i);
-      if (wasVerified && i.beacons.STEPS_VERIFIED && when) i.composeAttestedAt = when;
-      if (JSON.stringify(i.beacons) !== was) items.push(i);
-    }
-    if (items.length) store.saveDb();
+    const items = recheckChecked();
     res.json({ ...quotesStatus(), items });
+  });
+
+  // 1.13.9's one-time recheck (Quill #706, #707 and #719). Every cover with a saved check made before 1.13.9 (no stamp)
+  // is checked once more, whatever its status. The page runs it: idle, one cover at a time, the one on screen last.
+  // The tally counts the covers rechecked, the covers whose check changed and the beacon values that changed.
+  const wantsRecheck = (i) => Boolean(i.beacons) && !(Number(i.beaconsVersion || 0) >= BEACONS_VERSION);
+  const recheckTally = () => ({ rechecked: 0, coversChanged: 0, valuesChanged: 0, ...(store.settings.beaconRecheck || {}) });
+  app.get("/api/beacons/wanted", (_req, res) => {
+    res.json({ ids: store.db.items.filter(wantsRecheck).sort((a, b) => a.id - b.id).map((i) => i.id), recheck: recheckTally() });
+  });
+  app.post("/api/items/:id/recheck", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    if (!wantsRecheck(item)) return res.json({ rechecked: false, reason: "done", item });
+    const changed = recheckSaved(item);
+    const t = recheckTally();
+    store.settings.beaconRecheck = { rechecked: t.rechecked + 1, coversChanged: t.coversChanged + (changed.length ? 1 : 0), valuesChanged: t.valuesChanged + changed.length };
+    store.saveDb();
+    store.saveSettings();
+    res.json({ rechecked: true, changed, item });
   });
 
   // ---------- Workspace: own Drive by default, uBee shared Drive for clients ----------
@@ -381,7 +416,7 @@ export function registerFull(app, upload) {
   // A new revision is its own cover: a deep copy (so slides and image edits never change both), with no
   // Pollen booking and no compose check carried over from the cover it came from. v1.4.
   function revisionOf(src) {
-    const { id, status, decidedAt, pollen, pollenRender, beacons, composeAttestedAt, ...rest } = structuredClone(src);
+    const { id, status, decidedAt, pollen, pollenRender, beacons, composeAttestedAt, beaconsVersion, ...rest } = structuredClone(src);
     return rest;
   }
 
@@ -474,7 +509,7 @@ export function registerFull(app, upload) {
   });
   app.get("/api/items/:id/caption-prompt", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
-    res.json({ prompt: captionPrompt({ ...item, showQuote: quoteShown(item, store.settings.quoteOverlay) }, captionVoice()), voice: Boolean(captionVoice().trim()), basedOn: String(item.caption ?? ""), canDraft: canDraft(item, draftOpts(item)),
+    res.json({ prompt: captionPrompt({ ...item, showQuote: quoteDrawn(item) }, captionVoice()), voice: Boolean(captionVoice().trim()), basedOn: String(item.caption ?? ""), canDraft: canDraft(item, draftOpts(item)),
       imageUrl: item.imageUrl, description: String(item.description ?? ""), needsDescription: needsDescription(item, captionVoice()) });
   });
   // What the photo shows, in plain words, recorded by her Muse (1.9.2). A voiced caption on a cover with no text is

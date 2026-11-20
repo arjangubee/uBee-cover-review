@@ -166,6 +166,25 @@ async function newItem(name) {
   form.append("photos", new Blob([PNG_1PX], { type: "image/png" }), name);
   return (await (await fetch(`${base}/api/items/upload`, { method: "POST", body: form })).json()).created[0];
 }
+// Another copy on its own server and its own data folder, for checks that need data an older version saved, or quotes
+// still locked (1.13.9). fill(dir) writes its data before the server starts.
+async function withCopy(port, fill, fn) {
+  const dir = mkdtempSync(join(tmpdir(), "cr-copy-"));
+  for (const f of ["default-quotes.json", "quiz-quotes.json", "trending-instagram.json"]) copyFileSync(join(REPO_DATA, f), join(dir, f));
+  fill(dir);
+  const at = `http://localhost:${port}`;
+  const child = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(port), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: dir,
+    COVER_REVIEW_POLLEN_SYNC_MS: "3600000" }, stdio: "ignore" });
+  try {
+    for (let i = 0; i < 50; i++) { try { if ((await fetch(`${at}/api/health`)).ok) break; } catch {} await wait(200); }
+    await fn({ dir,
+      get: async (p) => (await fetch(`${at}${p}`)).json(),
+      post: async (p, body) => (await fetch(`${at}${p}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) })).json() });
+  } finally {
+    child.kill();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 try {
   // Wait for the server to answer (up to 10 seconds) instead of guessing how long it takes to start.
@@ -231,7 +250,7 @@ try {
     const rated = await (await fetch(`${base}/api/items/${item.id}/rate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ qualityRating: 8, songRating: 7, quoteRating: 9 }) })).json();
     assert(rated.item.quoteRating === 9, "per-part ratings should save");
     const verified = await (await fetch(`${base}/api/items/${item.id}/verify`, { method: "POST" })).json();
-    assert(verified.beacons.QUOTE_IN_STOCK === null, "a new cover has its quote off, so the stock check doesn't apply (1.5.2)");
+    assert(verified.beacons.QUOTE_IN_STOCK === null, "quotes start locked, so no quote is drawn and the stock check doesn't apply (1.13.9, Quill #725)");
     const slideForm = new FormData();
     slideForm.append("slide", new Blob([png], { type: "image/png" }), "slide1.png");
     const withSlide = await (await fetch(`${base}/api/items/${item.id}/slides`, { method: "POST", body: slideForm })).json();
@@ -364,6 +383,7 @@ try {
     const noVoice = captionPrompt(cover, "");
     assert(noVoice.includes("Cover quote: slow mornings") && noVoice.includes("Image description: a woman laughing"), "the no-voice prompt stays the original's");
     const item = await newItem("photo-only.png");
+    await postJson(`/api/items/${item.id}/quote-toggle`, { showQuote: false }); // quotes show by default since 1.13.9
     await postJson(`/api/settings/caption-voice`, { voice: "Warm and short." });
     try {
       const before = await (await fetch(`${base}/api/items/${item.id}/caption-prompt`)).json();
@@ -825,11 +845,13 @@ try {
     const form = new FormData();
     form.append("slide", new Blob([PNG_1PX], { type: "image/png" }), "remix-slide.png");
     await (await fetch(`${base}/api/items/${item.id}/slides`, { method: "POST", body: form })).json();
+    await postJson(`/api/items/${item.id}/verify`); // a checked cover: its check and its stamp stay with it (1.13.9)
     const remix = (await postJson(`/api/items/${item.id}/remix`, {})).item;
     await postJson(`/api/items/${remix.id}/slides/0/remove`, {});
     const original = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === item.id);
     assert(!original.slides[0].deletedAt, "removing the remix's slide removed the original's too");
-    assert(remix.pollen == null && remix.pollenRender == null && remix.beacons == null, `remix carries Pollen or check state: ${JSON.stringify([remix.pollen, remix.pollenRender, remix.beacons])}`);
+    assert(remix.pollen == null && remix.pollenRender == null && remix.beacons == null && remix.composeAttestedAt == null && remix.beaconsVersion == null,
+      `remix carries Pollen or check state: ${JSON.stringify([remix.pollen, remix.pollenRender, remix.beacons, remix.composeAttestedAt, remix.beaconsVersion])}`);
   });
   await check("trending refresh saves", async () => {
     const r = await (await fetch(`${base}/api/trending/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ songs: [{ title: "Smoke Song", artist: "Tester" }], source: "smoke" }) })).json();
@@ -852,9 +874,16 @@ try {
     assert(st0.quoteOverlay === null, `the one switch for every cover starts unset: ${st0.quoteOverlay}`);
     const lockedAll = await fetch(`${base}/api/settings/quote-overlay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ on: true }) });
     assert(lockedAll.status === 403, `the one switch can't turn quotes on while they're locked: ${lockedAll.status}`);
+    // 1.13.9 (Quill #725): while locked the server checks no quote; the first quote she keeps rechecks every checked cover.
+    const lockedCover = await newItem("lock-quiz.png");
+    const lockedCheck = (await postJson(`/api/items/${lockedCover.id}/verify`)).item;
+    assert(lockedCheck.beacons.QUOTE_IN_STOCK === null, `locked: NOT NEEDED: ${JSON.stringify(lockedCheck.beacons)}`);
     await fetch(`${base}/api/quiz/decide`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: quiz.quotes[0].text, keep: true }) });
     const st1 = await (await fetch(`${base}/api/quotes/status`)).json();
     assert(st1.unlocked === true && st1.creatorQuoteCount >= 1, "stealing one quote should unlock");
+    const unlockedCheck = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === lockedCover.id);
+    assert(unlockedCheck.beacons.QUOTE_IN_STOCK !== null && unlockedCheck.showQuote === lockedCheck.showQuote && unlockedCheck.showQuoteSet === lockedCheck.showQuoteSet,
+      `keeping her first quote rechecks a checked cover, beacons only: ${JSON.stringify(unlockedCheck.beacons)}`);
     const on = await (await fetch(`${base}/api/items/${id}/quote-toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ showQuote: true }) })).json();
     assert(on.item.showQuote === true, "toggle should save once unlocked");
   });
@@ -874,6 +903,7 @@ try {
   await check("v1.5.2 a cover with the quote off doesn't need a quote in stock; flipping the quote rechecks a checked cover", async () => {
     const item = await newItem("quote-off.png");
     await postJson(`/api/items/${item.id}/edit`, { quote: "i just logged onto instagram" });
+    await postJson(`/api/items/${item.id}/quote-toggle`, { showQuote: false }); // quotes show by default since 1.13.9
     const off = (await postJson(`/api/items/${item.id}/verify`)).beacons;
     assert(off.QUOTE_IN_STOCK === null, `quote off: the stock check doesn't apply: ${JSON.stringify(off)}`);
     assert(off.STEPS_VERIFIED === (off.SONG_IN_POOL === true), `quote off: the steps rest on the image and the song: ${JSON.stringify(off)}`);
@@ -889,73 +919,106 @@ try {
     assert(flipped.beacons == null && flipped.composeAttestedAt == null, "a cover nobody checked stays unchecked when its quote flips");
   });
   // ---------- v1.13: her last choice on Quote on the cover carries over (Arjang via Rose #559 and #567, Quill #562 and #569) ----------
-  await check("v1.13 her last choice on the quote switch carries over to covers she hasn't set, and never flips one that's set", async () => {
-    const status = async () => (await fetch(`${base}/api/quotes/status`)).json();
-    const [a, b, c, d] = [await newItem("carry-a.png"), await newItem("carry-b.png"), await newItem("carry-c.png"), await newItem("carry-d.png")];
-    const before = (await status()).quoteDefault;
-    const muse = (await postJson(`/api/items/${d.id}/quote-toggle`, { showQuote: false })).item;
-    assert(muse.showQuoteSet === true && (await status()).quoteDefault === before, `a toggle from her Muse marks the cover and leaves her default alone: ${JSON.stringify(muse)}`);
-    const onA = await postJson(`/api/items/${a.id}/quote-toggle`, { showQuote: true, from: "switch" });
-    assert(onA.item.showQuote === true && onA.item.showQuoteSet === true && onA.quoteDefault === true, `her switch: ${JSON.stringify(onA)}`);
-    assert((await status()).quoteDefault === true, "her choice becomes the default");
-    const onB = await postJson(`/api/items/${b.id}/quote-toggle`, { from: "default" });
-    assert(onB.applied === true && onB.item.showQuote === true && onB.item.showQuoteSet === true, `a cover she hasn't set takes it: ${JSON.stringify(onB)}`);
-    assert((await status()).quoteDefault === true, "carrying it over doesn't change the default");
-    const keepD = await postJson(`/api/items/${d.id}/quote-toggle`, { from: "default" });
-    assert(keepD.applied === false && keepD.item.showQuote === false, `a cover that's set keeps its choice: ${JSON.stringify(keepD)}`);
-    const offC = await postJson(`/api/items/${c.id}/quote-toggle`, { showQuote: false, from: "switch" });
-    assert(offC.item.showQuote === false && offC.quoteDefault === false && (await status()).quoteDefault === false, `off becomes the default: ${JSON.stringify(offC)}`);
-    const again = await postJson(`/api/items/${b.id}/quote-toggle`, { from: "default" });
-    assert(again.applied === false && again.item.showQuote === true, `it never flips a cover that's set: ${JSON.stringify(again)}`);
-    const e = await newItem("carry-e.png");
-    const freshOff = await postJson(`/api/items/${e.id}/quote-toggle`, { from: "default" });
-    assert(freshOff.applied === false && freshOff.item.showQuote === false && !freshOff.item.showQuoteSet, `with off as the default, a fresh cover is left as it is: ${JSON.stringify(freshOff)}`);
-  });
-  // ---------- v1.13.3: one switch for every cover's quote (Arjang #621 and #630, Quill #624) ----------
-  await check("v1.13.3 one switch for every cover: set, it decides for all covers; unset, each cover decides; no cover's own choice changes", async () => {
-    const status = async () => (await fetch(`${base}/api/quotes/status`)).json();
+  // ---------- v1.13.9: quotes on by default, a tap per post, hold for global hide (Arjang via Rose #693 and #694, Quill #695 and #696) ----------
+  await check("v1.13.9 quotes show unless a post was turned off; a tap marks only that post, undo can unmark it, and the old carry-over is gone", async () => {
     const stock = (await (await fetch(`${base}/api/quotes`)).json()).quotes[0].text;
-    const [x, y] = [await newItem("all-x.png"), await newItem("all-y.png")];
-    for (const c of [x, y]) await postJson(`/api/items/${c.id}/edit`, { quote: stock, description: "a beach at dusk" });
-    await postJson(`/api/items/${x.id}/quote-toggle`, { showQuote: false });
-    await postJson(`/api/items/${y.id}/quote-toggle`, { showQuote: true });
-    for (const c of [x, y]) await postJson(`/api/items/${c.id}/verify`);
-    const fresh = await newItem("all-z.png");
-    const defaultBefore = (await status()).quoteDefault;
-    const voiceBefore = (await (await fetch(`${base}/api/settings/caption-voice`)).json()).voice;
-    await postJson("/api/settings/caption-voice", { voice: "short and warm" });
-    const shownOf = async (id) => (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === id);
-    const stockOf = async (id) => (await shownOf(id)).beacons?.QUOTE_IN_STOCK;
-    const ids = (r) => (r.items || []).map((i) => i.id).filter((id) => [x.id, y.id, fresh.id].includes(id)).sort((a, b) => a - b).join(",");
-    const yWhen = (await shownOf(y.id)).composeAttestedAt;
+    const [a, b] = [await newItem("tq-a.png"), await newItem("tq-b.png")];
+    for (const c of [a, b]) await postJson(`/api/items/${c.id}/edit`, { quote: stock, description: "a beach at dusk" });
     const promptOf = async (id) => (await (await fetch(`${base}/api/items/${id}/caption-prompt`)).json()).prompt;
+    const voiceBefore = (await (await fetch(`${base}/api/settings/caption-voice`)).json()).voice;
+    await postJson("/api/settings/caption-voice", { voice: "short and warm" }); // with a voice, a hidden quote stays out of the prompt
     try {
-      const on = await postJson("/api/settings/quote-overlay", { on: true });
-      assert(on.quoteOverlay === true && (await status()).quoteOverlay === true, `on: ${JSON.stringify(on).slice(0, 200)}`);
-      assert(await stockOf(x.id) === true && await stockOf(y.id) === true, "on: a checked cover's quote check reads its quote, whatever its own switch says");
-      assert(ids(on) === String(x.id), `on: only a cover whose check changed comes back: ${ids(on)}`);
-      assert((await shownOf(fresh.id)).beacons == null, "a cover nobody checked isn't checked by the switch");
-      assert((await shownOf(y.id)).composeAttestedAt === yWhen, "a cover that stays verified keeps when it was");
-      assert((await shownOf(x.id)).showQuote === false && (await shownOf(y.id)).showQuote === true, "no cover's own choice is rewritten");
-      assert((await promptOf(x.id)).includes(stock), "on: a caption is written about the quote on the cover");
-      const keep = await postJson(`/api/items/${fresh.id}/quote-toggle`, { from: "default" });
-      assert(keep.applied === false && keep.item.showQuote === false, `while the switch is set, the carry-over default changes no cover: ${JSON.stringify(keep).slice(0, 200)}`);
-      const off = await postJson("/api/settings/quote-overlay", { on: false });
-      assert(off.quoteOverlay === false && await stockOf(x.id) === null && await stockOf(y.id) === null && ids(off) === [x.id, y.id].join(","), "off: no cover needs its quote in stock");
-      assert(!(await promptOf(y.id)).includes(stock), "off: a caption isn't about a quote that isn't showing");
-      const unset = await postJson("/api/settings/quote-overlay", { on: null });
-      assert(unset.quoteOverlay === null && (await status()).quoteOverlay === null, "unset");
-      assert(await stockOf(x.id) === null && await stockOf(y.id) === true && ids(unset) === String(y.id), "unset: each cover's own switch decides again");
-      assert((await promptOf(y.id)).includes(stock) && !(await promptOf(x.id)).includes(stock), "unset: captions follow each cover again");
-      assert((await status()).quoteDefault === defaultBefore, "the switch never touches the carry-over default");
-      for (const bad of [{ on: "yes" }, { on: 1 }, {}]) {
-        const r = await fetch(`${base}/api/settings/quote-overlay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bad) });
-        assert(r.status === 400, `${JSON.stringify(bad)} answered ${r.status}`);
-      }
+      assert(!a.showQuoteSet && (await promptOf(a.id)).includes(stock), "an unmarked cover shows its quote, so its caption is about it");
+      const checked = (await postJson(`/api/items/${a.id}/verify`)).item;
+      assert(checked.beacons.QUOTE_IN_STOCK === true, `an unmarked cover's quote is checked: ${JSON.stringify(checked.beacons)}`);
+      const off = await postJson(`/api/items/${a.id}/quote-toggle`, { showQuote: false });
+      assert(off.item.showQuote === false && off.item.showQuoteSet === true && off.item.beacons.QUOTE_IN_STOCK === null, `a tap turns that post off, marked, NOT NEEDED: ${JSON.stringify(off.item.beacons)}`);
+      assert(!(await promptOf(a.id)).includes(stock) && (await promptOf(b.id)).includes(stock), "only that post: the other cover still shows its quote");
+      const back = await postJson(`/api/items/${a.id}/quote-toggle`, { showQuote: false, set: false });
+      assert(back.item.showQuoteSet === false && back.item.beacons.QUOTE_IN_STOCK === true && (await promptOf(a.id)).includes(stock), "undo can unmark it: it shows and is checked again");
+      const old = await postJson(`/api/items/${b.id}/quote-toggle`, { from: "default" });
+      assert(old.applied === false && !old.item.showQuoteSet, `the 1.13.0 carry-over is gone: an old page's call changes nothing: ${JSON.stringify(old).slice(0, 200)}`);
+      assert(!("quoteDefault" in (await (await fetch(`${base}/api/quotes/status`)).json())), "no learned default any more");
     } finally {
-      await postJson("/api/settings/quote-overlay", { on: null }).catch(() => {});
       await postJson("/api/settings/caption-voice", { voice: voiceBefore || "" });
     }
+  });
+  // ---------- v1.13.9: the one-time recheck of saved compose checks (Quill #706, #707 and #719) ----------
+  // A copy saved before 1.13.9: its checks were made when every post started with its quote off.
+  await check("v1.13.9 recheck: each cover with a saved check is rechecked once, beacons only, a cover still verified keeps when it was, and the tally counts covers and values", async () => {
+    const stock = "soft light on slow water";
+    const before = { QUOTE_IN_STOCK: null, SONG_IN_POOL: true, STEPS_VERIFIED: true }; // checked with the quote off
+    const cover = (id, more) => ({ id, status: "queue", quote: stock, song: "Someone - Something", songSource: "trending", imageUrl: `/uploads/old-${id}.png`,
+      showQuote: false, beacons: { ...before }, composeAttestedAt: 1000, ...more });
+    const rows = [
+      cover(1), // unmarked: it shows its quote now, and the quote is on her list
+      cover(2, { quote: "words that are not on her list" }), // unmarked: it shows a quote that isn't on her list
+      cover(3, { status: "approved", showQuoteSet: true }), // she turned it off: it stays NOT NEEDED
+      cover(4, { status: "rejected", showQuote: true, beacons: { QUOTE_IN_STOCK: true, SONG_IN_POOL: true, STEPS_VERIFIED: true } }), // already right
+      cover(5, { beacons: null, composeAttestedAt: null }), // never checked: left alone
+    ];
+    await withCopy(4198, (dir) => {
+      writeFileSync(join(dir, "quotes.json"), JSON.stringify([{ text: stock, source: "connected" }])); // her own quotes: unlocked
+      writeFileSync(join(dir, "db.json"), JSON.stringify({ items: rows, voiceSamples: [], nextId: 6 }));
+    }, async ({ dir, get, post }) => {
+      const all = async () => Object.fromEntries((await Promise.all(["queue", "approved", "rejected"].map((s) => get(`/api/items?status=${s}`)))).flatMap((r) => r.items).map((i) => [i.id, i]));
+      const first = await get("/api/beacons/wanted");
+      assert(first.ids?.join(",") === "1,2,3,4", `every cover with a saved check is wanted, whatever its status: ${JSON.stringify(first).slice(0, 200)}`);
+      assert(JSON.stringify(first.recheck) === JSON.stringify({ rechecked: 0, coversChanged: 0, valuesChanged: 0 }), `the tally starts at zero: ${JSON.stringify(first.recheck)}`);
+      const r1 = await post("/api/items/1/recheck");
+      assert(r1.rechecked === true && r1.changed?.join(",") === "QUOTE_IN_STOCK" && r1.item.beacons.QUOTE_IN_STOCK === true && r1.item.beacons.STEPS_VERIFIED === true,
+        `an unmarked cover's quote is checked now: ${JSON.stringify(r1).slice(0, 300)}`);
+      assert(r1.item.composeAttestedAt === 1000 && r1.item.beaconsVersion === 1, `still verified, so it keeps when it was, and it's stamped: ${r1.item.composeAttestedAt} ${r1.item.beaconsVersion}`);
+      const r2 = await post("/api/items/2/recheck");
+      assert(r2.changed?.join(",") === "QUOTE_IN_STOCK,STEPS_VERIFIED" && r2.item.beacons.QUOTE_IN_STOCK === false && r2.item.composeAttestedAt === null,
+        `a quote that isn't on her list fails the check now: ${JSON.stringify(r2).slice(0, 300)}`);
+      const [r3, r4] = [await post("/api/items/3/recheck"), await post("/api/items/4/recheck")];
+      assert(r3.rechecked === true && r3.changed?.length === 0 && r3.item.beacons.QUOTE_IN_STOCK === null, `a post she turned off stays NOT NEEDED: ${JSON.stringify(r3).slice(0, 300)}`);
+      assert(r4.rechecked === true && r4.changed?.length === 0, `a check that was already right is rechecked and stays: ${JSON.stringify(r4).slice(0, 300)}`);
+      const r5 = await post("/api/items/5/recheck");
+      assert(r5.rechecked === false && r5.reason === "done" && r5.item.beacons == null, `a cover nobody checked is left alone: ${JSON.stringify(r5).slice(0, 300)}`);
+      const again = await post("/api/items/1/recheck");
+      assert(again.rechecked === false && again.reason === "done", "a cover is rechecked once");
+      const after = await get("/api/beacons/wanted");
+      assert(after.ids.length === 0 && JSON.stringify(after.recheck) === JSON.stringify({ rechecked: 4, coversChanged: 2, valuesChanged: 3 }), `the tally: ${JSON.stringify(after)}`);
+      const now = await all();
+      for (const row of rows) {
+        const n = now[row.id];
+        assert(n.showQuote === row.showQuote && n.showQuoteSet === row.showQuoteSet && n.status === row.status && n.quote === row.quote,
+          `beacons only, never her choices: ${JSON.stringify(n).slice(0, 300)}`);
+      }
+      assert(!("beaconsVersion" in now[5]), "a cover nobody checked gets no stamp");
+      const saved = JSON.parse(readFileSync(join(dir, "db.json"), "utf8")).items;
+      assert(saved.filter((i) => i.beaconsVersion === 1).map((i) => i.id).join(",") === "1,2,3,4", "the stamps are saved");
+      const checked = await post("/api/items/5/verify");
+      assert(checked.item.beaconsVersion === 1 && (await get("/api/beacons/wanted")).ids.length === 0, "a check made now is stamped, so it's never wanted");
+    });
+  });
+  // ---------- v1.13.9: the quote lock on the server (Quill #725) ----------
+  await check("v1.13.9 quote lock: while quotes are locked the server checks no quote and the caption reads none; connecting quotes rechecks every checked cover, beacons only", async () => {
+    const stock = "soft light on slow water";
+    const plain = { status: "queue", quote: stock, song: "Someone - Something", songSource: "trending", showQuote: false, beacons: null, composeAttestedAt: null };
+    await withCopy(4197, (dir) => {
+      writeFileSync(join(dir, "db.json"), JSON.stringify({ items: [{ id: 1, imageUrl: "/uploads/lock-1.png", ...plain }, { id: 2, imageUrl: "/uploads/lock-2.png", ...plain }],
+        voiceSamples: [], nextId: 3 }));
+    }, async ({ get, post }) => {
+      const status = await get("/api/quotes/status");
+      assert(status.unlocked === false, "a fresh copy starts locked");
+      const locked = await post("/api/items/1/verify");
+      assert(locked.beacons.QUOTE_IN_STOCK === null && locked.beacons.STEPS_VERIFIED === true, `locked: no quote is drawn, so NOT NEEDED: ${JSON.stringify(locked.beacons)}`);
+      await post("/api/settings/caption-voice", { voice: "Warm and short." });
+      const lockedPrompt = (await get("/api/items/1/caption-prompt")).prompt;
+      assert(!lockedPrompt.includes(stock) && lockedPrompt.includes("no text on this cover"), `locked: the caption reads no text on the cover: ${lockedPrompt.slice(0, 300)}`);
+      const when = locked.item.composeAttestedAt;
+      const connected = await post("/api/quotes/connect", { quotes: [stock] });
+      assert(connected.unlocked === true, "connecting her quotes unlocks them");
+      const items = (await get("/api/items?status=queue")).items;
+      const [one, two] = [items.find((i) => i.id === 1), items.find((i) => i.id === 2)];
+      assert(one.beacons.QUOTE_IN_STOCK === true && one.composeAttestedAt === when, `unlocking rechecks a checked cover, and a cover still verified keeps when it was: ${JSON.stringify(one.beacons)}`);
+      assert(one.showQuote === false && !("showQuoteSet" in one), "beacons only: her choices stay as they were");
+      assert(two.beacons == null, "a cover nobody checked stays unchecked");
+      assert((await get("/api/items/1/caption-prompt")).prompt.includes(stock), "unlocked: the caption is about the quote again");
+    });
   });
   // ---------- v1.13.8: default text placement (Arjang #559 item 6, Quill #685 and #687) ----------
   await check("v1.13.8 placement: unstamped queue covers are wanted, this copy has no model, and an answer moves only center, align, size and lines, then stamps", async () => {
@@ -993,6 +1056,46 @@ try {
     const tiny = await newItem("place-s.png");
     const low = await postJson(`/api/items/${tiny.id}/placement`, { fields: { fontSize: 2, lineCount: 0 } });
     assert(low.item.fontSize === 8 && low.item.lineCount === 1, `size 8 to 110, and the pass writes 1 to 8 lines: ${low.item.fontSize} ${low.item.lineCount}`);
+  });
+  // ---------- v1.13.3, as 1.13.9 reads it: false is global hide (Arjang #621 and #630, Quill #624, #695 and #696) ----------
+  await check("v1.13.3 global hide: false hides every quote without touching a post, unset gives each post its own back, and true no longer forces quotes on", async () => {
+    const status = async () => (await fetch(`${base}/api/quotes/status`)).json();
+    const stock = (await (await fetch(`${base}/api/quotes`)).json()).quotes[0].text;
+    const [x, y] = [await newItem("all-x.png"), await newItem("all-y.png")];
+    for (const c of [x, y]) await postJson(`/api/items/${c.id}/edit`, { quote: stock, description: "a beach at dusk" });
+    await postJson(`/api/items/${x.id}/quote-toggle`, { showQuote: false });
+    for (const c of [x, y]) await postJson(`/api/items/${c.id}/verify`);
+    const fresh = await newItem("all-z.png");
+    const voiceBefore = (await (await fetch(`${base}/api/settings/caption-voice`)).json()).voice;
+    await postJson("/api/settings/caption-voice", { voice: "short and warm" });
+    const shownOf = async (id) => (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === id);
+    const stockOf = async (id) => (await shownOf(id)).beacons?.QUOTE_IN_STOCK;
+    const ids = (r) => (r.items || []).map((i) => i.id).filter((id) => [x.id, y.id, fresh.id].includes(id)).sort((a, b) => a - b).join(",");
+    const yWhen = (await shownOf(y.id)).composeAttestedAt;
+    const promptOf = async (id) => (await (await fetch(`${base}/api/items/${id}/caption-prompt`)).json()).prompt;
+    try {
+      assert(await stockOf(x.id) === null && await stockOf(y.id) === true, "unset: x is turned off, y shows by default");
+      const on = await postJson("/api/settings/quote-overlay", { on: true });
+      assert(on.quoteOverlay === true && ids(on) === "", `true changes no cover's check: ${ids(on)}`);
+      assert(await stockOf(x.id) === null && !(await promptOf(x.id)).includes(stock), "true doesn't force a post she turned off back on");
+      const hide = await postJson("/api/settings/quote-overlay", { on: false });
+      assert(hide.quoteOverlay === false && (await status()).quoteOverlay === false, "global hide is on");
+      assert(await stockOf(x.id) === null && await stockOf(y.id) === null && ids(hide) === String(y.id), `hidden: no cover needs its quote in stock, and only y's check changed: ${ids(hide)}`);
+      assert(!(await promptOf(y.id)).includes(stock) && !(await promptOf(x.id)).includes(stock), "hidden: no caption is about a quote");
+      assert((await shownOf(fresh.id)).beacons == null, "a cover nobody checked isn't checked by global hide");
+      assert((await shownOf(y.id)).composeAttestedAt === yWhen, "a cover that stays verified keeps when it was");
+      assert((await shownOf(x.id)).showQuote === false && (await shownOf(x.id)).showQuoteSet === true && !(await shownOf(y.id)).showQuoteSet, "global hide never writes a post");
+      const lift = await postJson("/api/settings/quote-overlay", { on: null });
+      assert(lift.quoteOverlay === null && await stockOf(x.id) === null && await stockOf(y.id) === true && ids(lift) === String(y.id), "lifting it gives each post its own back");
+      assert((await promptOf(y.id)).includes(stock) && !(await promptOf(x.id)).includes(stock), "captions follow each post again");
+      for (const bad of [{ on: "yes" }, { on: 1 }, {}]) {
+        const r = await fetch(`${base}/api/settings/quote-overlay`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bad) });
+        assert(r.status === 400, `${JSON.stringify(bad)} answered ${r.status}`);
+      }
+    } finally {
+      await postJson("/api/settings/quote-overlay", { on: null }).catch(() => {});
+      await postJson("/api/settings/caption-voice", { voice: voiceBefore || "" });
+    }
   });
   await check("ubee client workspace plan", async () => {
     await fetch(`${base}/api/workspace/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "ubee_shared", clientName: "Test Creator" }) });

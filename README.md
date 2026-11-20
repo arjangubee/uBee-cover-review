@@ -112,6 +112,7 @@ Since 1.4.0 the cover is the screen, the way Quill's Cover Review looks. Since 1
 - The song row: the play button opens Spotify's own player for the cover's song when the song has a Spotify link, or plays a preview when the pool has one. A downloaded song plays its hook clip from the app. Shuffle picks another song.
 - Icons under the cover: like (approve), dislike (pass), download, repost (remix into a new version), note, edit.
 - The glass at the top left of the cover flies the photo up to fill the screen. Pinch to zoom (up to 4 times), drag to look around, double tap to zoom in or out, and tap the dark background to put it back. It works in the editor too.
+- Holding down on the cover, a photo slide or the zoomed photo selects nothing and opens no menu (1.13.6). A hold that lifts without moving is still a tap, and the editor's fields select text as usual.
 - Slides: swipe the cover or use the slides stepper to move through them, add one with +, remove one with minus. Since 1.13.4 the stepper sits in one row with the cover arrows at its two ends, which step between covers.
 - On a phone the cover sizes itself so Randomize layout is on the first screen, above the Muse tab bar (1.13.4). On a computer it keeps its full width.
 - Randomize layout picks one of the original's six layouts (centered hero, left pillar, right pillar, justified center, small left column, monoline) and keeps the whole text inside the safe zone for the cover's shape. It changes the layout only, never the color, the opacity, the font or the weight. Undo takes it back.

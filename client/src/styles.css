@@ -69,6 +69,9 @@ img { max-width: 100%; }
 
 /* ---------- The stage: a 4:5 frame, the cover drawn by the same code that makes the post ---------- */
 .stage { position: relative; display: flex; align-items: center; justify-content: center; margin: 4px -16px 0; background: var(--bg); overflow: hidden; }
+/* Holding the cover, a slide or the magnifier selects nothing and opens no callout menu (1.13.6, #559 item 4).
+   The editor's fields sit outside both, so they keep normal selection. */
+.stage, .stage *, .zoomView, .zoomView * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 /* On a phone (1.13.4, #559 item 2): the cover sizes itself so Randomize layout ends above the Muse tab bar on the
    first screen. --fit-h is the room the page measures for it. It keeps 4:5, stays centered, and never gets
    narrower than 260px. On a computer it keeps its full width. */

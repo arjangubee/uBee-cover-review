@@ -1,7 +1,7 @@
 {
-  "version": "1.13.5",
+  "version": "1.13.6",
   "date": "2026-11-20",
   "whatsNew": [
-    "Undo and redo inside the text editor, on the same history as the ones up top"
+    "Holding down on the cover no longer turns it blue or opens a menu"
   ]
 }

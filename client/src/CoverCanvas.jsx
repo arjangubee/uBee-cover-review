@@ -33,7 +33,7 @@ export function loadImage(url) {
 }
 
 /** The cover fit inside maxW x maxH. children({ cssW, cssH }) draws overlays on top, in CSS pixels. */
-export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, detail = 1, canvasRef, onDrawn, children, className = "", ...rest }) {
+export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, detail = 1, safe = false, free = null, canvasRef, onDrawn, children, className = "", ...rest }) {
   const ref = useRef(null);
   const base = useRef({ key: "", canvas: null });
   const reported = useRef(null);
@@ -87,7 +87,7 @@ export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, 
       drawCover(layer.getContext("2d"), { ...item, extraTexts: [] }, img, W, H, { quoteOn: false, src });
       base.current = { key, canvas: layer };
     }
-    drawCover(canvas.getContext("2d"), { ...item, imageEdit: null }, base.current.canvas, W, H, { quoteOn });
+    drawCover(canvas.getContext("2d"), { ...item, imageEdit: null }, base.current.canvas, W, H, { quoteOn, safe, free }); // safe: the deck's hold (1.13.8)
     if (reported.current !== url) { reported.current = url; onDrawn?.(item.id); }
   });
   useEffect(() => { if (!img) reported.current = null; }, [img]);

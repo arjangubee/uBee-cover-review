@@ -10,7 +10,7 @@ import { CoverHeader, ModeSwitch, SongRow } from "./CoverTop.jsx";
 import Icon from "./icons.jsx";
 import InfoSheet from "./InfoSheet.jsx";
 import LibraryView from "./LibraryView.jsx";
-import { STYLE_DEFAULTS, canvasMeasureAt, randomizeLayout, renderCover, withDefaults } from "./renderCover.js";
+import { STYLE_DEFAULTS, canvasMeasureAt, ensureFonts, normalizePlacement, randomizeLayout, renderCover, withDefaults } from "./renderCover.js";
 import { changedFields, displayTitle, valueForStars } from "./reviewMath.js";
 import ScheduleSheet from "./ScheduleSheet.jsx";
 import { coverSongEdit } from "./songs/songsData.js";
@@ -114,6 +114,42 @@ export default function App() {
     filling.current = false;
   }
 
+  // Text placement (1.13.8, #559 item 6, Quill #685, #687 and #689): the original's pass, once for each queue cover with
+  // no stamp. A model looks at the photo and answers where the quote goes; normalizePlacement fits the answer with the
+  // real text sizes, and saving it stamps the cover, ready or not. Off-screen covers first, the one on screen last. Only
+  // the stored cover changes: a draft she has open stays as it is until she leaves it. A cover that fails is skipped
+  // for this session and tried again on the next load. This copy has no model: it answers no-model once and the loop rests.
+  const placing = useRef(false);
+  const noPlacer = useRef(false);
+  const placeFailed = useRef(new Set());
+  async function fillPlacements(onScreenId) {
+    if (placing.current || noPlacer.current) return;
+    placing.current = true;
+    try {
+      const { ids } = await api("/api/placements/wanted");
+      const todo = ids.filter((id) => !placeFailed.current.has(id));
+      for (const id of [...todo.filter((i) => i !== onScreenId), ...todo.filter((i) => i === onScreenId)]) {
+        try {
+          const r = await post(`/api/items/${id}/placement-fill`, {});
+          if (r.reason === "no-model") { noPlacer.current = true; break; }
+          if (r.reason === "done") continue;
+          if (!r.answer || !r.item) throw new Error("no answer");
+          const img = await loadImage(imageUrlFor(r.item));
+          await ensureFonts({ ...r.item, showQuote: true });
+          const box = { ...withDefaults(r.item), quote: String(r.item.quote || "") };
+          const measure = canvasMeasureAt(box) || ((px) => (t) => t.length * px * 0.5);
+          const fields = normalizePlacement(box, img.naturalWidth / img.naturalHeight, measure, r.answer);
+          const saved = await post(`/api/items/${id}/placement`, { fields });
+          if (saved.saved && saved.item) {
+            const keep = ["horizontalPosition", "verticalPosition", "textAlign", "fontSize", "lineCount", "textPlacementVersion"];
+            setItems((prev) => prev.map((i) => (i.id === saved.item.id ? { ...i, ...Object.fromEntries(keep.map((k) => [k, saved.item[k]])) } : i)));
+          }
+        } catch { placeFailed.current.add(id); }
+      }
+    } catch { /* placing is a nicety: the text she has stays */ }
+    placing.current = false;
+  }
+
   // Keep her place: a cover opened from the grid, or the same spot after a cover leaves the list.
   useEffect(() => {
     if (pendingId.current != null) {
@@ -152,6 +188,18 @@ export default function App() {
   useEffect(() => { const next = items[index + 1]; if (next) loadImage(imageUrlFor(next)).catch(() => {}); }, [items, index]);
   const coverReady = Boolean(current) && drawnId === current.id;
   useEffect(() => { if (loads) fillCaptions(current?.id ?? null); }, [loads]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!loads) return undefined;
+    const run = () => fillPlacements(current?.id ?? null);
+    const idle = typeof window !== "undefined" && window.requestIdleCallback;
+    const handle = idle ? window.requestIdleCallback(run, { timeout: 3000 }) : setTimeout(run, 800);
+    return () => (idle ? window.cancelIdleCallback(handle) : clearTimeout(handle));
+  }, [loads]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The boxes she has dragged on this cover this session leave the deck's safe hold, like the original's
+  // positionedTextIds (1.13.8): never saved, and cleared when the cover changes.
+  const [free, setFree] = useState(() => new Set());
+  useEffect(() => { setFree(new Set()); }, [current?.id]);
+  const freeBox = useCallback((i) => setFree((f) => (f.has(i) ? f : new Set([...f, i]))), []);
   useEffect(() => { if (slide > activeSlides.length) setSlide(activeSlides.length); }, [activeSlides.length, slide]);
 
   // On a phone the cover sizes itself so Randomize layout ends on the first screen (1.13.4, #559 item 2): the room is the
@@ -300,7 +348,7 @@ export default function App() {
     if (list === "queue") await load();
   });
   const download = () => attempt(async () => {
-    const blob = await renderCover(current, { quoteOn });
+    const blob = await renderCover(current, { quoteOn, free }); // as the deck shows it, held boxes and all (1.13.8)
     const name = `${displayTitle(current.title)}-cover.jpg`;
     const file = new File([blob], name, { type: "image/jpeg" });
     const touch = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
@@ -598,7 +646,7 @@ export default function App() {
               <CoverStage item={shown} quoteOn={quoteOn} slides={activeSlides} slide={slide} setSlide={setSlide} story={story && !draft}
                 editing={Boolean(draft)} activeBox={activeBox} onStartEdit={(box) => startEdit(box)} onSelectBox={setActiveBox} onMoveBox={moveBox}
                 pickMode={pickMode} onPick={onPick} onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} burst={burst} onDrawn={setDrawnId}
-                onZoom={setZoom} onTapOff={() => sheetDismiss.current?.()} />
+                onZoom={setZoom} onTapOff={() => sheetDismiss.current?.()} free={free} onFree={freeBox} />
               <div className="behind" inert={draft ? true : undefined}>
                 <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={remix} onDownload={download}
                   onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)} />
@@ -631,7 +679,7 @@ export default function App() {
           <BrandFoot />
         </main>
         {zoom && current && (
-          <ZoomView item={shown} quoteOn={quoteOn} slideUrl={zoom.slideUrl} source={zoom.source}
+          <ZoomView item={shown} quoteOn={quoteOn} slideUrl={zoom.slideUrl} source={zoom.source} free={free}
             onClose={() => { setZoom(null); requestAnimationFrame(() => document.querySelector(".zoomBtn")?.focus({ preventScroll: true })); }} />
         )}
         </>

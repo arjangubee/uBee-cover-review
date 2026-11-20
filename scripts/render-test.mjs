@@ -1,7 +1,7 @@
 // Client logic checked without a browser: the layout math that puts the quote on the posted cover where
 // the review deck shows it, the words the Approved grid uses, and the new-version check for hosted copies.
 // Run: node scripts/render-test.mjs
-import { FONT_LABELS, HALF_PRESETS, PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, contrastPixel, coverLayout, drawCover, insideSafeZone, mosaicRects, presetOn, randomizeLayout, safeZoneFor, textBoxes, textHitBoxes, wrapText } from "../client/src/renderCover.js";
+import { FONT_LABELS, HALF_PRESETS, PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, contrastPixel, coverLayout, drawCover, estimatedLineCount, insideSafeZone, mosaicRects, normalizePlacement, presetOn, randomizeLayout, safeZoneFor, textBoxes, textHitBoxes } from "../client/src/renderCover.js";
 import { createHistory } from "../client/src/undo.js";
 import { overlayOf, quoteShown } from "../client/src/quoteOverlay.js";
 import { RANDOM_LAYOUTS, ZOOM_REST, changedFields, displayTitle, parseSong, randomEditorialLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars, zoomPan, zoomSettle, zoomTo } from "../client/src/reviewMath.js";
@@ -10,6 +10,7 @@ import { RELEASE_URL, newer, releaseBanner } from "../client/src/release.js";
 import { canUse, clipAddress, coverSongEdit, hotList, librarySorted, moveText, onCover, partLabel, partsOf, replayPath, searchSongs, sourceFor, statusLine, symphonyIdOf, topGenres } from "../client/src/songs/songsData.js";
 import { clipNow, clipSource } from "../client/src/songs/clipSource.js";
 import { readFileSync } from "node:fs";
+import { LOCK_BREAK, LOCK_START, lockAxis, startAxis } from "../client/src/safeLock.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -25,19 +26,27 @@ const atPx = (px) => (s) => s.length * px * 0.5; // a monospace font, half as wi
 const base = { quote: "golden hour again", fontSize: 58, fontWeight: 500, textFont: "tiktok", textAlign: "center",
   textColor: "#FFFFFF", opacity: 100, horizontalPosition: 50, verticalPosition: 50 };
 
-check("long quotes wrap at spaces inside the box and keep every word", () => {
-  const lines = wrapText("one two three four five six", 100, tenPerChar);
-  assert(lines.every((l) => tenPerChar(l) <= 100), `a line is too wide: ${JSON.stringify(lines)}`);
-  assert(lines.join(" ") === "one two three four five six", `words changed: ${JSON.stringify(lines)}`);
-  assert(lines.length === 3, `expected 3 lines, got ${JSON.stringify(lines)}`);
+// 1.13.8 (Quill #687 and #689): Lines on Auto draws the original's SafeQuote rule, not a greedy wrap. The count is the
+// characters / 20 (at least 1, never more than the words), or her typed line count when she typed more than one line.
+// The words are then balanced across that many rows, so a typed break stays only where balancing lands on it.
+check("Lines on Auto picks the original's count: characters / 20, at least 1, at most the words, or her typed lines (1.13.8)", () => {
+  assert(estimatedLineCount("") === 0 && estimatedLineCount("   ") === 0, "no words, no rows");
+  assert(estimatedLineCount("hi") === 1 && estimatedLineCount("a b c") === 1, "a short quote is one row");
+  assert(estimatedLineCount("one two three four five six seven eight nine ten") === 2, "49 characters: 2 rows");
+  assert(estimatedLineCount("a lot of people are surprised to find out I don't just make rugs") === 3, "64 characters: 3 rows");
+  assert(estimatedLineCount("extraordinarily magnificent unbelievably") === 2, "40 characters, 3 words: 2 rows");
+  assert(estimatedLineCount("incomprehensibilities antidisestablishmentarianism") === 2, "2 words cap it at 2");
+  assert(estimatedLineCount("first line\nsecond") === 2 && estimatedLineCount("one\ntwo\nthree words here") === 3, "her typed lines pick the count");
+  assert(estimatedLineCount("one line\n") === 1, "an empty typed line doesn't count");
 });
-check("a word wider than the box breaks inside the word, like the preview", () => {
-  const lines = wrapText("supercalifragilistic", 100, tenPerChar);
-  assert(lines.every((l) => tenPerChar(l) <= 100) && lines.join("") === "supercalifragilistic", JSON.stringify(lines));
-});
-check("line breaks she typed stay", () => {
-  const lines = wrapText("first line\nsecond", 1000, tenPerChar);
-  assert(JSON.stringify(lines) === JSON.stringify(["first line", "second"]), JSON.stringify(lines));
+check("lineCount 0 draws the estimate as balanced rows, and her typed breaks are balanced like any space (1.13.8)", () => {
+  const q = "a lot of people are surprised to find out I don't just make rugs";
+  const L = coverLayout({ ...base, quote: q }, PREVIEW_WIDTH, 600, atPx);
+  assert(JSON.stringify(L.lines) === JSON.stringify(balanceLines(q, 3, tenPerChar)), `three balanced rows: ${JSON.stringify(L.lines)}`);
+  const T = coverLayout({ ...base, quote: "first line here\nsecond" }, PREVIEW_WIDTH, 600, atPx);
+  assert(JSON.stringify(T.lines) === JSON.stringify(["first line", "here second"]), `two rows, balanced across her break: ${JSON.stringify(T.lines)}`);
+  const W = coverLayout({ ...base, quote: "supercalifragilisticexpialidocious", fontSize: 110 }, PREVIEW_WIDTH, 600, atPx);
+  assert(W.lines.length === 1 && atPx(W.fontPx)(W.lines[0]) <= W.boxW + 1e-6, "a word wider than the box shrinks the text to fit, whole");
 });
 check("text size scales from the preview width, so it covers the same share of the photo", () => {
   const L = coverLayout(base, PREVIEW_WIDTH * 4, 2400, atPx);
@@ -257,6 +266,89 @@ check("holding the cover or the magnifier selects nothing and opens no menu, and
   const whole = /^(\*|html|body|:root|\.app|input|textarea|select|\[contenteditable[^\]]*\])$/;
   const wide = rules.filter((r) => r.decls["user-select"] === "none" || r.decls["-webkit-user-select"] === "none").flatMap((r) => r.sels).filter((x) => whole.test(x));
   assert(!wide.length, `no selection rule over the whole page or its fields: ${wide.join(", ")}`);
+});
+check("a dragged block catches on a safe edge only when its edge crosses it, holds until 8px past, and a drag starting within 1.5px starts caught (1.13.8)", () => {
+  // One axis: the safe edges at 50 and 450, a block 80 wide (half 40). Client px, as in the original.
+  assert(LOCK_BREAK === 8 && LOCK_START === 1.5, "the original's distances");
+  let st = startAxis(200, 40, 50, 450);
+  assert(st.lock === null, "a block in the middle starts free");
+  let r = lockAxis(st, 92, 40, 50, 450);
+  assert(r.center === 92 && r.state.lock === null, "near a guide pulls nothing: its edge is 2px inside and stays where she puts it");
+  r = lockAxis(r.state, 87, 40, 50, 450);
+  assert(r.center === 90 && r.state.lock === "lo", `crossing catches: the block's edge sits on the guide (${r.center}, ${r.state.lock})`);
+  r = lockAxis(r.state, 83, 40, 50, 450);
+  assert(r.center === 90 && r.state.lock === "lo", "held while 7px past");
+  r = lockAxis(r.state, 81, 40, 50, 450);
+  assert(r.center === 81 && r.state.lock === null, "9px past lets go");
+  r = lockAxis(r.state, 85, 40, 50, 450);
+  assert(r.center === 85 && r.state.lock === null, "after letting go, being near pulls nothing back");
+  r = lockAxis(r.state, 95, 40, 50, 450);
+  assert(r.center === 90 && r.state.lock === "lo", "crossing back in catches again");
+  r = lockAxis(r.state, 120, 40, 50, 450);
+  assert(r.center === 120 && r.state.lock === null, "pulling well inside lets go");
+  r = lockAxis({ lock: null, prevLo: 70, prevHi: 330 }, 60, 40, 50, 450);
+  assert(r.center === 60 && r.state.lock === null, "a jump past the guide by more than 8px in one move doesn't catch");
+  let h = lockAxis(startAxis(405, 40, 50, 450), 412, 40, 50, 450);
+  assert(h.center === 410 && h.state.lock === "hi", `the far edge catches the same way (${h.center})`);
+  st = startAxis(91, 40, 50, 450);
+  assert(st.lock === "lo", "a drag that starts with an edge 1px from a guide starts caught");
+  r = lockAxis(st, 95, 40, 50, 450);
+  assert(r.center === 90 && r.state.lock === "lo", "and holds it there");
+  assert(startAxis(92, 40, 50, 450).lock === null, "2px away starts free");
+});
+check("on the deck a box she hasn't dragged stays inside the safe rectangle: the column clamped by its half extents, scaled down, never up (1.13.8)", () => {
+  const W = PREVIEW_WIDTH, H = W * 1.25, z = safeZoneFor(W, H), e = 1e-6;
+  const q = "a lot of people are surprised to find out I don't just make rugs";
+  const box = { ...base, quote: q, horizontalPosition: 3, verticalPosition: 99 };
+  const frame = coverLayout(box, W, H, atPx), held = coverLayout(box, W, H, atPx, { safe: true });
+  assert(frame.bounds.bottom > z.bottom, "the frame alone lets the block past the safe rectangle");
+  assert(held.bounds.left >= z.left - e && held.bounds.right <= z.right + e && held.bounds.bottom <= z.bottom + e, `held inside: ${JSON.stringify(held.bounds)}`);
+  assert(Math.abs(held.anchorX - (z.left + held.halfW)) < e && Math.abs(held.anchorY - (z.bottom - held.halfH)) < e, "the center is clamped by the half extents, the edge right on the safe edge");
+  assert(Math.abs(held.halfW - (W * 0.84) / 2) < e, "the half width is the column's");
+  const big = coverLayout({ ...base, quote: q, fontSize: 110, lineCount: 8, textHeight: 200 }, W, H, atPx, { safe: true });
+  assert(big.fit < 1 && big.bounds.top >= z.top - e && big.bounds.bottom <= z.bottom + e, `too tall scales down: fit ${big.fit}`);
+  const mid = coverLayout(base, W, H, atPx, { safe: true }), plain = coverLayout(base, W, H, atPx);
+  assert(JSON.stringify(mid.bounds) === JSON.stringify(plain.bounds) && mid.fit === 1 && plain.fit === 1, "a block already inside doesn't move or grow");
+});
+check("hit boxes follow the same hold, a box she dragged this session goes to the frame, and the story view never holds (1.13.8)", () => {
+  const W = 1000, H = 1250, z = safeZoneFor(W, H);
+  const item = { ...base, quote: "golden hour again", horizontalPosition: 50, verticalPosition: 99,
+    extraTexts: [{ ...base, quote: "second box", horizontalPosition: 50, verticalPosition: 1 }] };
+  const [mainHeld, extraHeld] = textHitBoxes(item, W, H, fakeCtx(), true, { safe: true });
+  assert(mainHeld.index === -1 && mainHeld.bottom <= z.bottom + 1e-6 && extraHeld.index === 0 && extraHeld.top >= z.top - 1e-6, "both held inside");
+  const [mainFree, extraStill] = textHitBoxes(item, W, H, fakeCtx(), true, { safe: true, free: new Set([-1]) });
+  assert(mainFree.bottom > z.bottom + 1 && extraStill.top >= z.top - 1e-6, "only the dragged box is let go");
+  const [plain] = textHitBoxes(item, W, H, fakeCtx(), true);
+  assert(plain.bottom > z.bottom, "without the deck's hold (the story view) the frame is the only edge");
+});
+check("the placement pass leaves a ready box alone, and otherwise moves only center, align, size and lines into the safe rectangle (1.13.8)", () => {
+  const W = PREVIEW_WIDTH, aspect = 0.8, H = W / aspect, z = safeZoneFor(W, H), e = 1e-6;
+  const q = "a lot of people are surprised to find out I don't just make rugs";
+  const box = { ...base, quote: q, textColor: "#FB0909", textFont: "serif", opacity: 70 };
+  assert(normalizePlacement(box, aspect, atPx, { needsChange: false }) === null, "ready: nothing changes");
+  assert(normalizePlacement(box, aspect, atPx, null) === null, "no answer on a ready box: nothing changes");
+  const low = { ...box, verticalPosition: 99 };
+  const fixed = normalizePlacement(low, aspect, atPx, { needsChange: false });
+  assert(fixed && Object.keys(fixed).sort().join() === "fontSize,horizontalPosition,lineCount,textAlign,verticalPosition", `outside the safe rectangle isn't ready: ${JSON.stringify(fixed)}`);
+  const L = coverLayout({ ...low, ...fixed }, W, H, atPx);
+  assert(L.bounds.bottom <= z.bottom + 0.6 && L.fit === 1, `saved inside the safe rectangle: ${JSON.stringify(L.bounds)}`);
+  const moved = normalizePlacement(box, aspect, atPx, { needsChange: true, horizontalPosition: 30, verticalPosition: 20, textAlign: "left", fontSize: 40, lineCount: 4 });
+  assert(moved.textAlign === "left" && moved.lineCount === 4 && moved.fontSize === 40 && moved.verticalPosition === 20, JSON.stringify(moved));
+  assert(Math.abs(moved.horizontalPosition - 47) < 0.11, `the column's center is held by its half width: ${moved.horizontalPosition}`);
+  const wild = normalizePlacement(box, aspect, atPx, { needsChange: true, lineCount: 30, fontSize: 500, textAlign: "diagonal" });
+  assert(wild.lineCount === 8 && wild.fontSize <= 110 && wild.textAlign === "center", `held to 1 to 8 lines, size 110, a known alignment: ${JSON.stringify(wild)}`);
+  const few = normalizePlacement({ ...box, quote: "slow down" }, aspect, atPx, { needsChange: true, lineCount: 5 });
+  assert(few.lineCount === 2, `never more lines than words: ${few.lineCount}`);
+  const one = normalizePlacement(box, aspect, atPx, { needsChange: true, lineCount: 1 });
+  assert(one.lineCount === 1, "an explicit 1 wins exactly");
+  const est = normalizePlacement(box, aspect, atPx, { needsChange: true });
+  assert(est.lineCount === 3 && est.fontSize === 58, `with no count the estimate is written, and the size stays: ${JSON.stringify(est)}`);
+  const tiny = normalizePlacement(box, aspect, atPx, { needsChange: true, fontSize: 2 });
+  assert(tiny.fontSize === 8, "size never under 8");
+  const tall = { ...box, textHeight: 200 };
+  const huge = normalizePlacement(tall, aspect, atPx, { needsChange: true, fontSize: 110, lineCount: 8, verticalPosition: 50 });
+  const HL = coverLayout({ ...tall, ...huge }, W, H, atPx, { safe: true });
+  assert(huge.fontSize < 110 && HL.fit === 1, `a block taller than the safe rectangle is scaled down, never up: ${huge.fontSize} fit ${HL.fit}`);
 });
 check("undo and redo walk back and forth, and a new change clears redo", () => {
   const h = createHistory(3);

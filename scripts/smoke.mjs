@@ -957,6 +957,43 @@ try {
       await postJson("/api/settings/caption-voice", { voice: voiceBefore || "" });
     }
   });
+  // ---------- v1.13.8: default text placement (Arjang #559 item 6, Quill #685 and #687) ----------
+  await check("v1.13.8 placement: unstamped queue covers are wanted, this copy has no model, and an answer moves only center, align, size and lines, then stamps", async () => {
+    const [p, q, r] = [await newItem("place-p.png"), await newItem("place-q.png"), await newItem("place-r.png")];
+    const wanted = async () => (await (await fetch(`${base}/api/placements/wanted`)).json()).ids.filter((id) => [p.id, q.id, r.id].includes(id)).join(",");
+    assert(p.textPlacementVersion === 0, `a new cover starts unstamped: ${p.textPlacementVersion}`);
+    assert(await wanted() === [p.id, q.id, r.id].join(","), `every unstamped queue cover is wanted: ${await wanted()}`);
+    const fill = await postJson(`/api/items/${p.id}/placement-fill`, {});
+    assert(fill.placed === false && fill.reason === "no-model", `this copy has no model: ${JSON.stringify(fill).slice(0, 200)}`);
+    const ask = await (await fetch(`${base}/api/items/${p.id}/placement-prompt`)).json();
+    assert(/face or a head/.test(ask.prompt) && /needsChange/.test(ask.prompt) && /15\.625/.test(ask.prompt) && ask.imageUrl === p.imageUrl, `the prompt carries the rules and the photo: ${JSON.stringify(ask).slice(0, 300)}`);
+    await postJson(`/api/items/${p.id}/edit`, { quote: "soft light on the water" });
+    await postJson(`/api/items/${p.id}/style`, { textColor: "#FB0909", textFont: "serif" });
+    const moved = await postJson(`/api/items/${p.id}/placement`, { fields: { horizontalPosition: 22, verticalPosition: 71, textAlign: "left", fontSize: 44, lineCount: 3,
+      textColor: "#FFFFFF", textFont: "tiktok", quote: "not hers", opacity: 40 } });
+    const m = moved.item;
+    assert(moved.saved === true && moved.changed === true && m.textPlacementVersion === 1, `an answer saves and stamps: ${JSON.stringify(moved).slice(0, 200)}`);
+    assert(m.horizontalPosition === 22 && m.verticalPosition === 71 && m.textAlign === "left" && m.fontSize === 44 && m.lineCount === 3, "center, align, size and lines land");
+    assert(m.textColor === "#FB0909" && m.textFont === "serif" && m.quote === "soft light on the water" && m.opacity === 100, "color, font, quote and the rest are never touched");
+    assert(!(await wanted()).split(",").includes(String(p.id)), "a stamped cover isn't wanted again");
+    const twice = await postJson(`/api/items/${p.id}/placement`, { fields: { horizontalPosition: 80 } });
+    assert(twice.saved === false && twice.reason === "done" && twice.item.horizontalPosition === 22, "a stamped cover keeps its placement");
+    assert((await postJson(`/api/items/${p.id}/placement-fill`, {})).reason === "done", "a stamped cover needs no fill");
+    const ready = await postJson(`/api/items/${q.id}/placement`, { fields: null });
+    assert(ready.saved === true && ready.changed === false && ready.item.textPlacementVersion === 1 && ready.item.horizontalPosition === 50 && ready.item.lineCount === 0,
+      `ready: only the stamp advances: ${JSON.stringify(ready).slice(0, 200)}`);
+    await postJson(`/api/items/${r.id}/decide`, { decision: "approved" });
+    assert(!(await wanted()).split(",").includes(String(r.id)), "an approved cover isn't wanted");
+    const late = await postJson(`/api/items/${r.id}/placement`, { fields: { horizontalPosition: 10 } });
+    assert(late.saved === false && late.reason === "done" && late.item.horizontalPosition === 50, "only queue covers take a placement");
+    await postJson(`/api/items/${r.id}/decide`, { decision: "queue" });
+    const wild = await postJson(`/api/items/${r.id}/placement`, { fields: { horizontalPosition: 140, verticalPosition: -5, textAlign: "diagonal", fontSize: 300, lineCount: 12 } });
+    const w = wild.item;
+    assert(w.horizontalPosition === 100 && w.verticalPosition === 0 && w.textAlign === "center" && w.fontSize === 110 && w.lineCount === 8, `out of range answers are held to the ranges: ${JSON.stringify(w).slice(0, 200)}`);
+    const tiny = await newItem("place-s.png");
+    const low = await postJson(`/api/items/${tiny.id}/placement`, { fields: { fontSize: 2, lineCount: 0 } });
+    assert(low.item.fontSize === 8 && low.item.lineCount === 1, `size 8 to 110, and the pass writes 1 to 8 lines: ${low.item.fontSize} ${low.item.lineCount}`);
+  });
   await check("ubee client workspace plan", async () => {
     await fetch(`${base}/api/workspace/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "ubee_shared", clientName: "Test Creator" }) });
     const plan = await (await fetch(`${base}/api/drive/plan`)).json();

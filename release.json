@@ -1,7 +1,9 @@
 {
-  "version": "1.13.7",
+  "version": "1.13.8",
   "date": "2026-11-20",
   "whatsNew": [
-    "Play opens the Spotify player above the song, so the song and the cover stay where they are"
+    "The quote starts in even lines, inside the safe area of the cover",
+    "Dragging the text catches on the safe area's edge, and lets go when you keep pulling",
+    "Covers can get their text placed by your Muse, away from faces"
   ]
 }

@@ -9,6 +9,7 @@ import { buildVoiceProfile, generateCaption, loadQuotes, loadTrending, saveTrend
 import { getImportStatus, registerFull } from "./full.js";
 import { ctaFor } from "./captionCtas.js";
 import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
+import { cleanClipPath, cleanHook, matchSongClip, registerSongs } from "./songs.js";
 import { DATA_DIR, LIBRARY_DIR, UPLOAD_DIR, store } from "./store.js";
 import { createUpdater } from "./update.js";
 
@@ -155,12 +156,18 @@ app.post("/api/items/:id/decide", (req, res) => {
   store.saveDb();
   res.json({ item });
 });
+const SONG_SOURCES = ["spotify", "trending", "none", "downloaded", ""]; // what undo may send back with a song
 app.post("/api/items/:id/edit", (req, res) => {
   const item = store.getItem(req.params.id);
   if (!item) return res.status(404).json({ error: "item not found" });
   // Checked before anything changes, so a refused switch leaves the whole edit undone.
   const cta = req.body.cta == null || req.body.cta === "" ? null : ctaFor({ cta: req.body.cta }, store.settings.captionCtas || []);
   if (req.body.cta != null && req.body.cta !== "" && !cta) return res.status(400).json({ error: "That comment CTA isn't on your list. Ask your Muse to add it." });
+  // A song clip sent back with a song (undo does this, 1.11) has to be a clip path in the songs folder, with its hook.
+  const clipSent = req.body.song != null && Object.prototype.hasOwnProperty.call(req.body, "songFile");
+  const clip = clipSent && req.body.songFile != null ? cleanClipPath(req.body.songFile) : null;
+  const hook = clip ? cleanHook(req.body.songHook) : null;
+  if (clipSent && req.body.songFile != null && (!clip || !hook)) return res.status(400).json({ error: "That song clip isn't a clip in the songs folder." });
   for (const key of ["quote", "song", "caption", "note"]) if (req.body[key] != null) item[key] = String(req.body[key]);
   // A typed caption is hers and is never redrafted (1.9). Undo sends the source back with the words: one of the three
   // sources, or null for a row saved before sources existed.
@@ -170,8 +177,13 @@ app.post("/api/items/:id/edit", (req, res) => {
     else item.captionSource = ["placeholder", "model", "human"].includes(src) ? src : "human";
   }
   // A typed song has no preview and no Spotify link unless they come with it. Her Muse can attach a link on its own (v1.6).
-  if (req.body.song != null) { item.songPreviewUrl = String(req.body.songPreviewUrl || ""); item.songSpotifyUrl = String(req.body.songSpotifyUrl || ""); }
-  else if (req.body.songSpotifyUrl != null) item.songSpotifyUrl = String(req.body.songSpotifyUrl);
+  if (req.body.song != null) {
+    item.songPreviewUrl = String(req.body.songPreviewUrl || ""); item.songSpotifyUrl = String(req.body.songSpotifyUrl || "");
+    // 1.11: a song on the downloaded list gets its hook clip, any other song drops it. Undo sends the clip back as it was.
+    if (clipSent) Object.assign(item, { songFile: clip, songHook: hook });
+    else matchSongClip(item);
+    if (SONG_SOURCES.includes(req.body.songSource)) item.songSource = req.body.songSource;
+  } else if (req.body.songSpotifyUrl != null) item.songSpotifyUrl = String(req.body.songSpotifyUrl);
   if (req.body.regenerateCaption) { item.caption = generateCaption(item, store.settings.voiceProfile); item.captionSource = "placeholder"; }
   // The Comment CTA switch (1.10, renamed in 1.10.1): a keyword on the space's list turns it on, null turns it off.
   if (req.body.cta !== undefined) { if (cta) item.cta = cta.keyword; else delete item.cta; }
@@ -201,6 +213,9 @@ app.get("/api/voice/profile", (_req, res) => res.json({ voiceProfile: store.sett
 
 // ---------- Full feature set (editor, slides, story, ratings, verification) ----------
 registerFull(app, upload);
+
+// ---------- Downloaded songs: Symphony's folder of hook clips (1.11) ----------
+registerSongs(app);
 
 // ---------- Pollen: approved covers go out through uBee's publisher (uBee clients only) ----------
 registerPollen(app);

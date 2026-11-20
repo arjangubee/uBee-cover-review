@@ -51,10 +51,13 @@ export function ModeSwitch({ story, setStory, disabled }) {
 
 // The play button works like the original's: with a Spotify link it opens Spotify's own player for this cover's
 // song, and she taps play inside it (that keeps iOS happy about audio). Closing it, or moving to another cover,
-// removes the player, so playback stops. A song with only a preview plays the preview, as in 1.4.
+// removes the player, so playback stops. A song with only a preview plays the preview, as in 1.4. A downloaded song
+// (1.11) plays its hook clip from this app, ahead of any Spotify link.
 export function SongRow({ item, onShuffle, onSetSong, onDraft }) {
   const { artist, title } = parseSong(item.song);
-  const embed = spotifyEmbedUrl(item.songSpotifyUrl);
+  const clip = item.songFile && item.songPreviewUrl ? item.songPreviewUrl : "";
+  const embed = clip ? "" : spotifyEmbedUrl(item.songSpotifyUrl);
+  const preview = clip || item.songPreviewUrl;
   const [playing, setPlaying] = useState(false);
   const [playerOpen, setPlayerOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -66,7 +69,7 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft }) {
     setEditing(false);
     setText(item.song || "");
     audio.current?.pause();
-  }, [item.id, item.song, item.songSpotifyUrl]);
+  }, [item.id, item.song, item.songSpotifyUrl, item.songPreviewUrl]);
 
   function toggle() {
     const a = audio.current;
@@ -94,10 +97,11 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft }) {
       {embed ? (
         <button type="button" className={playerOpen ? "playBtn open" : "playBtn"} onClick={() => setPlayerOpen((o) => !o)} aria-expanded={playerOpen}
           aria-label={playerOpen ? "Close the Spotify player" : "Play the song on Spotify"}><Icon name={playerOpen ? "pause" : "play"} size={26} /></button>
-      ) : item.songPreviewUrl ? (
+      ) : preview ? (
         <>
-          <button type="button" className="playBtn" onClick={toggle} aria-label={playing ? "Pause the song preview" : "Play the song preview"}><Icon name={playing ? "pause" : "play"} size={26} /></button>
-          <audio ref={audio} src={item.songPreviewUrl} preload="none" onEnded={() => setPlaying(false)} />
+          <button type="button" className="playBtn" onClick={toggle}
+            aria-label={clip ? (playing ? "Pause the hook" : "Play the hook") : (playing ? "Pause the song preview" : "Play the song preview")}><Icon name={playing ? "pause" : "play"} size={26} /></button>
+          <audio ref={audio} src={preview} preload="none" onEnded={() => setPlaying(false)} />
         </>
       ) : null}
       <button type="button" className="iconBtn" onClick={onShuffle} aria-label="Shuffle the song"><Icon name="shuffle" /></button>

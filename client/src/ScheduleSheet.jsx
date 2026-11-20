@@ -35,7 +35,7 @@ export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, api, p
     (async () => {
       const check = await post("/api/pollen/check", { itemIds: items.map((i) => i.id) }).catch(() => ({ items: [] }));
       if (!alive) return;
-      for (const c of check.items) patchRow(c.itemId, { problems: c.problems, hasSlides: c.hasSlides, caption: c.caption });
+      for (const c of check.items) patchRow(c.itemId, { problems: c.problems, hasSlides: c.hasSlides, caption: c.caption, songStays: c.hasSongClip && !c.songGoes });
       for (const item of items) {
         if (!alive) return; // the sheet was closed: stop drawing
         try {
@@ -126,6 +126,7 @@ export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, api, p
           ))}
         </div>
         {rows.some((r) => r.hasSlides) && <p className="hint">Covers with slides go out as the cover alone for now. Carousels come next.</p>}
+        {rows.some((r) => r.songStays && !r.problems.length) && <p className="hint">Covers with a downloaded song go out without the song for now. Songs come next.</p>}
 
         <label>{items.length === 1 ? "Cover" : `${items.length} covers`}</label>
         <div className="sheetCovers">

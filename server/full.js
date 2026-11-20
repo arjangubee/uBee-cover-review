@@ -5,6 +5,7 @@ import { DATA_DIR, LIBRARY_DIR, store } from "./store.js";
 import { nextOpacity } from "./styleRules.js";
 import { canDraft, captionPrompt, captionState, draftProblems, needsDescription } from "./captionDrafts.js";
 import { cleanCtas } from "./captionCtas.js";
+import { downloadedSongs, matchSongClip } from "./songs.js";
 
 // Full Cover Review feature set, ported from the Muse original.
 // The original server/src/actions.ts (5,020 lines) maps onto these endpoints.
@@ -143,7 +144,9 @@ export function verifyItem(item) {
   const quoteInStock = item.showQuote ? Boolean(item.quote) && quotes.includes(item.quote.trim().toLowerCase()) : null;
   const pool = loadSongPool().map((s) => `${s.artist} - ${s.title}`.toLowerCase());
   const spotify = (store.settings.spotifyLibrary || []).map((s) => `${s.artist} - ${s.title}`.toLowerCase());
-  const songInPool = Boolean(item.song) && (pool.includes(item.song.trim().toLowerCase()) || spotify.includes(item.song.trim().toLowerCase()) || item.songSource === "trending");
+  const downloaded = downloadedSongs().map((s) => `${s.artist} - ${s.title}`.toLowerCase()); // 1.11: the songs folder's list
+  const songInPool = Boolean(item.song) && (pool.includes(item.song.trim().toLowerCase()) || spotify.includes(item.song.trim().toLowerCase())
+    || downloaded.includes(item.song.trim().replace(/\s+/g, " ").toLowerCase()) || item.songSource === "trending");
   const beacons = { QUOTE_IN_STOCK: quoteInStock, SONG_IN_POOL: songInPool, STEPS_VERIFIED: quoteInStock !== false && songInPool && Boolean(item.imageUrl) };
   item.beacons = beacons;
   item.composeAttestedAt = beacons.STEPS_VERIFIED ? Date.now() : null;
@@ -509,6 +512,7 @@ export function registerFull(app, upload) {
       const item = store.addItem({ title: e.title || e.driveId || "drive photo", imageUrl: e.imageUrl, source: "drive", driveId: e.driveId || null, imageQualityStatus: "passed", ...styleDefaults() });
       item.quote = e.quote || quotes[item.id % Math.max(quotes.length, 1)]?.text || "";
       item.song = e.song || "";
+      matchSongClip(item); // 1.11: a song on the downloaded list comes with its hook clip
       if (e.why) item.why = cleanWhy(e.why);
       item.caption = generateCaption(item, store.settings.voiceProfile);
       item.captionSource = "placeholder"; // the offline draft (1.9)

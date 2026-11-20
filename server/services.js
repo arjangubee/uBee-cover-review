@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
+import { downloadedSongs, songFields } from "./songs.js";
 import { DATA_DIR, store } from "./store.js";
 
 // ---------- Quotes: uBee default pack by default, creator can override ----------
@@ -33,17 +34,21 @@ export function saveTrending(payload) {
   return doc;
 }
 export function suggestSong(item) {
+  // 1.11: with a songs folder connected, songs come from its downloaded list first, each with its hook clip.
+  const downloaded = downloadedSongs();
+  if (downloaded.length) return songFields(downloaded[item.id % downloaded.length]);
+  const none = { songFile: null, songHook: null };
   const lib = store.settings.spotifyLibrary || [];
   if (lib.length) {
     const s = lib[item.id % lib.length];
-    return { song: `${s.artist} - ${s.title}`, songSource: "spotify", songPreviewUrl: String(s.previewUrl || ""), songSpotifyUrl: String(s.spotifyUrl || "") };
+    return { song: `${s.artist} - ${s.title}`, songSource: "spotify", songPreviewUrl: String(s.previewUrl || ""), songSpotifyUrl: String(s.spotifyUrl || ""), ...none };
   }
   const trending = loadTrending().songs || [];
   if (trending.length) {
     const s = trending[item.id % trending.length];
-    return { song: `${s.artist} - ${s.title}`, songSource: "trending", songPreviewUrl: String(s.previewUrl || ""), songSpotifyUrl: String(s.spotifyUrl || "") };
+    return { song: `${s.artist} - ${s.title}`, songSource: "trending", songPreviewUrl: String(s.previewUrl || ""), songSpotifyUrl: String(s.spotifyUrl || ""), ...none };
   }
-  return { song: "", songSource: "none", songPreviewUrl: "", songSpotifyUrl: "" };
+  return { song: "", songSource: "none", songPreviewUrl: "", songSpotifyUrl: "", ...none };
 }
 
 // ---------- Voice profile: learned from the creator's own captions, with consent ----------

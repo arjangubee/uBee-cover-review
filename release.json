@@ -1,8 +1,8 @@
 {
-  "version": "1.10.1",
+  "version": "1.11.0",
   "date": "2026-11-19",
   "whatsNew": [
-    "The switch under Instagram caption is now Comment CTA. Off shows your caption plain, with no call in it",
-    "Where your Muse drafts captions, each one hints at something in your photo and leaves the reader wondering"
+    "Your Muse can connect a folder of downloaded songs. Each cover's song then plays its hook right in the app",
+    "Undo on a song now brings back everything about it, its Spotify link included"
   ]
 }

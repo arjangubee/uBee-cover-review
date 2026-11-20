@@ -12,6 +12,86 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.11.0: downloaded songs
+
+Arjang's #477 and #480, Quill's #482 and #492, Symphony's #481 and #491. Covers can take their song from a folder of
+licensed downloads, with Symphony's hook clips, instead of Spotify. Additive: until a folder is connected nothing
+changes, and a cover without a clip keeps its Spotify player or preview exactly as before.
+
+1. **The folder.** A new setting, songsFolder: a full path on the machine the app runs on, empty by default, set by
+   her Muse. Connecting checks the folder has manifest.json at its top. The app reads the manifest again whenever it
+   changes, so a new export shows up without a restart. Sending null disconnects it, and covers keep their song names.
+2. **The manifest (Symphony's).** `{ songs: [ { id, artist, title, hookStart, hookEnd, previewStart: { apple, deezer,
+   spotify }, replayPeak, hookFile, songFile, spotifyUrl } ] }`. Times are seconds of song time. id is Symphony's
+   stable song key; hookFile is hooks/<id>.m4a; songFile (the licensed full file) and spotifyUrl are optional. Extra
+   fields (updatedAt, isrc, hookLabel) are ignored, and snake_case names are read too. A song is left out when it has
+   no artist or title, its hook end isn't after its start, or its hook clip isn't an audio file inside the folder.
+3. **A cover's song.** Two new optional fields: songFile (the hook clip's path in the folder) and songHook ({ start,
+   end }). songSource can now read downloaded. The song's name stays in song (a name she typed keeps her spelling).
+   The clip's address is /api/songs/clips/<songFile>, kept in songPreviewUrl, so a copy of a cover plays it too.
+4. **Picking.** With a folder connected, new covers and Shuffle pick from its songs first. Covers made before keep
+   their songs until shuffled. A song typed or set by her Muse (also through a Drive import) that matches a downloaded
+   song's "Artist - Title" in any case gets its clip; any other song drops it. The Compose check counts downloaded
+   songs as in the pool.
+5. **Playback.** A cover with a clip plays it with the song row's play button ("Play the hook"), ahead of any
+   Spotify link. Every other cover plays as before.
+6. **Undo.** A song steps back whole: its name, preview, Spotify link, clip, hook and source. Before this, undoing a
+   Shuffle also dropped the song's Spotify link; that's fixed with it.
+7. **Pollen.** The Bee Hive's hello can now say `features: { songs: true }`, and the app keeps it with her channels.
+   Until it does, a cover with a clip goes out as before, and the Schedule sheet says covers with a downloaded song
+   go out without it for now. Once it does, a cover with a clip also uploads that exact clip (`upload_url` with
+   `kind: "song"` and its `content_type`) and submits `song: { path, artist, title, hook_start, hook_end,
+   content_type }`. A cover whose clip is missing is flagged in the check and refused before anything is sent.
+
+### What the Bee Hive and Pollen need before songs go out (a separate step, not in this repo)
+
+- Bee Hive: hello answers `features: { songs: true }`; upload_url with `kind: "song"` hands out its own path for the
+  clip (never the cover's); submit keeps `song`; cover_lease hands Pollen a link to the clip with the name and hook.
+- Pollen: what a cover with a song posts as is still to be decided. A photo post can't carry a song through the
+  platforms' APIs, and a file baked into a post skips the platforms' music libraries (Symphony #481), so this is a
+  test path until Arjang says it replaces anything.
+
+### New setting
+
+| Setting | Type | Default | What it is |
+| --- | --- | --- | --- |
+| songsFolder | text | none | The songs folder's full path. Adds one settings row once her Muse connects it |
+
+### New fields on each cover (photos table)
+
+| Field | Type | Default | What it is |
+| --- | --- | --- | --- |
+| songFile | text or empty | empty | The hook clip's path inside the songs folder |
+| songHook | { start, end } or empty | empty | The hook, in seconds of song time |
+
+### Actions
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| GET /api/songs | New. { connected, folder, songs }: the songs it can play, each with id, artist, title, hookStart, hookEnd, hookFile, clipUrl, spotifyUrl |
+| POST /api/songs/folder | New. { folder } connects (400 with the reason when it can't use it), { folder: null } disconnects |
+| GET /api/songs/clips/* | New. Serves a hook clip from the folder, with ranges, and nothing else: anything outside the folder, not audio, or missing answers 404 |
+| POST /api/items/upload | New covers pick from the downloaded songs first |
+| POST /api/items/enqueue | A song that matches the list gets its clip |
+| POST /api/items/:id/edit | song: matches the list as above. song with songFile and songHook (undo) puts them back; a songFile that isn't a clip path, or comes without a hook, answers 400 and changes nothing. songSource comes back with undo. shuffleSong picks from the list first |
+| POST /api/items/:id/verify | SONG_IN_POOL counts downloaded songs |
+| POST /api/pollen/check | Answers hasSongClip and songGoes, and flags a missing clip when the Bee Hive takes songs |
+| POST /api/pollen/schedule | Sends the clip with the cover once the Bee Hive takes songs (above) |
+| GET /api/connectors | Lists the songs folder with its Muse steps |
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| CoverTop.jsx | SongRow plays a cover's hook clip ("Play the hook") ahead of its Spotify link |
+| App.jsx | Shuffle, a typed song and a typed song saved on the way out all step back whole (songOf) |
+| ScheduleSheet.jsx | The "go out without the song for now" hint |
+
+Checks after the port: with no folder, nothing changes. Connect a test folder: GET /api/songs lists its songs; a new
+cover gets a downloaded song with its clip and plays it; Shuffle picks from the list and undo puts the clip back; a
+typed song on the list gets its clip and any other drops it; a clip outside the folder answers 404; the Compose check
+counts a downloaded song. Disconnect it, and the settings count goes back down by one.
+
 ## 1.10.1: Comment CTA, and off hides it
 
 Arjang's #453, Quill's #455 and #458. No new fields or settings. Three changes:

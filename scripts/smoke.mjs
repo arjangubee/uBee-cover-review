@@ -100,10 +100,54 @@ const hiveServer = http.createServer(async (req, res) => {
 await new Promise((r) => hiveServer.listen(0, "127.0.0.1", r));
 const hiveBase = `http://127.0.0.1:${hiveServer.address().port}`;
 
+// A stand-in Symphony feed (1.12): the real feed's answer for one read code, clip links on its own origin that serve
+// audio, and a count of reads so checks can see when the app reads the feed again. Besides two playable songs it lists
+// entries the app must leave out or can't play: a song with no hook, one whose clip points elsewhere, a bad id and a
+// song with no title.
+const SYM_CODE = "smoke-symphony-read-code-0123456789-abcdefgh";
+const SYM_CLIP_1 = Buffer.from("fake-symphony-hook-clip-one"), SYM_CLIP_2 = Buffer.from("fake-symphony-part-two"), SYM_CLIP_3 = Buffer.from("fake-symphony-hook-two");
+const sym = { reads: 0, revoked: false, expiresIn: 24 * 3600 * 1000 };
+const symSongs = (link) => [
+  { id: "sym-a--song-one", artist: "Sym Artist A", title: "Song One", artwork: "https://is1-ssl.mzstatic.com/a.jpg", genre: "Pop", durationSec: 180,
+    addedAt: "2026-11-18T10:00:00Z", analyzed: true, popularity: 88, watch: "https://www.youtube.com/watch?v=aaaaaaaaaaa&t=44s", isrc: "XX0000000101",
+    links: { apple: "https://music.apple.com/us/album/a?i=1", spotify: "https://open.spotify.com/track/symaaaaaaaaaaaaaaaaaaa", youtube: "https://www.youtube.com/watch?v=aaaaaaaaaaa" },
+    today: { shazam: { rank: 3, move: "NEW" } }, hookStart: 44.4, hookEnd: 59.4, hookLabel: "0:44 to 0:59", level: "high", agree: ["apple", "replay"],
+    parts: [{ start: 44.4, end: 59.4 }, { start: 90, end: 105 }], lines: ["first hook line", "second hook line"],
+    previewStart: { apple: 44, deezer: 41.5, spotify: null }, previewUrl: { apple: "https://audio-ssl.itunes.apple.com/a.m4a", spotify: "javascript:alert(1)" },
+    replayPeak: 47, replay: [0, 10, 99, 120, -5], depth: { score: 6, max: 8, signals: { applePreview: true, replayGraph: true, "bad key!": true } },
+    chorusCount: 3, views: 1200000, clipUrls: [link("hooks/sym-a--song-one.m4a"), link("hooks/sym-a--song-one-2.m4a")] },
+  { id: "sym-b--song-two", artist: "Sym Artist B", title: "Song Two", artwork: "javascript:alert(1)", genre: "Rap", durationSec: 150,
+    addedAt: "2026-11-19T10:00:00Z", analyzed: true, popularity: 40, hookStart: 12, hookEnd: 27, level: "medium",
+    clipUrls: [link("hooks/sym-b--song-two.m4a")] },
+  { id: "sym-c--no-hook", artist: "Sym Artist C", title: "No Hook Yet", analyzed: false, popularity: 99 },
+  { id: "sym-d--elsewhere", artist: "Sym Artist D", title: "Elsewhere", hookStart: 5, hookEnd: 20, clipUrls: ["https://evil.example/x.m4a"] },
+  { id: "Bad Id!", artist: "Sym Artist E", title: "Bad", hookStart: 5, hookEnd: 20 },
+  { id: "sym-f--no-title", artist: "Sym Artist F", title: "", hookStart: 5, hookEnd: 20 },
+];
+const symServer = http.createServer((req, res) => {
+  const url = new URL(req.url, "http://sym");
+  const send = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+  if (url.pathname.startsWith("/storage/")) {
+    const bytes = { "/storage/hooks/sym-a--song-one.m4a": SYM_CLIP_1, "/storage/hooks/sym-a--song-one-2.m4a": SYM_CLIP_2, "/storage/hooks/sym-b--song-two.m4a": SYM_CLIP_3 }[url.pathname];
+    if (!bytes || url.searchParams.get("token") !== "signed") return send(400, { error: "bad link" });
+    res.writeHead(200, { "Content-Type": "audio/mp4" });
+    return res.end(bytes);
+  }
+  if (url.pathname !== "/functions/v1/symphony/feed") return send(404, { error: "not found" });
+  if (sym.revoked || req.headers.authorization !== `Bearer ${SYM_CODE}`) return send(401, { error: "That code doesn't work." });
+  sym.reads += 1;
+  return send(200, { version: 1, updatedAt: "2026-11-20T05:06:34.622Z", day: "2026-11-19", linksExpireAt: new Date(Date.now() + sym.expiresIn).toISOString(),
+    hot: { date: "2026-11-19", rows: [{ id: "sym-b--song-two", badges: [{ platform: "shazam", text: "New on Shazam" }, { platform: "x" }] }, { id: "ghost", badges: [] }] },
+    songs: symSongs((p) => `${symBase}/storage/${p}?token=signed`) });
+});
+await new Promise((r) => symServer.listen(0, "127.0.0.1", r));
+const symBase = `http://127.0.0.1:${symServer.address().port}`;
+
 const PORT = 4199;
 const base = `http://localhost:${PORT}`;
 const server = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(PORT), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: DATA,
-  COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_POLLEN_SYNC_MS: "3600000" }, stdio: "pipe" });
+  COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_POLLEN_SYNC_MS: "3600000",
+  COVER_REVIEW_SYMPHONY_URL: `${symBase}/functions/v1/symphony` }, stdio: "pipe" });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function check(name, fn) {
@@ -139,11 +183,12 @@ try {
     const q = await (await fetch(`${base}/api/quotes`)).json();
     assert(q.quotes.length > 300, `expected 300+ default quotes, got ${q.quotes.length}`);
   });
-  await check("connectors registry lists drive, spotify, instagram, pollen and the songs folder with Muse steps", async () => {
+  await check("connectors registry lists drive, spotify, instagram, pollen, the songs folder and Symphony with Muse steps", async () => {
     const c = await (await fetch(`${base}/api/connectors`)).json();
     const ids = c.connectors.map((x) => x.id).sort().join(",");
-    assert(ids === "google_drive,instagram,pollen,songs,spotify", `unexpected connectors: ${ids}`);
+    assert(ids === "google_drive,instagram,pollen,songs,spotify,symphony", `unexpected connectors: ${ids}`);
     assert(c.connectors.find((x) => x.id === "songs").claudeSteps.some((t) => t.includes("/api/songs/folder")), "the songs folder steps say how to connect it");
+    assert(c.connectors.find((x) => x.id === "symphony").claudeSteps.some((t) => t.includes("/api/connectors/symphony")), "the Symphony steps say how to connect it");
     assert(c.connectors.every((x) => x.claudeSteps.length >= 3), "each connector needs Muse steps");
   });
   await check("drive plan has DUMP and every bucket", async () => {
@@ -601,6 +646,153 @@ try {
     const kept = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === item.id);
     assert(kept.song === item.song && kept.songFile === item.songFile, "nothing stored is rewritten");
   });
+  // ---------- v1.12: Symphony online (Arjang #477, #480, #483; Quill #497, #500; Symphony #496) ----------
+  const symConnect = (code) => fetch(`${base}/api/connectors/symphony`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+  const getJson = async (path) => (await fetch(`${base}${path}`)).json();
+  let symCover;
+  await check("v1.12 Symphony is off by default, and a code that doesn't work is refused with the reason and stores nothing", async () => {
+    const off = await getJson("/api/connectors/symphony");
+    assert(off.connected === false && off.revoked === false, JSON.stringify(off));
+    const page = await getJson("/api/symphony");
+    assert(page.connected === false && page.songs.length === 0 && page.hot.rows.length === 0, `no songs: ${JSON.stringify(page).slice(0, 200)}`);
+    assert((await fetch(`${base}/api/symphony/clips/sym-b--song-two`)).status === 404, "no code, no clip");
+    const short = await symConnect("short");
+    assert(short.status === 400 && /didn't work/.test((await short.json()).error), "a short code is refused");
+    const wrong = await symConnect("x".repeat(43));
+    assert(wrong.status === 401 && /didn't work/.test((await wrong.json()).error), `a wrong code is refused: ${wrong.status}`);
+    assert(!readFileSync(join(DATA, "settings.json"), "utf8").includes('"symphony"'), "a refused code stores nothing");
+    const songs = await getJson("/api/songs");
+    assert(songs.source === null && songs.songs.length === 0, `no picks: ${JSON.stringify(songs)}`);
+  });
+  await check("v1.12 connecting reads the feed, the code stays in this copy's settings, and no endpoint answers with it", async () => {
+    const r = await symConnect(SYM_CODE);
+    const body = await r.json();
+    assert(r.ok && body.ok && body.connected && body.songs === 4 && body.withClips === 2 && body.day === "2026-11-19", `connected: ${JSON.stringify(body)}`);
+    assert(readFileSync(join(DATA, "settings.json"), "utf8").includes(SYM_CODE), "the code lives in this copy's own settings");
+    for (const path of ["/api/connectors/symphony", "/api/symphony", "/api/health", "/api/setup/status", "/api/songs", "/api/connectors"]) {
+      const text = await (await fetch(`${base}${path}`)).text();
+      assert(!text.includes(SYM_CODE) && !text.includes("token=signed"), `${path} answers with the code or a signed link`);
+    }
+    const health = await getJson("/api/health");
+    assert(health.symphony.connected === true, JSON.stringify(health.symphony));
+  });
+  await check("v1.12 the Songs data: New hot in order, playable parts marked, and anything unsafe or unusable left out", async () => {
+    const page = await getJson("/api/symphony");
+    assert(page.connected && page.stale === false && page.hot.date === "2026-11-19", JSON.stringify({ ...page, songs: page.songs.length }));
+    assert(JSON.stringify(page.hot.rows) === JSON.stringify([{ id: "sym-b--song-two", badges: [{ text: "New on Shazam" }] }]), `hot rows: ${JSON.stringify(page.hot.rows)}`);
+    assert(page.songs.map((s) => s.id).join(",") === "sym-a--song-one,sym-b--song-two,sym-c--no-hook,sym-d--elsewhere", `songs: ${page.songs.map((s) => s.id)}`);
+    const [a, b, c, d] = page.songs;
+    assert(a.hook.start === 44.4 && a.hook.label === "0:44 to 0:59" && a.hook.parts.length === 2 && a.hook.lines.length === 2 && JSON.stringify(a.clips) === "[true,true]", JSON.stringify(a.hook));
+    assert(a.previewUrl.apple === "https://audio-ssl.itunes.apple.com/a.m4a" && a.previewUrl.spotify === null && a.previewStart.deezer === 41.5, `previews: ${JSON.stringify(a.previewUrl)}`);
+    assert(JSON.stringify(a.replay) === "[0,10,99,99,0]" && a.depth.signals.applePreview === true && !("bad key!" in a.depth.signals), `replay and depth: ${JSON.stringify(a.replay)}`);
+    assert(a.today.shazam.rank === 3 && a.links.spotify.includes("open.spotify.com") && !("clipLinks" in a) && !("clipUrls" in a), "today, links, and no signed links");
+    assert(b.artwork === null && b.hook.label === "0:12 to 0:27" && JSON.stringify(b.hook.parts) === JSON.stringify([{ start: 12, end: 27 }]), `a javascript: link becomes nothing: ${JSON.stringify(b)}`);
+    assert(c.hook === null && JSON.stringify(c.clips) === "[]", JSON.stringify(c));
+    assert(d.hook.start === 5 && JSON.stringify(d.clips) === "[false]", `a clip link that points elsewhere is dropped: ${JSON.stringify(d.clips)}`);
+  });
+  await check("v1.12 a clip's stable address redirects to its signed link on Symphony's storage, and nothing else", async () => {
+    const r = await fetch(`${base}/api/symphony/clips/sym-a--song-one`, { redirect: "manual" });
+    assert(r.status === 302 && r.headers.get("location") === `${symBase}/storage/hooks/sym-a--song-one.m4a?token=signed` && r.headers.get("cache-control") === "no-store", `the hook: ${r.status} ${r.headers.get("location")}`);
+    const two = await fetch(`${base}/api/symphony/clips/sym-a--song-one?part=1`, { redirect: "manual" });
+    assert(two.status === 302 && two.headers.get("location").includes("sym-a--song-one-2.m4a"), `part 2: ${two.headers.get("location")}`);
+    const audio = await fetch(`${base}/api/symphony/clips/sym-a--song-one`);
+    assert(audio.ok && audio.headers.get("content-type") === "audio/mp4" && Buffer.from(await audio.arrayBuffer()).equals(SYM_CLIP_1), "following it plays the clip");
+    for (const path of ["sym-a--song-one?part=2", "sym-a--song-one?part=-1", "sym-a--song-one?part=x", "nope", "sym-c--no-hook", "sym-d--elsewhere", "..%2Fetc", "Bad%20Id!"]) {
+      const bad = await fetch(`${base}/api/symphony/clips/${path}`, { redirect: "manual" });
+      assert(bad.status === 404, `${path} answered ${bad.status}`);
+    }
+  });
+  await check("v1.12 with no songs folder, new covers and Shuffle pick Symphony's songs, New hot first, each with its hook clip", async () => {
+    const list = await getJson("/api/songs");
+    assert(list.connected === false && list.source === "symphony" && list.songs.map((s) => s.id).join(",") === "sym-b--song-two,sym-a--song-one", `picks: ${JSON.stringify(list)}`);
+    const a = list.songs.find((s) => s.id === "sym-a--song-one");
+    assert(a.hookFile === "symphony:sym-a--song-one" && a.clipUrl === "/api/symphony/clips/sym-a--song-one" && a.spotifyUrl.includes("open.spotify.com") && a.replayPeak === 47, JSON.stringify(a));
+    symCover = await newItem("symphony-new.png");
+    assert(symCover.songSource === "downloaded" && /^symphony:sym-/.test(symCover.songFile) && symCover.songPreviewUrl === `/api/symphony/clips/${symCover.songFile.slice(9)}`, `a new cover: ${JSON.stringify(symCover)}`);
+    assert(symCover.songHook && symCover.songHook.end > symCover.songHook.start && / - /.test(symCover.song), `with its hook: ${JSON.stringify(symCover.songHook)}`);
+    const shuffled = (await postJson(`/api/items/${symCover.id}/edit`, { shuffleSong: true })).item;
+    assert(/^symphony:sym-/.test(shuffled.songFile) && shuffled.songSource === "downloaded", `shuffle: ${JSON.stringify(shuffled)}`);
+  });
+  await check("v1.12 a typed song on Symphony's list gets its clip, Use on this cover and undo send it whole, and a bad id is refused", async () => {
+    const typed = (await postJson(`/api/items/${symCover.id}/edit`, { song: "sym artist a - song one" })).item;
+    assert(typed.songFile === "symphony:sym-a--song-one" && typed.songHook.start === 44.4 && typed.songHook.end === 59.4 && typed.songPreviewUrl === "/api/symphony/clips/sym-a--song-one", JSON.stringify(typed));
+    const use = { song: "Sym Artist B - Song Two", songFile: "symphony:sym-b--song-two", songHook: { start: 12, end: 27 }, songPreviewUrl: "/api/symphony/clips/sym-b--song-two", songSpotifyUrl: "", songSource: "downloaded" };
+    const used = (await postJson(`/api/items/${symCover.id}/edit`, use)).item;
+    assert(used.song === use.song && used.songFile === use.songFile && used.songHook.end === 27 && used.songPreviewUrl === use.songPreviewUrl && used.songSource === "downloaded", `use on this cover: ${JSON.stringify(used)}`);
+    const back = (await postJson(`/api/items/${symCover.id}/edit`, { song: typed.song, songFile: typed.songFile, songHook: typed.songHook, songPreviewUrl: typed.songPreviewUrl, songSpotifyUrl: typed.songSpotifyUrl, songSource: "downloaded" })).item;
+    assert(back.songFile === "symphony:sym-a--song-one" && back.songHook.start === 44.4, `undo: ${JSON.stringify(back)}`);
+    for (const songFile of ["symphony:../x", "symphony:", "symphony:Bad Id!"]) {
+      const bad = await fetch(`${base}/api/items/${symCover.id}/edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song: "x", songFile, songHook: { start: 1, end: 2 }, note: "changed" }) });
+      assert(bad.status === 400, `${songFile} answered ${bad.status}`);
+    }
+    const noHook = await fetch(`${base}/api/items/${symCover.id}/edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ song: "x", songFile: "symphony:sym-a--song-one" }) });
+    assert(noHook.status === 400, `a clip with no hook answered ${noHook.status}`);
+    const after = (await getJson("/api/items?status=queue")).items.find((i) => i.id === symCover.id);
+    assert(after.songFile === "symphony:sym-a--song-one" && after.note !== "changed", "a refused edit changes nothing");
+  });
+  await check("v1.12 the Compose check counts a Symphony song as in the pool", async () => {
+    const yes = await postJson(`/api/items/${symCover.id}/verify`, {});
+    assert(yes.item.beacons.SONG_IN_POOL === true, JSON.stringify(yes.item.beacons));
+  });
+  await check("v1.12 a connected songs folder wins over Symphony, and disconnecting it brings Symphony's picks back", async () => {
+    await postJson(`/api/songs/folder`, { folder: SONGS });
+    try {
+      const list = await getJson("/api/songs");
+      assert(list.source === "folder" && list.songs.every((s) => s.hookFile.startsWith("hooks/")), `the folder's songs: ${JSON.stringify(list.songs.map((s) => s.hookFile))}`);
+      const fromFolder = await newItem("symphony-folder.png");
+      assert(/^hooks\//.test(fromFolder.songFile), `the folder wins: ${fromFolder.songFile}`);
+      const r = await fetch(`${base}/api/symphony/clips/sym-a--song-one`, { redirect: "manual" });
+      assert(r.status === 302, "a cover's Symphony clip still plays");
+    } finally {
+      await postJson(`/api/songs/folder`, { folder: null });
+    }
+    assert((await getJson("/api/songs")).source === "symphony", "Symphony's picks are back");
+  });
+  await check("v1.12 the feed is read at most once per 30 minutes, and again before a redirect when its links are about to expire", async () => {
+    const reads = sym.reads;
+    for (let i = 0; i < 3; i++) { await getJson("/api/symphony"); await fetch(`${base}/api/symphony/clips/sym-b--song-two`, { redirect: "manual" }); await newItem(`symphony-cache-${i}.png`); }
+    assert(sym.reads === reads, `read ${sym.reads - reads} more times`);
+    sym.expiresIn = 5 * 60 * 1000; // inside the 10 minute margin
+    try {
+      assert((await symConnect(SYM_CODE)).ok, "reconnected");
+      const before = sym.reads;
+      const r = await fetch(`${base}/api/symphony/clips/sym-b--song-two`, { redirect: "manual" });
+      assert(r.status === 302 && sym.reads === before + 1, `links about to expire are read again first: ${r.status}, ${sym.reads - before} reads`);
+    } finally {
+      sym.expiresIn = 24 * 3600 * 1000;
+      await symConnect(SYM_CODE);
+    }
+  });
+  await check("v1.12 a code that stops working disconnects Symphony with the reason, and covers keep their songs", async () => {
+    sym.expiresIn = 5 * 60 * 1000;
+    await symConnect(SYM_CODE);
+    sym.revoked = true;
+    try {
+      const r = await fetch(`${base}/api/symphony/clips/sym-a--song-one`, { redirect: "manual" });
+      assert(r.status === 404, `no clip once the code fails: ${r.status}`);
+      const st = await getJson("/api/connectors/symphony");
+      assert(st.connected === false && st.revoked === true && /doesn't work anymore/.test(st.message), JSON.stringify(st));
+      assert(!readFileSync(join(DATA, "settings.json"), "utf8").includes(SYM_CODE), "the dead code is gone from settings");
+      const kept = (await getJson("/api/items?status=queue")).items.find((i) => i.id === symCover.id);
+      assert(kept.songFile === "symphony:sym-a--song-one" && / - /.test(kept.song), "covers keep their songs");
+      const later = await newItem("symphony-revoked.png");
+      assert(!String(later.songFile || "").startsWith("symphony:"), `no Symphony picks: ${later.songFile}`);
+    } finally {
+      sym.revoked = false;
+      sym.expiresIn = 24 * 3600 * 1000;
+    }
+  });
+  await check("v1.12 disconnecting removes the code, the Songs data and the picks, and covers keep their songs", async () => {
+    assert((await symConnect(SYM_CODE)).ok, "connected again");
+    const off = await (await symConnect(null)).json();
+    assert(off.ok && off.connected === false && off.revoked === false, JSON.stringify(off));
+    assert(!readFileSync(join(DATA, "settings.json"), "utf8").includes(SYM_CODE), "the code is gone");
+    const page = await getJson("/api/symphony");
+    assert(page.connected === false && page.songs.length === 0, "no Songs data");
+    assert((await fetch(`${base}/api/symphony/clips/sym-a--song-one`, { redirect: "manual" })).status === 404, "no clips");
+    const kept = (await getJson("/api/items?status=queue")).items.find((i) => i.id === symCover.id);
+    assert(kept.songFile === "symphony:sym-a--song-one", "nothing stored is rewritten");
+  });
   await check("v1.4 a rating can be cleared, so undo can take back a first rating", async () => {
     const item = await newItem("quill-rate.png");
     const r = await postJson(`/api/items/${item.id}/rate`, { songRating: 6 });
@@ -916,6 +1108,32 @@ try {
       await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
     }
   });
+  await check("v1.12 once the Bee Hive takes songs, a Symphony clip goes with its cover, fetched from Symphony, and a gone one is flagged", async () => {
+    hive.songs = true;
+    const r = await fetch(`${base}/api/connectors/symphony`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: SYM_CODE }) });
+    assert(r.ok, `connected: ${r.status}`);
+    try {
+      await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
+      const cover = await approvedItem("symphony-song-on.png", "hook online");
+      await postJson(`/api/items/${cover.id}/edit`, { song: "Sym Artist B - Song Two" });
+      const gone = await approvedItem("symphony-song-gone.png", "hook offline");
+      await postJson(`/api/items/${gone.id}/edit`, { song: "Sym Artist B - Song Two", songFile: "symphony:sym-zz--not-there", songHook: { start: 1, end: 9 }, songPreviewUrl: "", songSpotifyUrl: "" });
+      for (const c of [cover, gone]) await render(c.id);
+      const checked = (await (await post("/api/pollen/check", { itemIds: [cover.id, gone.id] })).json()).items;
+      assert(checked[0].hasSongClip && checked[0].songGoes === true && checked[0].problems.length === 0, `the clip goes: ${JSON.stringify(checked[0])}`);
+      assert(checked[1].hasSongClip && checked[1].songGoes === false && checked[1].problems.some((p) => /isn't in Symphony/.test(p)), `a gone clip is flagged: ${JSON.stringify(checked[1])}`);
+      const results = (await (await post("/api/pollen/schedule", { itemIds: [cover.id, gone.id], channelIds: [CH_IG] })).json()).results;
+      const key = (await pollenOf(cover.id)).clientKey;
+      const req = hive.requests.find((x) => x.client_key === key);
+      assert(req && req.song && req.song.artist === "Sym Artist B" && req.song.title === "Song Two" && req.song.hook_start === 12 && req.song.hook_end === 27 && req.song.content_type === "audio/mp4", `the request carries the hook: ${JSON.stringify(req)}`);
+      assert(hive.uploads[req.song.path] && hive.uploads[req.song.path].equals(SYM_CLIP_3), "Symphony's exact clip is uploaded");
+      assert(results.find((x) => x.itemId === gone.id).status === "refused", `the gone one is refused: ${JSON.stringify(results)}`);
+    } finally {
+      hive.songs = false;
+      await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
+      await fetch(`${base}/api/connectors/symphony`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: null }) });
+    }
+  });
   await check("pollen: the image route serves local and remote photos from this app's own address", async () => {
     const local = await fetch(`${base}/api/items/${first.id}/image`);
     assert(local.ok && local.headers.get("content-type").startsWith("image/png"), `local photo: ${local.status} ${local.headers.get("content-type")}`);
@@ -979,6 +1197,7 @@ try {
 } finally {
   server.kill();
   hiveServer.close();
+  symServer.close();
   rmSync(DATA, { recursive: true, force: true });
   for (const d of [SONGS, NO_MANIFEST, join(SONGS, "..", "outside.m4a")]) rmSync(d, { recursive: true, force: true });
 }

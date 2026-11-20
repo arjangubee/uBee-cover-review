@@ -13,6 +13,8 @@ import LibraryView from "./LibraryView.jsx";
 import { STYLE_DEFAULTS, canvasMeasureAt, randomizeLayout, renderCover, withDefaults } from "./renderCover.js";
 import { changedFields, displayTitle, valueForStars } from "./reviewMath.js";
 import ScheduleSheet from "./ScheduleSheet.jsx";
+import { coverSongEdit } from "./songs/songsData.js";
+import SongsView from "./songs/SongsView.jsx";
 import { createHistory } from "./undo.js";
 import UpdateBanner from "./UpdateBanner.jsx";
 
@@ -50,6 +52,8 @@ export default function App() {
   const [quizQuotes, setQuizQuotes] = useState([]);
   const [pollen, setPollen] = useState(null);
   const [ctas, setCtas] = useState([]); // the space's comment CTAs (1.10); none means no switch under the caption
+  const [symphony, setSymphony] = useState(null); // Symphony online (1.12): connected means the Songs screen is there
+  const [songsFrom, setSongsFrom] = useState("cover"); // where the Songs screen goes back to: a cover, or all covers
   const [toast, setToast] = useState(null);
   const [burst, setBurst] = useState(0); // the heart that pops on the cover when she likes it
   const [drawnId, setDrawnId] = useState(null); // the cover whose photo is on screen: only that one can be decided
@@ -73,10 +77,12 @@ export default function App() {
   }, [toast]);
 
   const load = useCallback(async () => {
-    const [s, q, qs, quiz, pc, pal, calls] = await Promise.all([
+    const [s, q, qs, quiz, pc, pal, calls, sym] = await Promise.all([
       api("/api/setup/status"), api(`/api/items?status=${list}`), api("/api/quotes/status"), api("/api/quiz/quotes"),
       api("/api/pollen/channels").catch(() => null), api("/api/palette").catch(() => null), api("/api/settings/caption-ctas").catch(() => null),
+      api("/api/connectors/symphony").catch(() => null),
     ]);
+    setSymphony(sym);
     setStatus(s);
     setItems(q.items);
     setQuotesStatus(qs);
@@ -456,6 +462,24 @@ export default function App() {
     await attempt(() => flushPending());
     setView("library");
   }
+  // ---------- Songs: Symphony's screens (1.12), from a cover's song row or from all covers ----------
+  async function showSongs(from) {
+    await attempt(() => flushPending());
+    setSongsFrom(from);
+    setView("songs");
+  }
+  function closeSongs() {
+    setView(songsFrom);
+    if (songsFrom === "cover") requestAnimationFrame(() => document.querySelector(".songRow")?.scrollIntoView({ block: "center" }));
+  }
+  // Use on this cover: the song whole, with its hook clip and hook, as one undoable step like any song change.
+  const putSongOnCover = (s) => attempt(async () => {
+    if (!current) return;
+    setPending(current.id, "song", null);
+    await record("Song", current.id, { edit: songOf(current) }, { edit: coverSongEdit(s) });
+    closeSongs();
+    say(`${s.title} is on this cover. Undo is up top.`);
+  });
 
   useEffect(() => {
     function onKey(e) {
@@ -473,9 +497,12 @@ export default function App() {
   return (
     <div className={draft ? "app editing" : "app"}>
       <UpdateBanner />
-      {view === "library" ? (
+      {view === "songs" ? (
+        <SongsView forCover={songsFrom === "cover" ? current : null} closeLabel={songsFrom === "cover" ? "Back to the cover" : "Back to all covers"}
+          onClose={closeSongs} onUse={putSongOnCover} />
+      ) : view === "library" ? (
         <LibraryView list={list} setList={switchList} items={items} counts={counts} pollenOn={Boolean(pollen?.connected)} canClose
-          onOpen={openFromLibrary} onUpload={uploadPhotos} onClose={() => setView("cover")}
+          onOpen={openFromLibrary} onUpload={uploadPhotos} onClose={() => setView("cover")} onSongs={symphony?.connected ? () => showSongs("library") : null}
           onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} />
       ) : (
         <>
@@ -498,7 +525,8 @@ export default function App() {
               {/* While the editor sheet is open, the review screen stays behind it, seen but not reachable. */}
               <div className="behind" inert={draft ? true : undefined}>
                 <ModeSwitch story={story} setStory={setStory} />
-                <SongRow item={current} onShuffle={() => regenerate("song")} onSetSong={setSong} onDraft={(v) => setPending(current.id, "song", v)} />
+                <SongRow item={current} onShuffle={() => regenerate("song")} onSetSong={setSong} onDraft={(v) => setPending(current.id, "song", v)}
+                  onSongs={symphony?.connected ? () => showSongs("cover") : null} />
               </div>
               <CoverStage item={shown} quoteOn={quoteOn} slides={activeSlides} slide={slide} setSlide={setSlide} story={story && !draft}
                 editing={Boolean(draft)} activeBox={activeBox} onStartEdit={(box) => startEdit(box)} onSelectBox={setActiveBox} onMoveBox={moveBox}

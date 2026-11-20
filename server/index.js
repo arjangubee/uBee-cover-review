@@ -9,8 +9,9 @@ import { buildVoiceProfile, generateCaption, loadQuotes, loadTrending, saveTrend
 import { getImportStatus, registerFull } from "./full.js";
 import { ctaFor } from "./captionCtas.js";
 import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
-import { cleanClipPath, cleanHook, matchSongClip, registerSongs } from "./songs.js";
+import { cleanHook, cleanSongFile, matchSongClip, registerSongs } from "./songs.js";
 import { DATA_DIR, LIBRARY_DIR, UPLOAD_DIR, store } from "./store.js";
+import { registerSymphony, startSymphony, symphonyStatus } from "./symphony.js";
 import { createUpdater } from "./update.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -42,6 +43,7 @@ app.get("/api/health", (_req, res) => {
     items: { total: store.db.items.length, queue: store.db.items.filter((i) => i.status === "queue").length },
     connectors: store.settings.connectors, workspace: store.settings.workspace,
     pollen: (({ connected, revoked }) => ({ connected, revoked }))(pollenStatus()),
+    symphony: (({ connected, revoked }) => ({ connected, revoked }))(symphonyStatus()),
     openGrievances: readGrievances().filter((g) => g.status === "open").length,
   });
 });
@@ -81,6 +83,7 @@ app.get("/api/setup/status", (_req, res) => {
       spotify: { required: false, status: store.settings.connectors.spotify.status },
       instagram: { required: false, status: store.settings.connectors.instagram.status },
       pollen: { required: false, status: pollenStatus().connected ? "connected" : "not_connected", note: "uBee clients only" },
+      symphony: { required: false, status: symphonyStatus().connected ? "connected" : "not_connected", note: "uBee clients only" },
     },
     voiceProfile: store.settings.voiceProfile,
     setupComplete: store.settings.setupComplete,
@@ -163,11 +166,12 @@ app.post("/api/items/:id/edit", (req, res) => {
   // Checked before anything changes, so a refused switch leaves the whole edit undone.
   const cta = req.body.cta == null || req.body.cta === "" ? null : ctaFor({ cta: req.body.cta }, store.settings.captionCtas || []);
   if (req.body.cta != null && req.body.cta !== "" && !cta) return res.status(400).json({ error: "That comment CTA isn't on your list. Ask your Muse to add it." });
-  // A song clip sent back with a song (undo does this, 1.11) has to be a clip path in the songs folder, with its hook.
+  // A song clip sent back with a song (undo does this, 1.11) has to be a clip path in the songs folder, or a Symphony
+  // clip ("symphony:<id>", 1.12, which Use on this cover sends too), with its hook.
   const clipSent = req.body.song != null && Object.prototype.hasOwnProperty.call(req.body, "songFile");
-  const clip = clipSent && req.body.songFile != null ? cleanClipPath(req.body.songFile) : null;
+  const clip = clipSent && req.body.songFile != null ? cleanSongFile(req.body.songFile) : null;
   const hook = clip ? cleanHook(req.body.songHook) : null;
-  if (clipSent && req.body.songFile != null && (!clip || !hook)) return res.status(400).json({ error: "That song clip isn't a clip in the songs folder." });
+  if (clipSent && req.body.songFile != null && (!clip || !hook)) return res.status(400).json({ error: "That song clip isn't a clip in the songs folder or in Symphony." });
   for (const key of ["quote", "song", "caption", "note"]) if (req.body[key] != null) item[key] = String(req.body[key]);
   // A typed caption is hers and is never redrafted (1.9). Undo sends the source back with the words: one of the three
   // sources, or null for a row saved before sources existed.
@@ -216,6 +220,10 @@ registerFull(app, upload);
 
 // ---------- Downloaded songs: Symphony's folder of hook clips (1.11) ----------
 registerSongs(app);
+
+// ---------- Symphony online: its songs and hook clips with a Symphony code (1.12) ----------
+registerSymphony(app);
+startSymphony();
 
 // ---------- Pollen: approved covers go out through uBee's publisher (uBee clients only) ----------
 registerPollen(app);

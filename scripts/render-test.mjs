@@ -6,6 +6,7 @@ import { createHistory } from "../client/src/undo.js";
 import { RANDOM_LAYOUTS, ZOOM_REST, changedFields, displayTitle, parseSong, randomEditorialLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars, zoomPan, zoomSettle, zoomTo } from "../client/src/reviewMath.js";
 import { LOCKED, badgeFor, formatDay, selectable } from "../client/src/pollenView.js";
 import { RELEASE_URL, newer, releaseBanner } from "../client/src/release.js";
+import { canUse, clipAddress, coverSongEdit, hotList, librarySorted, moveText, onCover, partLabel, partsOf, replayPath, searchSongs, sourceFor, statusLine, topGenres } from "../client/src/songs/songsData.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -389,6 +390,76 @@ check("a hosted copy hears about a new release and gets one line to send its Mus
   assert(b.ask === "Update my Cover Review to version 1.4.0.", b.ask);
   assert(releaseBanner({ version: "1.3.0" }, "1.3.0") === null && releaseBanner(null, "1.3.0") === null, "nothing new, no banner");
   assert(RELEASE_URL === "https://raw.githubusercontent.com/arjangubee/uBee-cover-review/main/release.json", RELEASE_URL);
+});
+
+// ---------- 1.12: the Songs screen's data side ----------
+const SONG = { id: "sym-a--song-one", artist: "Sym Artist A", title: "Song One", genre: "Pop", popularity: 50, addedAt: "2026-11-18T10:00:00Z",
+  depth: { score: 6, max: 8 }, hook: { start: 44.4, end: 59.4, label: "0:44 to 0:59", parts: [{ start: 44.4, end: 59.4 }, { start: 90, end: 105 }, { start: 130, end: 145 }] },
+  clips: [true, true, false], previewStart: { apple: 30, deezer: 41.5, spotify: 70 }, previewUrl: { apple: "https://audio-ssl.itunes.apple.com/a.m4a", spotify: null },
+  links: { spotify: "https://open.spotify.com/track/abc" } };
+check("songs: a song's parts are its popular parts with the hook first, or the hook alone, or none", () => {
+  assert(partsOf(SONG).length === 3 && partsOf(SONG)[0].start === 44.4, JSON.stringify(partsOf(SONG)));
+  assert(JSON.stringify(partsOf({ hook: { start: 12, end: 27 } })) === JSON.stringify([{ start: 12, end: 27 }]), "the hook alone");
+  assert(partsOf({ hook: null }).length === 0 && partsOf(null).length === 0, "no hook, no parts");
+});
+check("songs: a moment plays from its part's clip, then an app preview that covers it, else nothing", () => {
+  const hook = sourceFor(SONG, 44.4, 59.4);
+  assert(hook.url === "/api/symphony/clips/sym-a--song-one" && hook.at === 0 && hook.songStart === 44.4, JSON.stringify(hook));
+  const two = sourceFor(SONG, 95, 105);
+  assert(two.url === "/api/symphony/clips/sym-a--song-one?part=1" && two.at === 5 && two.songStart === 90, JSON.stringify(two));
+  const apple = sourceFor(SONG, 30, 59);
+  assert(apple.url === SONG.previewUrl.apple && apple.at === 0 && apple.songStart === 30, `Apple's preview from its start: ${JSON.stringify(apple)}`);
+  assert(sourceFor(SONG, 130, 145) === null, "a part with no clip and no preview plays nothing");
+  assert(sourceFor(SONG, 70, 99) === null, "Spotify's start with no preview link plays nothing");
+  assert(sourceFor({ ...SONG, previewUrl: {} }, 50, 70) === null, "a range that runs past its part isn't that part's clip");
+  assert(clipAddress("sym-b--two") === "/api/symphony/clips/sym-b--two" && clipAddress("sym-b--two", 2) === "/api/symphony/clips/sym-b--two?part=2", "clip addresses");
+});
+check("songs: the player names the hook, another part, or just the times", () => {
+  assert(partLabel(SONG, 44.4, 59.4).label === "Hook 0:44 to 0:59", partLabel(SONG, 44.4, 59.4).label);
+  const two = partLabel(SONG, 90, 105);
+  assert(two.idx === 1 && two.label === "Part 2 · 1:30 to 1:45", JSON.stringify(two));
+  assert(partLabel(SONG, 10, 25).label === "0:10 to 0:25" && partLabel(SONG, 10, 25).idx === 0, JSON.stringify(partLabel(SONG, 10, 25)));
+});
+check("songs: the Library sorts measured songs first, by data, popularity or newest added", () => {
+  const list = [
+    { id: "a", hook: null, popularity: 99, depth: null, addedAt: "2026-11-20" },
+    { id: "b", hook: { start: 1, end: 2 }, popularity: 10, depth: { score: 7 }, addedAt: "2026-11-01" },
+    { id: "c", hook: { start: 1, end: 2 }, popularity: 80, depth: { score: 3 }, addedAt: "2026-11-10" },
+  ];
+  assert(librarySorted(list, "data").map((s) => s.id).join() === "b,c,a", librarySorted(list, "data").map((s) => s.id).join());
+  assert(librarySorted(list, "popular").map((s) => s.id).join() === "c,b,a", librarySorted(list, "popular").map((s) => s.id).join());
+  assert(librarySorted(list, "recent").map((s) => s.id).join() === "a,c,b", librarySorted(list, "recent").map((s) => s.id).join());
+  assert(list.map((s) => s.id).join() === "a,b,c", "sorting leaves the list as it was");
+});
+check("songs: genre chips count measured songs only, and search matches artist or title in any case", () => {
+  const list = [{ genre: "Pop", hook: {} }, { genre: "Pop", hook: {} }, { genre: "Rap", hook: {} }, { genre: "Rock", hook: null }, { genre: null, hook: {} }];
+  assert(topGenres(list).join() === "Pop,Rap" && topGenres(list, 1).join() === "Pop", topGenres(list).join());
+  const songs = [{ artist: "Sabrina Carpenter", title: "Espresso" }, { artist: "Hoobastank", title: "The Reason" }];
+  assert(searchSongs(songs, "  espRESSO ").length === 1 && searchSongs(songs, "hoobastank the").length === 1, "matches");
+  assert(searchSongs(songs, "").length === 0 && searchSongs(songs, "zzz").length === 0 && searchSongs(songs, "e", 1).length === 1, "empty, none, limit");
+});
+check("songs: New hot lists its songs in order with their badges, and skips ids it doesn't have", () => {
+  const rows = hotList({ songs: [{ id: "x", title: "X" }, { id: "y", title: "Y" }], hot: { rows: [{ id: "y", badges: [{ text: "New on Shazam" }] }, { id: "gone" }, { id: "x" }] } });
+  assert(rows.map((r) => r.id).join() === "y,x" && rows[0].badges[0].text === "New on Shazam" && rows[1].badges.length === 0, JSON.stringify(rows));
+  assert(hotList(null).length === 0, "no data, no rows");
+});
+check("songs: a row's line says its hook, or why it has none", () => {
+  assert(statusLine(SONG) === "Hook 0:44", statusLine(SONG));
+  assert(statusLine({ hook: null, error: "x" }) === "Not found" && statusLine({ hook: null, analyzed: true }) === "No hook found" && statusLine({ hook: null }) === "Measuring soon", "the other lines");
+});
+check("songs: Use on this cover sends the song whole, clip and hook included, and knows a cover that has it", () => {
+  assert(canUse(SONG) && !canUse({ ...SONG, clips: [false] }) && !canUse({ ...SONG, hook: null }), "a hook and its clip");
+  const edit = coverSongEdit(SONG);
+  assert(JSON.stringify(edit) === JSON.stringify({ song: "Sym Artist A - Song One", songFile: "symphony:sym-a--song-one", songHook: { start: 44.4, end: 59.4 },
+    songPreviewUrl: "/api/symphony/clips/sym-a--song-one", songSpotifyUrl: "https://open.spotify.com/track/abc", songSource: "downloaded" }), JSON.stringify(edit));
+  assert(coverSongEdit({ ...SONG, links: { spotify: "https://example.com/x" } }).songSpotifyUrl === "", "only a Spotify track link goes along");
+  assert(onCover({ songFile: "symphony:sym-a--song-one" }, SONG) && !onCover({ songFile: "hooks/x.m4a" }, SONG) && !onCover(null, SONG), "on this cover");
+});
+check("songs: the replay graph draws across the song inside its box, and chart moves read in words", () => {
+  const d = replayPath([0, 99, 200, -3]);
+  assert(d.startsWith("M0,10 L0.5,10.00 L1.5,1.00 L2.5,1.00 L3.5,10.00") && d.endsWith("L4,10Z"), d);
+  assert(replayPath(null) === null && replayPath([]) === null, "no graph");
+  assert(moveText("NEW") === "New today" && moveText("+3") === "Up 3 since yesterday" && moveText("-2") === "Down 2 since yesterday" && moveText("=") === "Same as yesterday" && moveText(null) === "Same as yesterday", "moves");
 });
 
 console.log(failed ? "RENDER TEST FAILED" : "RENDER TEST OK");

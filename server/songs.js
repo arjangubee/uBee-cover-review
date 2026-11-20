@@ -3,9 +3,11 @@
 // Muse, so nothing changes until one is connected. With one, new covers and Shuffle pick from its songs, a typed song
 // on the list gets its clip, and the song row plays the clip from this app's own address. The manifest is read again
 // whenever it changes, so a new export shows up without a restart.
+// 1.12: with no folder connected, the list is Symphony online's songs (server/symphony.js), clips at "symphony:<id>".
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { extname, isAbsolute, join, sep } from "node:path";
 import { store } from "./store.js";
+import { isSymphonyFile, onlineSongs, symphonyId } from "./symphony.js";
 
 export const CLIP_TYPES = { ".m4a": "audio/mp4", ".mp4": "audio/mp4", ".aac": "audio/aac", ".mp3": "audio/mpeg", ".wav": "audio/wav",
   ".ogg": "audio/ogg", ".opus": "audio/ogg", ".webm": "audio/webm" };
@@ -92,18 +94,28 @@ function readManifest(folder) {
   return songs;
 }
 
-/** The downloaded songs, or none when no folder is connected or its manifest can't be read right now. */
+/** A cover's songFile as sent back with undo: a clip path in the folder, or "symphony:<id>". Else null. */
+export function cleanSongFile(file) {
+  if (isSymphonyFile(file)) return symphonyId(file) ? String(file) : null;
+  return cleanClipPath(file);
+}
+
+/** The downloaded songs: the folder's when one is connected (none if its manifest can't be read right now), else
+ * Symphony online's (1.12), else none. */
 export function downloadedSongs() {
   const folder = songsFolder();
-  if (!folder) return [];
+  if (!folder) return onlineSongs();
   try { return readManifest(folder); } catch { return []; }
 }
 
 export function songsStatus() {
   const folder = songsFolder();
-  if (!folder) return { connected: false, folder: null, songs: [] };
-  try { return { connected: true, folder, songs: readManifest(folder) }; } catch {
-    return { connected: true, folder, songs: [], error: "The songs folder's manifest.json can't be read right now." };
+  if (!folder) {
+    const online = onlineSongs();
+    return { connected: false, folder: null, source: online.length ? "symphony" : null, songs: online };
+  }
+  try { return { connected: true, folder, source: "folder", songs: readManifest(folder) }; } catch {
+    return { connected: true, folder, source: "folder", songs: [], error: "The songs folder's manifest.json can't be read right now." };
   }
 }
 
@@ -156,9 +168,9 @@ export function matchSongClip(item) {
   if (item.songSource === "downloaded") item.songSource = "";
 }
 
-/** The name and hook Pollen gets with a cover's clip: from the manifest when the song is still on it. */
+/** The name and hook Pollen gets with a cover's clip: from the manifest, or Symphony, when the song is still on it. */
 export function songMeta(item) {
-  const hit = downloadedSongs().find((s) => s.hookFile === item.songFile);
+  const hit = (isSymphonyFile(item.songFile) ? onlineSongs() : downloadedSongs()).find((s) => s.hookFile === item.songFile);
   const [artist, ...rest] = String(item.song || "").split(" - ");
   return { artist: hit?.artist || artist.trim(), title: hit?.title || rest.join(" - ").trim(),
     hook_start: item.songHook?.start ?? hit?.hookStart ?? null, hook_end: item.songHook?.end ?? hit?.hookEnd ?? null };

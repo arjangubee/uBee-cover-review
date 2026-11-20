@@ -32,6 +32,21 @@ const PATHS = {
   copy: <><rect x="8.5" y="8.5" width="11" height="11" rx="2" /><path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2" /></>,
   refresh: <><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" /><path d="M19.8 4.2v4.6h-4.6" /></>,
   zoom: <><circle cx="10.5" cy="10.5" r="6.25" /><path d="M15.1 15.1L20 20" /><path d="M10.5 7.9v5.2" /><path d="M7.9 10.5h5.2" /></>,
+  // The Songs screen (1.12), from Symphony's set on the same grid.
+  search: <><circle cx="10.5" cy="10.5" r="6.25" /><path d="M15.1 15.1L20 20" /></>,
+  external: <><path d="M13.5 4.5h6v6" /><path d="M19.5 4.5L11 13" /><path d="M17 14v4.5a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1H10" /></>,
+  note: <><path d="M9 18.2V5.5l10-2v12.2" /><circle cx="6.5" cy="18.2" r="2.5" /><circle cx="16.5" cy="15.7" r="2.5" /></>,
+  hot: <path d="M12 21c-3.9 0-6.5-2.6-6.5-6.1 0-3.3 2.4-5.4 3.6-7.9.4 1.6 1.2 2.7 2.3 3.3.2-2.7 1.4-5.4 3.6-7.3.2 3.3 3.5 6 3.5 10.6 0 4.3-2.6 7.4-6.5 7.4z" />,
+  library: <><path d="M5 4v16" /><path d="M10 4v16" /><path d="M14.5 4.6l4.8 15" /></>,
+  collapse: <path d="M5.5 9l6.5 6.5L18.5 9" />,
+  more: <><circle cx="5.5" cy="12" r="1.3" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" /><circle cx="18.5" cy="12" r="1.3" fill="currentColor" stroke="none" /></>,
+  plusCircle: <><circle cx="12" cy="12" r="9.25" /><path d="M12 8v8" /><path d="M8 12h8" /></>,
+  checkCircle: <><circle cx="12" cy="12" r="10" fill="currentColor" stroke="none" /><path d="M7.6 12.4l3 3 5.8-6" stroke="#000" strokeWidth="2.2" /></>,
+  prev: <><path d="M6.5 5.5v13" /><path d="M18.5 5.8v12.4l-9.6-6.2z" fill="currentColor" stroke="none" /></>,
+  next: <><path d="M17.5 5.5v13" /><path d="M5.5 5.8v12.4l9.6-6.2z" fill="currentColor" stroke="none" /></>,
+  sort: <><path d="M8 4.5v15" /><path d="M4.5 8L8 4.5 11.5 8" /><path d="M16 19.5v-15" /><path d="M12.5 16l3.5 3.5 3.5-3.5" /></>,
+  video: <><rect x="3.5" y="5.5" width="17" height="13" rx="2.5" /><path d="M10.2 9.4v5.2l4.4-2.6z" fill="currentColor" stroke="none" /></>,
+  clip: <><circle cx="12" cy="12" r="9" fill="currentColor" stroke="none" /><path d="M12 7v7.2" stroke="#000" strokeWidth="2" /><path d="M8.8 11.4L12 14.6l3.2-3.2" stroke="#000" strokeWidth="2" /></>,
 };
 
 /** An icon by name. Decorative by default; give it a label when it stands alone. */

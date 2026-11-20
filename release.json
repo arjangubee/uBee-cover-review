@@ -1,7 +1,7 @@
 {
-  "version": "1.13.6",
+  "version": "1.13.7",
   "date": "2026-11-20",
   "whatsNew": [
-    "Holding down on the cover no longer turns it blue or opens a menu"
+    "Play opens the Spotify player above the song, so the song and the cover stay where they are"
   ]
 }

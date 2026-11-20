@@ -65,7 +65,7 @@ img { max-width: 100%; }
 .songEdit .field { padding: 8px 12px; }
 .playBtn { flex: none; display: grid; place-items: center; width: 50px; height: 50px; padding: 0 0 0 3px; border: 0; border-radius: 50%; background: #1ed760; color: #000; }
 .playBtn:active { transform: scale(0.95); }
-.spotifyEmbed { display: block; width: 100%; height: 80px; margin: 0 0 10px; border: 0; border-radius: 12px; background: var(--surface); } /* Spotify's compact player */
+.spotifyEmbed { display: block; width: 100%; height: 80px; margin: 0 0 10px; border: 0; border-radius: 12px; background: var(--surface); } /* Spotify's compact player, above the song row (1.13.7) */
 
 /* ---------- The stage: a 4:5 frame, the cover drawn by the same code that makes the post ---------- */
 .stage { position: relative; display: flex; align-items: center; justify-content: center; margin: 4px -16px 0; background: var(--bg); overflow: hidden; }
@@ -239,7 +239,6 @@ img { max-width: 100%; }
 .sheetLayer { position: fixed; inset: 0; z-index: 40; touch-action: none; }
 .app.editing .stage { z-index: 45; }
 .app.editing .topbar { z-index: 46; } /* its undo and redo stay reachable with the editor open (1.13.5) */
-.app.editing .topbar { z-index: 46; }
 .editorSheet { --stop: 56svh; position: fixed; left: 50%; bottom: 0; z-index: 50; display: flex; flex-direction: column; width: min(760px, 100%);
   max-height: clamp(56svh, calc(var(--stop) + var(--grow, 0px)), 88svh); /* two stops (1.8): 56% at rest, 88% swiped up */
   background: rgba(0, 0, 0, 0.015); border-radius: 20px 20px 0 0; pointer-events: none; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);

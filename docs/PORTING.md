@@ -12,6 +12,30 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.13.7: play opens the Spotify player above the song row
+
+Arjang's #559 item 5, Quill's #681. Layout only: no new fields, settings or actions, and play, close and what the
+player does inside are unchanged.
+
+1. **Above the song row.** Spotify's card now sits above the song row instead of between it and the cover.
+2. **The song and the cover stay put.** When the card opens, the page scrolls by its height (90px with its margin),
+   so the song row and the cover stay where they were on screen and the area above moves up. The header still
+   sticks, so the card's top can sit under it. Closing the card, or moving to another cover while it's open,
+   scrolls back the same way. A small HoldPlace wrapper in CoverTop.jsx does this: it reads where the song row sits
+   just before the change and scrolls by however far it moved.
+3. **The cover keeps its size.** On a phone, the 1.13.4 fit leaves the card out, so play no longer shrinks the cover.
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| CoverTop.jsx | HoldPlace; the card renders above the song row |
+| App.jsx | the phone fit leaves the Spotify card out |
+| styles.css | a repeated `.app.editing .topbar` line from 1.13.5 removed (same rule, no change) |
+
+Checks after the port: the counts don't change. With a Spotify song on a phone, play opens the card above the song
+row, and the song row and the cover don't move or shrink.
+
 ## 1.13.6: holding the cover selects nothing
 
 Arjang's #559 item 4, Quill's #676. One CSS rule: no new fields, settings or actions, and no code change.

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Component, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Icon from "./icons.jsx";
 import { displayTitle, parseSong, spotifyEmbedUrl } from "./reviewMath.js";
 import { clipNow, clipSource, isSilent, unlockAudio } from "./songs/clipSource.js";
@@ -52,6 +52,25 @@ export function ModeSwitch({ story, setStory, disabled }) {
   );
 }
 
+// Keeps what anchorRef points at in the same place on screen when `open` changes (1.13.7, #559 item 5). The Spotify
+// card opens above the song row, so the page scrolls by however far the row moved: the black area above moves up,
+// and the song row and the cover stay where they were. getSnapshotBeforeUpdate reads the row's place before the
+// change reaches the page, whatever caused it: play, close, or another cover.
+class HoldPlace extends Component {
+  getSnapshotBeforeUpdate(prev) {
+    if (prev.open === this.props.open) return null;
+    const el = this.props.anchorRef.current;
+    return el ? el.getBoundingClientRect().top : null;
+  }
+  componentDidUpdate(_prev, _state, before) {
+    const el = this.props.anchorRef.current;
+    if (before == null || !el) return;
+    const shift = el.getBoundingClientRect().top - before;
+    if (Math.abs(shift) >= 1) window.scrollBy(0, shift);
+  }
+  render() { return this.props.children; }
+}
+
 // The play button works like the original's: with a Spotify link it opens Spotify's own player for this cover's
 // song, and she taps play inside it (that keeps iOS happy about audio). Closing it, or moving to another cover,
 // removes the player, so playback stops. A song with only a preview plays the preview, as in 1.4. A downloaded song
@@ -68,6 +87,7 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs }) {
   const preview = clip || item.songPreviewUrl;
   const [playing, setPlaying] = useState(false);
   const [playerOpen, setPlayerOpen] = useState(false);
+  const rowRef = useRef(null);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(item.song || "");
   const audio = useRef(null);
@@ -104,9 +124,14 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs }) {
     a.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
   }
 
+  const shown = Boolean(embed && playerOpen);
   return (
-    <>
-    <div className="songRow">
+    <HoldPlace open={shown} anchorRef={rowRef}>
+    {shown && (
+      <iframe key={`${item.id}-${embed}`} className="spotifyEmbed" src={embed} title={`Spotify player for ${item.song || "this song"}`}
+        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" />
+    )}
+    <div className="songRow" ref={rowRef}>
       <div className="songMeta">
         <strong className="songOwner">{displayTitle(item.title)}</strong>
         {editing ? (
@@ -133,10 +158,6 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs }) {
       {onSongs && <button type="button" className="iconBtn" onClick={onSongs} aria-label="Pick a song from Symphony"><Icon name="note" /></button>}
       <button type="button" className="iconBtn" onClick={onShuffle} aria-label="Shuffle the song"><Icon name="shuffle" /></button>
     </div>
-    {embed && playerOpen && (
-      <iframe key={`${item.id}-${embed}`} className="spotifyEmbed" src={embed} title={`Spotify player for ${item.song || "this song"}`}
-        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" />
-    )}
-    </>
+    </HoldPlace>
   );
 }

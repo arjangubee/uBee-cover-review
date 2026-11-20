@@ -109,7 +109,7 @@ Since 1.4.0 the cover is the screen, the way Quill's Cover Review looks. Since 1
 
 - Header: back to all covers, the queue count, setup and help, "Cover 1 of 17", undo and redo.
 - The cover as it will post, in a 4:5 frame. The screen and the posted image are drawn by the same code, so what she approves is what posts.
-- The song row: the play button opens Spotify's own player for the cover's song when the song has a Spotify link, or plays a preview when the pool has one. A downloaded song plays its hook clip from the app. Shuffle picks another song.
+- The song row: the play button opens Spotify's own player for the cover's song when the song has a Spotify link, or plays a preview when the pool has one. A downloaded song plays its hook clip from the app. Shuffle picks another song. Since 1.13.7 the player opens above the song row and the page moves up by its height, so the song row and the cover stay where they are.
 - Icons under the cover: like (approve), dislike (pass), download, repost (remix into a new version), note, edit.
 - The glass at the top left of the cover flies the photo up to fill the screen. Pinch to zoom (up to 4 times), drag to look around, double tap to zoom in or out, and tap the dark background to put it back. It works in the editor too.
 - Holding down on the cover, a photo slide or the zoomed photo selects nothing and opens no menu (1.13.6). A hold that lifts without moving is still a tap, and the editor's fields select text as usual.

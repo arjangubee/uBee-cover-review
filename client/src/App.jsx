@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, post, upload } from "./api.js";
 import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, ImageInfo, NoteComposer, Ratings, Steppers, StoryControls, TitleRow, WhyMatches } from "./CoverDetails.jsx";
 import CoverEditor from "./CoverEditor.jsx";

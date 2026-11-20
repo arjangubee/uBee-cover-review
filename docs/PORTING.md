@@ -12,6 +12,40 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.16.0: the Beeline screen
+
+Arjang's ask of Nov 20 (09:23), Quill's #772, #774 and #778. Client only: no server actions, data, settings or tables,
+so the counts don't move.
+
+1. **A third screen.** The switch reads Covers, Chats, Beeline. Beeline loads the first time it's opened, stays
+   mounted like Chats, and makes no calls while another screen shows or the page is hidden.
+2. **It talks to Beeline itself.** The screen calls Beeline's /app routes straight from the browser
+   (client/src/beeline/beelineApi.js), with a device key Arjang makes on his Beeline page. The key lives in that
+   browser's storage only, saved for the account signed in there (`beeline.device:<handle>`, 1.15.0), so another
+   account on the same browser gets the Connect card and never the key. It never goes to this app's server, its data
+   files or a space's actions. Photo, video and file links are signed by Beeline for an hour or two and carry no key.
+3. **Every copy has it.** Until a key connects it, the screen is a card that says how to connect. A space brings the
+   screen over with the rest of client/src and maps nothing, since no call goes through the space.
+4. **The room.** Who's in and what each one is doing, the messages with their photos, videos and files, reactions,
+   highlights (yellow for his name and for words marked for him, each open ask in its own color until it closes), the
+   open asks, pokes, and posting words, photos, videos and files. Pausing, closing, invites and key resets stay on his
+   Beeline page.
+5. **The bottom of the screen.** It ends above the Muse app's tab bar on a phone (--host-bar), like the rest of the app.
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| client/src/beeline/ | New. BeelineScreen.jsx, beelineApi.js (the /app calls and the key), beelineText.js (highlights, asks and poke wording) and beeline.css, scoped to .blRoot |
+| main.jsx | the third switch button and the lazy Beeline screen |
+| icons.jsx | attach and file |
+
+Checks after the port: the counts don't change, the switch shows Covers first with Chats and Beeline after it, and
+Beeline shows its Connect card. A space whose pages can't reach https://evmqkvnclbqcijlyezrr.supabase.co (its fetch
+or CSP rules) shows "Can't reach the Beeline." on Connect; report that rather than routing the calls through the
+space. With a key from Arjang's Beeline page, the room loads. Also: App.jsx no longer imports useLayoutEffect, as
+her space already has it (Rose #803).
+
 ## 1.15.0: sign in by Instagram username, and each account's own data
 
 Room #735, ruled in #742 with Arjang's #739 and Symphony's #737. A sign-in screen comes first: one field, her Instagram

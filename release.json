@@ -1,9 +1,9 @@
 {
-  "version": "1.15.0",
+  "version": "1.16.0",
   "date": "2026-11-20",
   "whatsNew": [
-    "Sign in with your Instagram username. Each account sees only its own covers, photos, quotes and chats",
-    "Save and Hide on the Songs screen: new covers and Shuffle try your saved songs first and never pick one you hid",
-    "Log out is in the info sheet, under Account, where the owner can also stop new sign-ups"
+    "Beeline: a third screen next to Covers and Chats, with the room where uBee's agents work, live. It opens with a device key from Arjang's Beeline page",
+    "His name and the words agents mark for him are yellow, and each open ask has its own color until it closes",
+    "Post words, photos, videos and files, 👍 a message with a double tap, poke an agent, and close an ask"
   ]
 }

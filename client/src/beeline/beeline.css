@@ -1,0 +1,189 @@
+/* The Beeline screen (1.16). Cover Review's own world: true black, the platform sans, hairline rows and 44 px
+   targets. Color comes from the room itself: each agent's own color, highlighter yellow for Arjang, and each open
+   ask's color. Everything here is scoped to .blRoot. */
+
+.blRoot { position: relative; display: flex; flex-direction: column; width: 100%; max-width: 560px; min-height: 360px; margin: 0 auto;
+  color: var(--text); -webkit-tap-highlight-color: transparent; }
+.blRoot button { font: inherit; cursor: pointer; }
+.blRoot button:disabled { cursor: default; }
+
+/* ---------- Header ---------- */
+.blTop { flex: none; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 4px 12px 4px 16px; border-bottom: 1px solid var(--line); }
+.blTitle { margin: 0; font-size: 19px; font-weight: 700; }
+.blStatus { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; background: var(--surface);
+  color: var(--text-2); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.blDot { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--muted); }
+.blStatusLive .blDot { border-color: var(--green); background: var(--green); }
+.blStatusOpen .blDot { border-color: var(--text-2); }
+.blDevice { flex: 1; min-width: 0; margin-left: 4px; overflow: hidden; color: var(--muted); font-size: 13px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.blLinkBtn { flex: none; min-height: 44px; padding: 0 4px; border: 0; background: none; color: var(--link); font-size: 15px; font-weight: 700; }
+.blLinkBtn:disabled { color: #12283a; }
+.blQuiet { color: var(--muted); font-size: 14px; font-weight: 600; }
+.blArmed.blLinkBtn { color: #ff6961; }
+
+/* ---------- Who's in the room ---------- */
+.blNames { flex: none; display: flex; gap: 8px; padding: 10px 16px 6px; overflow-x: auto; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.blNames::-webkit-scrollbar { display: none; }
+.blNobody { margin: 0; color: var(--muted); font-size: 14px; }
+.blWho { flex: none; display: inline-flex; align-items: center; gap: 7px; min-height: 44px; padding: 0 14px 0 12px; border: 1px solid transparent;
+  border-radius: 999px; background: var(--surface); color: var(--c); font-size: 14px; white-space: nowrap; }
+.blWho b { font-weight: 600; }
+.blWho .blEmo { font-size: 14px; line-height: 1; }
+.blWhat { max-width: 18ch; overflow: hidden; color: var(--muted); font-size: 13px; text-overflow: ellipsis; }
+.blLight { flex: none; width: 8px; height: 8px; border: 1.5px solid currentColor; border-radius: 50%; }
+.blWho:is([data-s="listening"], [data-s="thinking"], [data-s="working"], [data-s="here"]) .blLight { background: currentColor; }
+.blWho[data-s="listening"] .blLight { animation: blBreathe 2.4s ease-in-out infinite; }
+.blWho:is([data-s="away"], [data-s="left"]) { opacity: 0.72; }
+.blWho:is([data-s="away"], [data-s="left"]) .blLight { color: var(--muted); }
+.blWho[data-s="left"] .blLight { border-style: dashed; }
+/* Poked: a ring pulses out from the name until the agent is back. */
+.blWho.blPoked { border-color: var(--c); animation: blPoke 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
+.blWho.blPoked .blWhat { color: var(--c); }
+@keyframes blPoke { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c) 55%, transparent); } 75%, 100% { box-shadow: 0 0 0 12px transparent; } }
+@keyframes blBreathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.blNoteLine { flex: none; margin: 0 16px 6px; color: var(--accent); font-size: 13px; line-height: 1.4; }
+.blNoteLine:empty { display: none; }
+
+/* ---------- Open asks ---------- */
+.blAsks { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 16px 10px; border-bottom: 1px solid var(--line); }
+.blAsksLabel { margin-right: 2px; color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.blAskChip { display: inline-flex; align-items: center; max-width: 100%; min-height: 44px; border-radius: 999px; background: var(--ask); color: #000; }
+.blAskGo { display: inline-flex; align-items: center; gap: 6px; min-width: 0; min-height: 44px; padding: 0 2px 0 6px; border: 0; border-radius: 999px;
+  background: none; color: inherit; font-size: 14px; font-weight: 600; }
+.blAskGo:disabled { cursor: default; }
+.blAskNum { display: inline-grid; place-items: center; flex: none; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 999px; background: #000;
+  color: var(--ask); font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.blAskTitle { min-width: 0; max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.blAskSub { flex: none; font-size: 12px; font-weight: 500; opacity: 0.72; white-space: nowrap; }
+.blAskX { display: inline-grid; place-items: center; flex: none; min-width: 44px; height: 44px; padding: 0; border: 0; border-radius: 999px; background: none; color: inherit; }
+.blAskX.blArmed { min-width: 0; height: 32px; margin: 0 6px 0 2px; padding: 0 12px; background: #000; color: var(--ask); font-size: 13px; font-weight: 700; }
+.blAskChip button:focus-visible { outline: 2px solid #000; outline-offset: -3px; }
+
+.blBanner { flex: none; margin: 10px 16px 0; padding: 10px 14px; border-radius: 14px; background: var(--surface); color: var(--text-2); font-size: 14px; }
+
+/* ---------- Messages ---------- */
+.blListWrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.blList { flex: 1; min-height: 0; padding: 4px 16px 14px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  scrollbar-color: rgba(245, 245, 245, 0.18) transparent; }
+.blEmpty { max-width: 32ch; margin: 48px auto; color: var(--muted); font-size: 15px; line-height: 1.4; text-align: center; }
+.blDay { margin: 16px 0 6px; color: var(--muted); font-size: 13px; font-weight: 600; text-align: center; }
+.blSys { max-width: 44ch; margin: 8px auto; color: var(--muted); font-size: 13px; line-height: 1.4; text-align: center; }
+.blMsg { display: flex; flex-direction: column; align-items: flex-start; margin-top: 14px; }
+.blMsg.blCont { margin-top: 3px; }
+.blMine { align-items: flex-end; }
+.blMeta { display: flex; align-items: baseline; gap: 6px; margin: 0 12px 4px; font-size: 13px; }
+.blName { color: var(--c, var(--text-2)); font-weight: 600; }
+.blMine .blName { color: var(--text-2); }
+.blMeta .blEmo { font-size: 13px; }
+.blMeta time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.blBubble { --bub: color-mix(in srgb, var(--c, #8e8e93) 10%, #1c1c1e); max-width: min(88%, 470px); padding: 10px 14px; overflow: hidden; border-radius: 22px;
+  background: var(--bub); color: var(--text); font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; touch-action: manipulation; }
+.blMine .blBubble { --bub: linear-gradient(135deg, #a537fd 0%, #6a4dff 55%, #2f7bff 100%); color: #fff; }
+/* With photos, videos or files, each part is its own block, so a narrow photo never leaves an empty bubble beside it. */
+.blBubble.blHasMedia { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 0; overflow: visible; background: none; }
+.blMine .blBubble.blHasMedia { align-items: flex-end; }
+.blHasMedia > .blText { max-width: 100%; padding: 10px 14px; border-radius: 22px; background: var(--bub); }
+.blBubble:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.blLit .blBubble { box-shadow: 0 0 0 2px var(--ask, var(--accent)); }
+.blText p { margin: 0; }
+.blText p + p, .blText p + ul, .blText ul + p { margin-top: 0.55em; }
+.blText ul { margin: 0; padding-left: 20px; }
+.blText strong { font-weight: 700; }
+.blText a { color: var(--link); text-decoration: underline; text-underline-offset: 3px; }
+.blMine .blText a { color: #fff; }
+.blText code { padding: 1px 5px; border-radius: 6px; background: rgba(245, 245, 245, 0.09); font: 14px/1.3 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.blText pre { margin: 6px 0; padding: 10px 12px; overflow-x: auto; border-radius: 12px; background: rgba(0, 0, 0, 0.45); }
+.blText pre code { padding: 0; background: none; font-size: 13px; white-space: pre; }
+
+/* Highlights for Arjang. */
+.blRoot mark.blHl { padding: 0 3px; border-radius: 4px; background: #ffe45c; color: #000; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.blRoot mark.blHl a { color: #000; }
+.blRoot mark.blAsk { padding: 0; border-radius: 4px; background: none; color: inherit; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.blRoot mark.blAsk .blAskN { display: none; min-width: 1.5em; margin-right: 4px; padding: 1px 4px; border-radius: 4px; background: #000; color: var(--ask);
+  font-size: 0.72em; font-weight: 800; line-height: 1.25; text-align: center; vertical-align: 1px; }
+
+/* Reactions: each agent's emoji once it has read the message, and his 👍. */
+.blReax { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 10px 0; }
+.blRx { display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 7px; border: 1px solid transparent; border-radius: 999px;
+  background: var(--surface); font-size: 13px; }
+.blRx b { color: var(--text-2); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.blRxMine { border-color: var(--link); }
+
+/* Photos, videos and files. */
+.blPics { display: grid; gap: 3px; max-width: 100%; overflow: hidden; border-radius: 18px; }
+.blPicsGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 300px; }
+.blPic { position: relative; display: block; width: 100%; min-height: 96px; padding: 0; overflow: hidden; border: 0; background: #111; color: #fff; }
+.blPicsGrid .blPic { aspect-ratio: 1; }
+.blPic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.blVid { min-height: 150px; }
+.blPlay { position: absolute; top: 50%; left: 50%; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6); transform: translate(-50%, -50%); }
+.blDur { position: absolute; right: 8px; bottom: 8px; padding: 2px 7px; border-radius: 999px; background: rgba(0, 0, 0, 0.6); font-size: 12px;
+  font-variant-numeric: tabular-nums; }
+.blGone { display: block; padding: 14px; color: var(--muted); font-size: 13px; }
+.blPic.blPicGone { width: 260px; min-height: 56px; }
+.blDoc { display: flex; align-items: center; gap: 10px; width: 260px; max-width: 100%; min-height: 56px; padding: 8px 12px; border-radius: 18px; background: var(--bub);
+  color: inherit; text-decoration: none; }
+.blDoc > span { display: grid; flex: 1; min-width: 0; }
+.blDoc b { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.blDoc span span { color: var(--muted); font-size: 13px; }
+.blMine .blDoc span span { color: rgba(255, 255, 255, 0.78); }
+.blDocGone { color: var(--muted); }
+
+.blNewPill { position: absolute; bottom: 12px; left: 50%; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 44px; padding: 0 16px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--text);
+  font-size: 15px; font-weight: 600; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55); transform: translateX(-50%); }
+
+.blSkeleton span { display: block; height: 44px; margin: 14px 0; border-radius: 22px; background: var(--surface); animation: blBreathe 1.6s ease-in-out infinite; }
+.blSkeleton span.blMine { margin-left: auto; }
+
+/* ---------- Writing ---------- */
+.blComposer { flex: none; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #000; }
+.blComposeRow { display: flex; align-items: flex-end; gap: 6px; }
+.blComposer textarea { flex: 1; min-width: 0; min-height: 44px; max-height: 168px; padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: 14px;
+  background: #000; color: var(--text); font-size: 17px; line-height: 1.35; resize: none; }
+.blComposer textarea::placeholder { color: var(--muted); }
+.blComposer textarea:focus { border-color: var(--muted); outline: none; }
+.blComposer textarea:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.blAttach { color: var(--text); }
+.blSend { flex: none; min-width: 76px; height: 44px; padding: 0 16px; border: 0; border-radius: 14px; background: var(--blue); color: #fff; font-size: 17px; font-weight: 700; }
+.blSend:disabled { background: #12283a; color: rgba(245, 245, 245, 0.45); }
+.blHint { margin: 6px 4px 0; color: var(--muted); font-size: 13px; line-height: 1.35; }
+.blHint.blErr { color: #ff6961; }
+.blTray { display: flex; gap: 10px; padding: 8px 2px 10px; overflow-x: auto; }
+.blTile { position: relative; flex: none; display: grid; grid-template-rows: 56px auto; gap: 4px; width: 72px; }
+.blTile img, .blTileIcon { display: grid; place-items: center; width: 72px; height: 56px; border-radius: 12px; background: var(--surface); color: var(--text-2); object-fit: cover; }
+.blTileName { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.blTileX { position: absolute; top: -14px; right: -14px; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; background: none; color: #fff; }
+.blTileX svg { box-sizing: content-box; padding: 3px; border-radius: 50%; background: rgba(0, 0, 0, 0.8); }
+
+/* ---------- Connecting ---------- */
+.blConnect { padding: 32px 16px 48px; }
+.blConnectCard { width: 100%; max-width: 420px; margin: 0 auto; }
+.blConnectCard h2 { margin: 0 0 8px; font-size: 21px; font-weight: 700; }
+.blConnectCard p { margin: 0 0 18px; color: var(--text-2); font-size: 16px; line-height: 1.4; }
+.blField { display: grid; gap: 8px; margin: 0 0 6px; color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.blField input { height: 52px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 14px; background: #000; color: var(--text);
+  font: 15px/1.2 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: 0; text-transform: none; }
+.blField input:focus { border-color: var(--muted); outline: none; }
+.blField input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.blConnectActions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 6px 0 4px; }
+.blPrimary { min-width: 140px; height: 52px; padding: 0 22px; border: 0; border-radius: 14px; background: var(--blue); color: #fff; font-size: 17px; font-weight: 700; }
+.blPrimary:disabled { background: #12283a; color: rgba(245, 245, 245, 0.45); }
+.blConnectCard .blProblem { margin: 10px 0 0; color: #ff6961; font-size: 14px; }
+.blConnectCard .blNote { margin: 14px 0 0; color: var(--muted); font-size: 14px; }
+
+/* ---------- The viewer ---------- */
+.blViewer { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; padding: 64px 12px calc(56px + var(--host-bar)); background: rgba(0, 0, 0, 0.92); }
+.blViewer img, .blViewer video { max-width: 100%; max-height: calc(100dvh - 128px - var(--host-bar)); border-radius: 12px; }
+.blViewerClose { position: absolute; top: calc(env(safe-area-inset-top) + 8px); right: 8px; color: #fff; }
+.blViewerCap { position: absolute; right: 16px; bottom: calc(var(--host-bar) + env(safe-area-inset-bottom) + 14px); left: 16px; margin: 0; overflow: hidden; color: var(--text-2);
+  font-size: 14px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 389px) {
+  .blDevice { display: none; }
+  .blAskTitle { max-width: 16ch; }
+  .blComposer textarea { padding: 10px 12px; }
+  .blSend { min-width: 64px; padding: 0 12px; }
+}

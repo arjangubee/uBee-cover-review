@@ -12,6 +12,55 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.13.0: the quote switch carries over
+
+Arjang via Rose's #559 and #567, Quill's #562 and #569. Her last choice on "Quote on the cover" carries over to the
+covers she hasn't set yet, so it no longer looks like it resets between covers. Slides are part of their cover, so they
+follow it.
+
+1. **Her default.** A new setting, quoteDefault (true, false or empty), set only by her own switch in the editor
+   (undo and redo too): `quote-toggle` with `from: "switch"`. A toggle sent without from (her Muse, a data step)
+   leaves it alone.
+2. **A cover she has set.** A new field, showQuoteSet. Any explicit toggle sets it, and a cover with it keeps its own
+   choice. Old rows have none, so they read as not set.
+3. **Carrying it over.** When she opens a cover (the editor closed) while her default is on, quotes are unlocked and
+   the cover's quote is off and not set, the page sends `quote-toggle` with `from: "default"`. The server turns the
+   quote on and marks it set, and answers `{ item, applied }`. It only ever turns a quote on, since a new cover
+   starts with it off, so a quote she or her Muse turned on is never taken away. It isn't a step for undo.
+4. GET /api/quotes/status now also answers quoteDefault, and every `quote-toggle` answers it with the item.
+5. The switch has the accessible name "Quote on the cover".
+
+### New setting
+
+| Setting | Type | Default | What it is |
+| --- | --- | --- | --- |
+| quoteDefault | true or false | none | Her last choice on the switch. Adds one settings row the first time she flips it |
+
+### New field on each cover (photos table)
+
+| Field | Type | Default | What it is |
+| --- | --- | --- | --- |
+| showQuoteSet | true or empty | empty | Someone chose this cover's quote toggle, so the default leaves it alone |
+
+### Actions
+
+| Endpoint in this repo | Change |
+| --- | --- |
+| POST /api/items/:id/quote-toggle | Marks the cover set. from "switch" also saves her default. from "default" applies the default as above |
+| GET /api/quotes/status | Answers quoteDefault |
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| App.jsx | Toggles from the editor, undo and redo send from "switch"; opening a cover she hasn't set applies her default |
+| CoverEditor.jsx | aria-label "Quote on the cover" on the switch |
+
+Checks after the port: with no default yet, nothing changes on any cover. Turn the quote on in the editor on a cover,
+close it and open the next cover she hasn't set: its quote comes up on. Turn it off on another and go back: the first
+keeps its quote. A toggle from her Muse doesn't change her default. Counts: settings goes up by one after her first
+flip, and nothing else changes.
+
 ## 1.12.0: songs from Symphony
 
 Arjang's #477, #480 and #483, Quill's #497 and #500, Symphony's #496. Symphony's songs, online, inside Cover Review:

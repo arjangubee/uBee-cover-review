@@ -137,6 +137,13 @@ export default function App() {
   const activeSlides = useMemo(() => (shown?.slides || []).map((s, at) => ({ ...s, at }))
     .filter((s) => !s.deletedAt).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)), [shown]);
   useEffect(() => { setSlide(0); setPickMode(false); }, [current?.id]);
+  // Her last choice on Quote on the cover carries over to a cover she hasn't set yet (1.13). It only ever turns a quote
+  // on, since a new cover starts with it off, and a cover she has set keeps its own choice. It isn't a step for undo.
+  useEffect(() => {
+    const c = current;
+    if (!c || draft || quotesStatus?.quoteDefault !== true || !quotesStatus?.unlocked || c.showQuote || c.showQuoteSet) return;
+    post(`/api/items/${c.id}/quote-toggle`, { from: "default" }).then((r) => { if (r?.applied) patchItem(r.item); }).catch(() => {});
+  }, [current?.id, quotesStatus?.quoteDefault]); // eslint-disable-line react-hooks/exhaustive-deps
   // The editor belongs to one cover: if that cover leaves the screen, the editor closes with it.
   useEffect(() => { if (draft && current?.id !== draft.id) finishEdit(); }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setZoom(null); }, [current?.id, view]); // another cover starts unzoomed, like the original
@@ -156,7 +163,12 @@ export default function App() {
     if (ch.edit) item = (await post(`/api/items/${itemId}/edit`, ch.edit)).item;
     if (ch.imageEdit) item = (await post(`/api/items/${itemId}/image-edit`, ch.imageEdit)).item;
     if (ch.rate) item = (await post(`/api/items/${itemId}/rate`, ch.rate)).item;
-    if (ch.showQuote != null) item = (await post(`/api/items/${itemId}/quote-toggle`, { showQuote: ch.showQuote })).item;
+    if (ch.showQuote != null) {
+      // Her switch, undo and redo: her last choice becomes the default for covers she hasn't set yet (1.13).
+      const r = await post(`/api/items/${itemId}/quote-toggle`, { showQuote: ch.showQuote, from: "switch" });
+      item = r.item;
+      setQuotesStatus((s) => (s ? { ...s, quoteDefault: r.quoteDefault ?? null } : s));
+    }
     if (ch.slide) item = (await post(`/api/items/${itemId}/slides/${ch.slide.at}/${ch.slide.state === "removed" ? "remove" : "restore"}`)).item;
     if (ch.status) {
       await post(`/api/items/${itemId}/decide`, { decision: ch.status });

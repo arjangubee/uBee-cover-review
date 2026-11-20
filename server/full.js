@@ -179,6 +179,7 @@ export function quotesStatus() {
     creatorQuoteCount: kept.length,
     quizPoolSize: quizPool().length,
     quizRemaining: quizPool().filter((q) => !store.settings.quizDecisions[q.text]).length,
+    quoteDefault: typeof store.settings.quoteDefault === "boolean" ? store.settings.quoteDefault : null, // 1.13: her last switch choice
   };
 }
 
@@ -218,16 +219,31 @@ export function registerFull(app, upload) {
   });
 
   // The toggle itself. Turning it ON while locked is refused, with the reason.
+  // 1.13 (Arjang via Rose #559 and #567, Quill #562 and #569): her last choice on the Quote on the cover switch carries
+  // over to covers she hasn't set. from "switch" is her own switch (undo and redo too) and becomes the default. Any
+  // explicit toggle marks the cover as set, so it keeps its choice. from "default" applies the default to a cover that
+  // isn't set yet: it only ever turns a quote on, since a new cover starts with it off.
   app.post("/api/items/:id/quote-toggle", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
+    if (req.body.from === "default") {
+      const applies = store.settings.quoteDefault === true && !item.showQuote && !item.showQuoteSet && quotesStatus().unlocked;
+      if (applies) {
+        Object.assign(item, { showQuote: true, showQuoteSet: true });
+        if (item.beacons) verifyItem(item);
+        store.saveDb();
+      }
+      return res.json({ item, applied: applies, quoteDefault: store.settings.quoteDefault ?? null });
+    }
     const want = Boolean(req.body.showQuote);
     if (want && !quotesStatus().unlocked) {
       return res.status(403).json({ error: "Quote overlay is locked. Connect your quotes, or take the quote quiz and steal quotes that sound like you first." });
     }
     item.showQuote = want;
+    item.showQuoteSet = true;
     if (item.beacons) verifyItem(item); // a checked cover stays truthful: the quote check depends on the toggle (1.5.2)
     store.saveDb();
-    res.json({ item });
+    if (req.body.from === "switch") { store.settings.quoteDefault = want; store.saveSettings(); }
+    res.json({ item, quoteDefault: store.settings.quoteDefault ?? null });
   });
 
   // ---------- Workspace: own Drive by default, uBee shared Drive for clients ----------

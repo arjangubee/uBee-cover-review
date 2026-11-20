@@ -865,6 +865,29 @@ try {
     const flipped = (await postJson(`/api/items/${fresh.id}/quote-toggle`, { showQuote: true })).item;
     assert(flipped.beacons == null && flipped.composeAttestedAt == null, "a cover nobody checked stays unchecked when its quote flips");
   });
+  // ---------- v1.13: her last choice on Quote on the cover carries over (Arjang via Rose #559 and #567, Quill #562 and #569) ----------
+  await check("v1.13 her last choice on the quote switch carries over to covers she hasn't set, and never flips one that's set", async () => {
+    const status = async () => (await fetch(`${base}/api/quotes/status`)).json();
+    const [a, b, c, d] = [await newItem("carry-a.png"), await newItem("carry-b.png"), await newItem("carry-c.png"), await newItem("carry-d.png")];
+    const before = (await status()).quoteDefault;
+    const muse = (await postJson(`/api/items/${d.id}/quote-toggle`, { showQuote: false })).item;
+    assert(muse.showQuoteSet === true && (await status()).quoteDefault === before, `a toggle from her Muse marks the cover and leaves her default alone: ${JSON.stringify(muse)}`);
+    const onA = await postJson(`/api/items/${a.id}/quote-toggle`, { showQuote: true, from: "switch" });
+    assert(onA.item.showQuote === true && onA.item.showQuoteSet === true && onA.quoteDefault === true, `her switch: ${JSON.stringify(onA)}`);
+    assert((await status()).quoteDefault === true, "her choice becomes the default");
+    const onB = await postJson(`/api/items/${b.id}/quote-toggle`, { from: "default" });
+    assert(onB.applied === true && onB.item.showQuote === true && onB.item.showQuoteSet === true, `a cover she hasn't set takes it: ${JSON.stringify(onB)}`);
+    assert((await status()).quoteDefault === true, "carrying it over doesn't change the default");
+    const keepD = await postJson(`/api/items/${d.id}/quote-toggle`, { from: "default" });
+    assert(keepD.applied === false && keepD.item.showQuote === false, `a cover that's set keeps its choice: ${JSON.stringify(keepD)}`);
+    const offC = await postJson(`/api/items/${c.id}/quote-toggle`, { showQuote: false, from: "switch" });
+    assert(offC.item.showQuote === false && offC.quoteDefault === false && (await status()).quoteDefault === false, `off becomes the default: ${JSON.stringify(offC)}`);
+    const again = await postJson(`/api/items/${b.id}/quote-toggle`, { from: "default" });
+    assert(again.applied === false && again.item.showQuote === true, `it never flips a cover that's set: ${JSON.stringify(again)}`);
+    const e = await newItem("carry-e.png");
+    const freshOff = await postJson(`/api/items/${e.id}/quote-toggle`, { from: "default" });
+    assert(freshOff.applied === false && freshOff.item.showQuote === false && !freshOff.item.showQuoteSet, `with off as the default, a fresh cover is left as it is: ${JSON.stringify(freshOff)}`);
+  });
   await check("ubee client workspace plan", async () => {
     await fetch(`${base}/api/workspace/configure`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "ubee_shared", clientName: "Test Creator" }) });
     const plan = await (await fetch(`${base}/api/drive/plan`)).json();

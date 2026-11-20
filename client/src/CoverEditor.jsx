@@ -65,7 +65,7 @@ export default function CoverEditor({
         <>
           <div className="switchRow">
             <span>Quote on the cover</span>
-            <button type="button" role="switch" aria-checked={Boolean(draft.showQuote)} className={draft.showQuote ? "switch on" : "switch"}
+            <button type="button" role="switch" aria-checked={Boolean(draft.showQuote)} aria-label="Quote on the cover" className={draft.showQuote ? "switch on" : "switch"}
               disabled={!quotesUnlocked && !draft.showQuote} onClick={() => setItem({ showQuote: !draft.showQuote })}>
               <span className="knob" />
             </button>

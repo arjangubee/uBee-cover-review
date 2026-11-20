@@ -63,7 +63,7 @@ You can skip every connector and just review photos. The app says what is connec
 
 ## Quotes: off until they are yours
 
-Quote over image is a toggle, and it starts off and locked. Two ways to turn it on:
+Quote over image is a toggle, and it starts off and locked. Once it's unlocked, your last choice on the switch carries over to the next covers you open that you haven't set yet, and a cover you've set keeps its own. Two ways to turn it on:
 
 - Connect your own quote list, in the app or through your Muse.
 - Take the quote quiz. The app shows you generalized quotes from the uBee pack, one at a time. Steal the ones that sound like you, skip the rest. Stolen quotes become your list. The pack was sorted before shipping: every Arjang specific quote (his name, his rugs, his modeling story) is out of the quiz. What is left works for anyone.

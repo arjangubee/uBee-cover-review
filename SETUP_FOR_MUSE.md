@@ -99,6 +99,7 @@ Most creators save in their own Drive. A uBee client is different:
 - The app ships with the uBee default pack: data/default-quotes.json, Arjang's Copy 2 stock, 397 quotes. Use it by default.
 - If the creator drops their own quote list in DUMP, convert it to data/quotes.json as an array of strings or objects with a text field. That file outranks the default pack automatically.
 - Never invent quotes and present them as stock. Generated captions are captions, stock quotes are stock.
+- A toggle you send with `POST /api/items/:id/quote-toggle` sets that cover and leaves her default alone. Only her own switch in the app sets the default that carries over to covers she hasn't set (1.13).
 - Quote over image starts OFF and locked. Offer the creator two ways to unlock it: connect their own quote list (POST /api/quotes/connect; add replace: true to swap her whole list for the one sent), or take the quote quiz in the app. The quiz pool (data/quiz-quotes.json) is generalized quotes only, Arjang specific quotes were filtered out before shipping, so what they steal sounds like them. If a creator flags a quiz quote as too specific, remove it from the pool and log it in the grievance resolution.
 
 ## 7. Ongoing jobs for you

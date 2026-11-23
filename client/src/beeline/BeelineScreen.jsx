@@ -7,8 +7,9 @@ import {
 } from "./beelineText.js";
 import "./beeline.css";
 
-// The Beeline screen (1.16): Arjang's Beeline page inside Cover Review. The room live, his posts, 👍, pokes and asks,
-// with a device key he makes on his Beeline page. Pause, close, invites and key resets stay on that page.
+// The Beeline screen (1.16): Arjang's Beeline page inside Cover Review. The room live, his posts, 👍, pokes and his open
+// calls (1.19: cards he approves, rejects or edits), with a device key he makes on his Beeline page. Pause, close,
+// invites and key resets stay on that page.
 
 const MAX_ATTACH = 10;
 const MAX_UPLOAD = 52428800; // 50 MB per video or file
@@ -23,6 +24,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const FINE = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(pointer: fine)").matches;
 const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
 const HINT = FINE ? "Return adds a line. " + (MAC ? "⌘" : "Ctrl") + " Return sends." : "Return adds a line. Tap Send to send.";
+const CALL_DONE = { approved: "Approved", rejected: "Rejected", edited: "Sent your answer to" };
 
 export default function BeelineScreen({ active = true }) {
   // The device key is kept for the account signed in on this browser (1.15.0), so another account here never has it.
@@ -110,10 +112,14 @@ function Room({ device, active, onLost, onDisconnect }) {
   const [, setTick] = useState(0);
   const [pokeNote, setPokeNote] = useState("");
   const [pokeLocal, setPokeLocal] = useState(() => new Map());
-  const [armed, setArmed] = useState(null); // "disconnect", or "ask:7", while its second tap is due
+  const [armed, setArmed] = useState(null); // "disconnect", or "ok:7", "no:7" or "x:7" on call 7, while its second tap is due
+  const [editing, setEditing] = useState(null); // { n, text } while he writes his own answer to call n
+  const [busyCalls, setBusyCalls] = useState(() => new Map()); // call number -> the answer on its way
+  const [openCalls, setOpenCalls] = useState(() => new Set()); // cards opened to their whole text
+  const [folded, setFolded] = useState(() => api.callsFolded());
   const [unseen, setUnseen] = useState(false);
   const [view, setView] = useState(null);
-  const st = useRef({ after: 0, rev: 0, v: "", rxHold: new Map(), stick: true, lastTap: null });
+  const st = useRef({ after: 0, rev: 0, v: "", rxHold: new Map(), stick: true, lastTap: null, gone: new Map(), showCall: null });
   const rootRef = useRef(null);
   const listRef = useRef(null);
   const noteTimer = useRef(0);
@@ -133,7 +139,9 @@ function Room({ device, active, onLost, onDisconnect }) {
     setMembers(Array.isArray(f.members) ? f.members : []);
     setAgents(new Map((Array.isArray(f.agents) ? f.agents : []).map((a) => [String(a.key), a])));
     setSessions(Array.isArray(f.sessions) ? f.sessions : []);
-    setAsks(Array.isArray(f.asks) ? f.asks : []);
+    // A call he just answered stays off, even when an answer Beeline sent before his decision lands after it.
+    const gone = st.current.gone;
+    setAsks((Array.isArray(f.asks) ? f.asks : []).filter((q) => !((gone.get(Number(q.n)) || 0) > Date.now())));
     setRelay(f.relay || null);
     setFetchedAt(Date.now());
     const fresh = (Array.isArray(f.messages) ? f.messages : []).filter((m) => m.id > st.current.after);
@@ -297,19 +305,89 @@ function Room({ device, active, onLost, onDisconnect }) {
     el.classList.add("blLit");
     setTimeout(() => el.classList.remove("blLit"), 2200);
   };
-  const closeAsk = async (n) => {
-    if (armed !== "ask:" + n) { arm("ask:" + n); return; }
+  // Open calls: Approve and Reject take two taps, Edit takes his own words, and × closes a call without an answer.
+  const dropCall = (n) => {
+    st.current.gone.set(n, Date.now() + 15000);
+    setAsks((list) => list.filter((q) => Number(q.n) !== n));
+    setEditing((ed) => (ed && ed.n === n ? null : ed));
+    setOpenCalls((s) => { if (!s.has(n)) return s; const x = new Set(s); x.delete(n); return x; });
+  };
+  const setBusy = (n, what) => setBusyCalls((b) => {
+    const x = new Map(b);
+    if (what) x.set(n, what); else x.delete(n);
+    return x;
+  });
+  const decide = async (n, outcome, text) => {
+    if (busyCalls.has(n)) return;
+    const words = text == null ? null : String(text).trim();
+    if (outcome === "edited" && !words) { say("Write your answer first."); return; }
     setArmed(null);
-    const drop = () => setAsks((list) => list.filter((q) => Number(q.n) !== Number(n)));
+    setBusy(n, outcome);
     try {
-      await api.closeAsk(key, n);
-      drop();
-      say("Closed ask " + n + ".");
+      const r = await api.decide(key, n, outcome, words);
+      dropCall(n);
+      const who = r.agent || "Its agent";
+      say(outcome === "edited" && r.outcome === "approved"
+        ? "Your words match call " + n + ", so it went as approved. " + who + " is poked."
+        : (CALL_DONE[r.outcome] || "Answered") + " call " + n + ". " + who + " is poked.", 6000);
     } catch (e) {
-      if (e.message === "no_ask") { drop(); say("Ask " + n + " was already closed."); return; }
-      say("Couldn't close ask " + n + ": " + why(e.message), 6000);
+      if (e.message === "closed" || e.message === "no_ask") { dropCall(n); say("Call " + n + " was already answered or closed.", 6000); return; }
+      const unsure = e.status === 0 || e.status >= 500;
+      say(unsure ? "Not sure call " + n + " went through. Check the room before you answer again." : "Couldn't answer call " + n + ": " + why(e.message), 7000);
+    } finally {
+      setBusy(n, null);
     }
   };
+  const closeCall = async (n) => {
+    setArmed(null);
+    setBusy(n, "closed");
+    try {
+      await api.closeAsk(key, n);
+      dropCall(n);
+      say("Closed call " + n + " without an answer.");
+    } catch (e) {
+      if (e.message === "no_ask") { dropCall(n); say("Call " + n + " was already closed."); return; }
+      say("Couldn't close call " + n + ": " + why(e.message), 6000);
+    } finally {
+      setBusy(n, null);
+    }
+  };
+  const tapCall = (what, n) => {
+    if (busyCalls.has(n)) return;
+    if (armed !== what + ":" + n) { arm(what + ":" + n); return; }
+    if (what === "ok") decide(n, "approved", null);
+    else if (what === "no") decide(n, "rejected", null);
+    else closeCall(n);
+  };
+  const editCall = (n) => {
+    const q = asks.find((x) => Number(x.n) === n);
+    setArmed(null);
+    setEditing({ n, text: (q && q.title) || "" });
+  };
+  const toggleCall = (n) => setOpenCalls((s) => { const x = new Set(s); if (x.has(n)) x.delete(n); else x.add(n); return x; });
+  const fold = (on, n) => {
+    if (!on && n != null) st.current.showCall = n;
+    setFolded(on);
+    api.setCallsFolded(on);
+  };
+  // A call he was answering that closed somewhere else takes his draft with it, so he hears about it.
+  useEffect(() => {
+    if (editing && !busyCalls.has(editing.n) && !asks.some((q) => Number(q.n) === editing.n)) {
+      setEditing(null);
+      say("Call " + editing.n + " was closed before your answer went out.", 6000);
+    }
+  }, [asks]);
+  // Tapping a call's number while the cards are folded opens them at that call.
+  useEffect(() => {
+    const n = st.current.showCall;
+    if (folded || n == null) return;
+    st.current.showCall = null;
+    const el = rootRef.current && rootRef.current.querySelector('.blCall[data-n="' + n + '"]');
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "start" });
+    const body = el.querySelector(".blCallBody");
+    if (body) body.focus({ preventScroll: true });
+  }, [folded]);
 
   const setLike = async (id, on) => {
     st.current.rxHold.set(id, Date.now() + 5000);
@@ -360,7 +438,9 @@ function Room({ device, active, onLost, onDisconnect }) {
 
       <Names sessions={sessions} agents={agents} pokeLocal={pokeLocal} since={since} onPoke={pokeAgent} />
       <p className="blNoteLine" role="status" aria-live="polite">{pokeNote}</p>
-      <Asks asks={asks} agents={agents} armed={armed} since={since} onShow={showMessage} onClose={closeAsk} />
+      <Calls asks={asks} agents={agents} armed={armed} busy={busyCalls} open={openCalls} editing={editing} folded={folded} since={since}
+        onTap={tapCall} onEdit={editCall} onEditText={(text) => setEditing((ed) => (ed ? { ...ed, text } : ed))} onCancelEdit={() => setEditing(null)}
+        onDecide={decide} onToggle={toggleCall} onFold={fold} onShow={showMessage} />
       {room && room.status === "paused" ? <p className="blBanner">Paused. The agents are holding their messages.</p> : null}
       {room && (room.status === "closed" || room.status === "archived") ? <p className="blBanner">The room is closed.</p> : null}
 
@@ -412,35 +492,121 @@ function Names({ sessions, agents, pokeLocal, since, onPoke }) {
   );
 }
 
-/* ---------- open asks ---------- */
+/* ---------- open calls ---------- */
 
-function Asks({ asks, agents, armed, since, onShow, onClose }) {
+// Each decision waiting on Arjang is a card in its call's color (1.19). Its words are cut to two lines; a tap on them
+// shows the whole call. Approve and Reject take two taps, Edit takes his own words, and × closes it without an answer.
+function Calls({ asks, agents, armed, busy, open, editing, folded, since, onTap, onEdit, onEditText, onCancelEdit, onDecide, onToggle, onFold, onShow }) {
+  const strip = useRef(null);
   const list = asks.filter((q) => Number(q.n) > 0 && HEX.test(q.color || ""));
+  const shown = !folded && list.length > 0;
+  // The strip only scrolls sideways, so a mouse wheel over it moves the cards.
+  useEffect(() => {
+    const el = strip.current;
+    if (!shown || !el) return undefined;
+    const onWheel = (e) => {
+      if (e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX) || el.scrollWidth <= el.clientWidth || e.target.closest("textarea")) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY * (e.deltaMode === 1 ? 16 : 1);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [shown]);
   if (!list.length) return null;
   return (
-    <div className="blAsks" aria-label="Open asks for you. Tap one to see the latest message about it.">
-      <span className="blAsksLabel">Open asks</span>
-      {list.map((q) => {
-        const a = agents.get(String(q.key || "")) || {};
-        const age = since(q.ago);
-        const isArmed = armed === "ask:" + q.n;
-        return (
-          <span className="blAskChip" key={q.n} style={{ "--ask": q.color }}>
-            <button type="button" className="blAskGo" disabled={!q.last_msg}
-              onClick={() => onShow(q.last_msg, q.color)}
-              aria-label={"Ask " + q.n + " from " + (q.agent || "an agent") + ": " + q.title + (q.last_msg ? ". Show the latest message about it." : ". No message marks it yet.")}>
-              <span className="blAskNum">{q.n}</span>
-              <span className="blAskTitle">{q.title}</span>
-              <span className="blAskSub">{[a.emoji, age != null ? ago(age).replace(/ ago$/, "") : ""].filter(Boolean).join(" · ")}</span>
-            </button>
-            <button type="button" className={"blAskX" + (isArmed ? " blArmed" : "")} onClick={() => onClose(q.n)}
-              aria-label={isArmed ? "Tap again to close ask " + q.n : "Close ask " + q.n}>
-              {isArmed ? "Close?" : <Icon name="close" size={16} />}
-            </button>
+    <section className="blCalls" aria-labelledby="blCallsLabel">
+      <div className="blCallsHead">
+        <span className="blCallsLabel" id="blCallsLabel">Open calls<b>{list.length}</b></span>
+        {folded ? (
+          <span className="blMinis">
+            {list.map((q) => (
+              <button type="button" key={q.n} className="blMini" style={{ "--ask": q.color }} onClick={() => onFold(false, Number(q.n))}
+                aria-label={"Show call " + q.n + ": " + q.title}>{q.n}</button>
+            ))}
           </span>
-        );
-      })}
-    </div>
+        ) : null}
+        <button type="button" className="blLinkBtn blQuiet blFold" onClick={() => onFold(!folded)} aria-expanded={!folded}
+          aria-label={folded ? "Show the call cards" : "Hide the call cards"}>{folded ? "Show" : "Hide"}</button>
+      </div>
+      {shown ? (
+        <div className="blCards" ref={strip}>
+          {list.map((q) => {
+            const n = Number(q.n);
+            return (
+              <CallCard key={n} q={q} agent={agents.get(String(q.key || "")) || {}} age={since(q.ago)} armed={armed} busy={busy.get(n) || ""}
+                open={open.has(n)} editing={editing && editing.n === n ? editing : null} onTap={onTap} onEdit={onEdit} onEditText={onEditText}
+                onCancelEdit={onCancelEdit} onDecide={onDecide} onToggle={onToggle} onShow={onShow} />
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function CallCard({ q, agent, age, armed, busy, open, editing, onTap, onEdit, onEditText, onCancelEdit, onDecide, onToggle, onShow }) {
+  const n = Number(q.n);
+  const box = useRef(null);
+  const editBtn = useRef(null);
+  const wasWriting = useRef(false);
+  const writing = !!editing;
+  // His answer starts from the call's own words, all selected, so typing replaces them. Cancel brings him back to Edit.
+  useEffect(() => {
+    if (writing && box.current) { box.current.focus(); box.current.select(); }
+    else if (wasWriting.current && editBtn.current) editBtn.current.focus({ preventScroll: true });
+    wasWriting.current = writing;
+  }, [writing]);
+  const is = (what) => armed === what + ":" + n;
+  const who = q.agent || "an agent";
+  // An empty answer stays in the box, which takes the cursor back.
+  const send = () => {
+    onDecide(n, "edited", editing.text);
+    if (!String(editing.text || "").trim() && box.current) box.current.focus();
+  };
+  return (
+    <article className={"blCall" + (open ? " blOpen" : "") + (busy ? " blBusy" : "")} data-n={n} style={{ "--ask": q.color }}
+      aria-label={"Call " + n + " from " + who} aria-busy={busy ? "true" : undefined}>
+      <div className="blCallTop">
+        <span className="blCallNum">{n}</span>
+        <span className="blCallWho">{agent.emoji ? agent.emoji + " " : ""}{who}</span>
+        {age != null ? <span className="blCallAge">· {ago(age)}</span> : null}
+        <button type="button" className={"blCallX" + (is("x") ? " blArmed" : "")} disabled={!!busy} onClick={() => onTap("x", n)}
+          aria-label={is("x") ? "Tap again to close call " + n + " without answering" : "Close call " + n + " without answering"}>
+          {is("x") ? "Close?" : <Icon name="close" size={16} />}
+        </button>
+      </div>
+      {writing ? (
+        <div className="blCallEdit">
+          <textarea ref={box} rows={3} maxLength={2000} value={editing.text} onChange={(e) => onEditText(e.target.value)}
+            aria-label={"Your answer to call " + n + ". It posts in the room as you."}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { e.preventDefault(); onCancelEdit(); }
+              else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
+            }} />
+          <div className="blCallActs">
+            <button type="button" className="blCallBtn blCallGo" disabled={!!busy} onClick={send}>{busy ? "Sending…" : "Send"}</button>
+            <button type="button" className="blCallBtn" disabled={!!busy} onClick={onCancelEdit}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <button type="button" className="blCallBody" onClick={() => onToggle(n)} aria-expanded={open}>
+            <span className="blCallTitle">{q.title}</span>
+            {q.detail ? <span className="blCallDetail">{q.detail}</span> : null}
+          </button>
+          {open && Number(q.last_msg) > 0 ? (
+            <button type="button" className="blLinkBtn blCallMore" onClick={() => onShow(q.last_msg, q.color)}>Show the latest message about it</button>
+          ) : null}
+          <div className="blCallActs">
+            <button type="button" className={"blCallBtn blCallGo" + (is("ok") ? " blArmed" : "")} disabled={!!busy} onClick={() => onTap("ok", n)}
+              aria-label={is("ok") ? "Tap again to approve call " + n : undefined}>{busy === "approved" ? "Sending…" : is("ok") ? "Approve?" : "Approve"}</button>
+            <button type="button" className={"blCallBtn" + (is("no") ? " blArmed" : "")} disabled={!!busy} onClick={() => onTap("no", n)}
+              aria-label={is("no") ? "Tap again to reject call " + n : undefined}>{busy === "rejected" ? "Sending…" : is("no") ? "Reject?" : "Reject"}</button>
+            <button type="button" ref={editBtn} className="blCallBtn" disabled={!!busy} onClick={() => onEdit(n)}>Edit</button>
+          </div>
+        </>
+      )}
+    </article>
   );
 }
 

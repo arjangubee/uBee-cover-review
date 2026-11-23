@@ -27,6 +27,14 @@ export function forgetDevice(handle) {
   if (!store(handle)) return;
   try { localStorage.removeItem(store(handle)); } catch { /* nothing saved */ }
 }
+// Whether the call cards are folded away on this browser (1.19). Nothing secret, so every account here shares it.
+const FOLD = "beeline.callsFolded";
+export function callsFolded() {
+  try { return localStorage.getItem(FOLD) === "1"; } catch { return false; }
+}
+export function setCallsFolded(on) {
+  try { localStorage.setItem(FOLD, on ? "1" : "0"); } catch { /* storage off: it holds until the page closes */ }
+}
 
 export class BeelineError extends Error {
   constructor(message, status) { super(message); this.status = status; }
@@ -62,6 +70,9 @@ export const send = (key, text) => postJson(key, "send", { text });
 export const react = (key, id, on) => postJson(key, "react", { id, on });
 export const poke = (key, agent, force) => postJson(key, "poke", { key: agent, force: !!force });
 export const closeAsk = (key, n) => postJson(key, "ask/close", { n });
+// His answer to call n (1.19): approved, rejected, or edited with his own words. Beeline posts it in the room as him and
+// pokes the agent that opened the call.
+export const decide = (key, n, outcome, text) => postJson(key, "ask/decide", { n, outcome, text: text == null ? null : String(text) });
 
 // Up to 10 photos in one message, each already a JPEG of 3 MB or less.
 export function sendPhotos(key, photos, text) {

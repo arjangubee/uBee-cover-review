@@ -1517,6 +1517,23 @@ try {
     await dmFails("listitems", { filter: "nope" }, 400);
     await dmFails("nosuchaction", {}, 404);
   });
+  // 1.18.0 (Arjang in the build chat, room #840): a chat's label is saved with her account, so every device shows it.
+  await check("v1.18 a chat's label is saved with her account: listitems answers it, null clears it, only the six labels are taken, and a device's old labels fill only chats with none", async () => {
+    assert((await dmItem(dmIds.live)).label === null, "no label yet");
+    assert((await dm("setlabel", { id: dmIds.live, label: "Booked" })).label === "Booked", "saved");
+    assert((await dmItem(dmIds.live)).label === "Booked", "every device reads it");
+    await dmFails("setlabel", { id: dmIds.live, label: "Maybe" }, 400, "label must be one of");
+    await dmFails("setlabel", { id: dmIds.live }, 400, "label is missing");
+    await dmFails("setlabel", { id: 9999, label: "Flag" }, 404);
+    await dmFails("importlabels", { labels: ["Flag"] }, 400);
+    const moved = await dm("importlabels", { labels: { [dmIds.live]: "Paid", [dmIds.comment]: "Lead", 9999: "Flag", [dmIds.holdout]: "Nope", x: "Flag" } });
+    assert(moved.imported === 1, `only the chat with no label takes one: ${JSON.stringify(moved)}`);
+    assert((await dmItem(dmIds.live)).label === "Booked" && (await dmItem(dmIds.comment)).label === "Lead" && (await dmItem(dmIds.holdout)).label === null,
+      "a saved label stays, an empty chat fills, and a wrong label or chat is skipped");
+    await dm("setlabel", { id: dmIds.live, label: null });
+    await dm("setlabel", { id: dmIds.comment, label: "" });
+    assert((await dmItem(dmIds.live)).label === null && (await dmItem(dmIds.comment)).label === null, "cleared");
+  });
   await check("v1.14 Draft asks her Muse: the item is marked waiting, the prompt never holds a sealed reply, and her Muse's draft lands", async () => {
     await dm("savevoicesource", { rules: { voice: "VOICE-RULES", listening: "LISTEN-RULES", deterrence: "DETER-RULES", dm: "DM-RULES", offers: "OFFERS-LIST" } });
     const asked = await dm("generatedraft", { id: dmIds.holdout, mode: "listening" });

@@ -278,6 +278,44 @@ try {
       assert(Array.isArray(sym.music?.saved) && sym.music.saved.join() === SONG("c"), "the Songs screen gets her adjustments with the songs");
     });
   });
+  await check("v1.18 a handle that's a Windows device name keeps its data in a folder Windows accepts, and its photos still show", async () => {
+    await withCopy(4191, null, async (at, dir) => {
+      await signIn(at, "boss"); // the first sign-in on an empty copy is the owner, whose data is the data folder itself
+      for (const [handle, folder] of [["con", "con~"], ["LPT1.studio", "lpt1~.studio"], ["nul", "nul~"]]) {
+        const { as } = await signIn(at, handle);
+        const it = await as.upload(`${folder}.png`);
+        assert(existsSync(join(dir, "accounts", folder, "db.json")), `${handle} keeps its covers in accounts/${folder}`);
+        assert(!existsSync(join(dir, "accounts", folder.replace("~", ""))), `nothing under the device name for ${handle}`);
+        assert((await as.get("/api/items")).items.some((i) => i.id === it.id), `${handle} sees its cover`);
+        assert((await as.raw(it.imageUrl)).status === 200, `${handle}'s photo loads`);
+      }
+      assert(!(await (await signIn(at, "console")).as.get("/api/items")).items.length && existsSync(join(dir, "accounts", "console")), "a longer name is a plain folder");
+    });
+  });
+
+  await check("v1.18 a copy that already keeps an account under its device name (made on a Mac before 1.18) keeps using that folder", async () => {
+    await withCopy(4191, (dir) => {
+      writeFileSync(join(dir, "accounts.json"), JSON.stringify({ accounts: [{ handle: "boss", owner: true, createdAt: 1 }, { handle: "aux", createdAt: 2 }], sessions: [], restrictSignups: false }));
+      mkdirSync(join(dir, "accounts", "aux"), { recursive: true });
+      writeFileSync(join(dir, "accounts", "aux", "db.json"), JSON.stringify({ items: [{ id: 1, status: "queue", title: "kept", imageUrl: "/uploads/k.png", quote: "", song: "", caption: "" }], voiceSamples: [], nextId: 2 }));
+    }, async (at, dir) => {
+      const { as } = await signIn(at, "aux");
+      assert((await as.get("/api/items")).items.map((i) => i.title).join() === "kept", "her covers are still there");
+      await as.upload("more.png");
+      assert(JSON.parse(readFileSync(join(dir, "accounts", "aux", "db.json"), "utf8")).items.length === 2, "new covers go to the same folder");
+      assert(!existsSync(join(dir, "accounts", "aux~")), "no second folder");
+    });
+  });
+
+  await check("v1.18 every space the copy knows reads back as its handle, folders for device names included", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cr-acct-spaces-"));
+    dirs.push(dir);
+    for (const f of ["con~", "lpt1~.studio", "alice"]) mkdirSync(join(dir, "accounts", f), { recursive: true });
+    const out = execFileSync("node", ["--input-type=module", "-e", "const s = await import(process.argv[1]); console.log(JSON.stringify(s.knownSpaces()));", new URL("../server/store.js", import.meta.url).href],
+      { env: { ...process.env, COVER_REVIEW_DATA_DIR: dir } }).toString().trim();
+    assert(out === JSON.stringify(["", "alice", "con", "lpt1.studio"]), `spaces: ${out}`);
+  });
+
   await check("v1.15 accounts and their data never go into git: data/accounts.json and every account's folder are ignored", async () => {
     const root = new URL("../", import.meta.url).pathname;
     for (const f of ["data/accounts.json", "data/accounts/someone/db.json", "data/accounts/someone/uploads/x.png", "data/accounts/someone/settings.json"]) {

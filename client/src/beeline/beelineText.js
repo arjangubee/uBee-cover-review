@@ -138,6 +138,9 @@ const CODES = {
   bad_key: "this device was disconnected",
   no_agent: "it isn't in this room anymore",
   no_ask: "it's already closed",
+  closed: "it was already answered or closed",
+  no_text: "write your answer first",
+  bad_outcome: "Beeline didn't take that answer",
   no_message: "that message is gone",
   no_room: "the room isn't there anymore",
 };

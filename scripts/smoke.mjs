@@ -12,7 +12,7 @@ import { bakedCta, cleanCtas, ctaFor, plainCaption, postedCaption } from "../ser
 import * as sharedCall from "../client/src/captionCall.js";
 import { bangRuleOf, capEndings, storyCapture, voiceVersion } from "../server/dmRules.js";
 import { askCss, fmt, pokeReach, why } from "../client/src/beeline/beelineText.js";
-import { cleanKey, fileUrl, forgetDevice, looksLikeKey, saveDevice, savedDevice } from "../client/src/beeline/beelineApi.js";
+import { callsFolded, cleanKey, decide, fileUrl, forgetDevice, looksLikeKey, saveDevice, savedDevice, setCallsFolded } from "../client/src/beeline/beelineApi.js";
 
 // Smoke runs in a throwaway data folder, so it never touches a creator's real photos,
 // decisions, workspace or settings.
@@ -1820,6 +1820,41 @@ try {
     const missing = [...used].filter((c) => !have.has(c));
     assert(used.size > 60, `found only ${used.size} classes`);
     assert(!missing.length, `classes with no rule: ${missing.join(" ")}`);
+  });
+  // Open calls as cards (1.19): Arjang approves, rejects or edits each one, and his answer goes to Beeline's decide route.
+  await check("v1.19 Beeline: his answer to a call goes to Beeline's decide route with his words, and its refusals read plain", async () => {
+    const was = globalThis.fetch;
+    const seen = [];
+    globalThis.fetch = async (url, opts) => {
+      seen.push({ url: String(url), opts });
+      return new Response(JSON.stringify({ ok: true, n: 7, outcome: "edited", agent: "Quill" }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    try {
+      const key = "bld_" + "ef".repeat(32);
+      const r = await decide(key, 7, "edited", "Use 4:5 for feed posts");
+      assert(r.outcome === "edited" && seen.length === 1, JSON.stringify(r));
+      const body = JSON.parse(seen[0].opts.body);
+      assert(seen[0].url.endsWith("/app/ask/decide") && seen[0].opts.method === "POST" && seen[0].opts.headers["x-beeline-key"] === key, seen[0].url);
+      assert(body.n === 7 && body.outcome === "edited" && body.text === "Use 4:5 for feed posts", seen[0].opts.body);
+      await decide(key, 8, "approved");
+      assert(JSON.parse(seen[1].opts.body).text === null && JSON.parse(seen[1].opts.body).outcome === "approved", seen[1].opts.body);
+    } finally { globalThis.fetch = was; }
+    assert(why("closed") === "it was already answered or closed" && why("no_text") === "write your answer first", "decide's codes in plain words");
+  });
+  await check("v1.19 Beeline: each open call is a card with Approve, Reject and Edit, and folding the cards holds on this browser", async () => {
+    const screen = readFileSync(new URL("../client/src/beeline/BeelineScreen.jsx", import.meta.url).pathname, "utf8");
+    assert(screen.includes('onTap("ok", n)') && screen.includes('onTap("no", n)') && screen.includes("onEdit(n)") && screen.includes('onTap("x", n)'), "Approve, Reject, Edit and close on every card");
+    assert(screen.includes("api.decide(key, n, outcome, words)") && !screen.includes("Open asks"), "answers go through decide, and the old ask chips are gone");
+    const kept = new Map();
+    const was = globalThis.localStorage;
+    globalThis.localStorage = { getItem: (k) => (kept.has(k) ? kept.get(k) : null), setItem: (k, v) => kept.set(k, String(v)), removeItem: (k) => kept.delete(k) };
+    try {
+      assert(callsFolded() === false, "the cards show by default");
+      setCallsFolded(true);
+      assert(callsFolded() === true, "folded stays folded");
+      setCallsFolded(false);
+      assert(callsFolded() === false, "and opens again");
+    } finally { globalThis.localStorage = was; }
   });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);

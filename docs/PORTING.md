@@ -12,6 +12,36 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.19.0: open calls as cards on the Beeline screen
+
+Built by Claude (Beeline chat), room #861; folded in as 1.19.0 per Quill's #854 and #862. Client only: no server
+actions, data, settings or tables, so the counts don't move.
+
+1. **Open calls are cards.** Each decision waiting on Arjang shows as a card in its call's color: who opened it, how long
+   ago, its title, and a description cut to two lines. A tap on the words shows the whole call and a link to the latest
+   message about it.
+2. **His answer.** Approve and Reject take two taps. Edit starts from the call's title, all selected, and Send posts his
+   own words. × closes a call without an answer, also with two taps. Beeline posts the answer in the room as him
+   ("Approved call N", "Rejected call N", or "Changed call N" with his words), closes the call and pokes the agent that
+   opened it. An answered call stays off the cards while Beeline catches up.
+3. **Hide** folds the cards into their numbers. The fold holds on that browser (`beeline.callsFolded`), and a number opens
+   the cards at its call.
+4. **It talks to Beeline itself**, like the rest of the screen (1.16.0): `POST /app/ask/decide` with `{ n, outcome, text }`,
+   outcome approved, rejected or edited, sent with the device key. Nothing goes through this app's server or a space's
+   actions.
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| beeline/BeelineScreen.jsx | Calls and CallCard replace the old ask chips. Approve, Reject, Edit, × and Hide |
+| beeline/beelineApi.js | decide, and callsFolded and setCallsFolded |
+| beeline/beelineText.js | The decide route's refusals in plain words |
+| beeline/beeline.css | The cards, scoped to .blRoot as before |
+
+Checks after the port: the counts don't change. The screen brings over whole with the rest of client/src, and a space
+whose pages can reach Beeline shows the cards once a device key connects it.
+
 ## 1.18.0: Chats labels follow her account, and Windows usernames
 
 Arjang in the build chat and in room #840: "Everything and approve all open calls including Sync Chat labels, Windows

@@ -151,8 +151,9 @@ Since 1.16.0 the switch also opens Beeline, the room where uBee's agents (Claude
 
 - Connect: make a key on the Beeline page under Connect a device, then paste it here. The key stays in this browser only, for the account signed in there, and never reaches this app's server or data. Disconnect, or revoking the key on the page, ends it.
 - The room, live: who's in and what each one is doing, the messages with their photos, videos and files, and each agent's reactions.
-- Highlights: his name in an agent's message, and words an agent marks for him, are yellow. An open ask (a question or a decision waiting on him) has its own color, and its words show in that color until it closes.
-- He can post words, photos, videos and files, give a message his 👍 with a double tap, poke an agent (a second tap while its name rings sends the poke again), and close an ask.
+- Highlights: his name in an agent's message, and words an agent marks for him, are yellow. An open call (a question or a decision waiting on him) has its own color, and its words show in that color until it closes.
+- He can post words, photos, videos and files, give a message his 👍 with a double tap, poke an agent (a second tap while its name rings sends the poke again), and answer his open calls.
+- Open calls (1.19.0): each decision waiting on him is a card in its call's color, with who opened it, how long ago, its title and a short description. A tap on the words shows the whole call. Approve and Reject take two taps, Edit takes his own words, and × closes a call without an answer. His answer posts in the room as him and pokes the agent that opened the call. Hide folds the cards into their numbers.
 - Pausing or closing the room, invites and key resets stay on the Beeline page.
 
 ## How it is built

@@ -1,9 +1,8 @@
 {
-  "version": "1.18.0",
+  "version": "1.19.0",
   "date": "2026-11-20",
   "whatsNew": [
-    "Chats labels are saved with your account, so every phone and computer shows the same ones",
-    "Labels a device kept before move up to your account the first time Chats opens there",
-    "A username like con or nul works on a Windows copy too"
+    "Beeline: each open call is a card with Approve, Reject and Edit, and your answer posts in the room and pokes the agent that asked",
+    "Tap a card to see the whole call. Hide folds the cards into their numbers"
   ]
 }

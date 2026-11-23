@@ -17,9 +17,28 @@ export const OWNER_SPACE = "";
 export const ACCOUNTS_DIR = join(DATA_DIR, "accounts");
 const scope = new AsyncLocalStorage();
 
+// Windows can't make a folder named after a device (con, prn, aux, nul, com0 to com9, lpt0 to lpt9), alone or before a
+// dot (1.18.0). Such an account keeps its data under the name with a "~" after the device part, which no handle can
+// contain, so no two accounts ever share a folder. A copy that already keeps one under the plain name (made on a Mac or
+// Linux before 1.18.0) keeps using that folder.
+const DEVICE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?=\.|$)/;
+/** The folder name an account's handle gets. */
+export const folderOf = (handle) => String(handle).replace(DEVICE, "$1~");
+/** The handle an account folder belongs to. */
+export const handleOfFolder = (name) => String(name).replace(/^(con|prn|aux|nul|com[0-9]|lpt[0-9])~(?=\.|$)/, "$1");
+const folders = new Map();
+function accountFolder(handle) {
+  if (!folders.has(handle)) {
+    const safe = folderOf(handle);
+    const old = safe !== handle && process.platform !== "win32" && existsSync(join(ACCOUNTS_DIR, handle)) && !existsSync(join(ACCOUNTS_DIR, safe));
+    folders.set(handle, old ? handle : safe);
+  }
+  return folders.get(handle);
+}
+
 /** The folder a space keeps its personal data in. */
 export function spaceDir(space = currentSpace()) {
-  return space ? join(ACCOUNTS_DIR, space) : DATA_DIR;
+  return space ? join(ACCOUNTS_DIR, accountFolder(space)) : DATA_DIR;
 }
 /** The space this code runs in: the signed-in account's, or the owner's. */
 export function currentSpace() {
@@ -33,8 +52,8 @@ export function runIn(space, fn) {
 /** Every space with data on this copy: the owner's, then each account folder. */
 export function knownSpaces() {
   let names = [];
-  try { names = readdirSync(ACCOUNTS_DIR, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort(); } catch { /* none yet */ }
-  return [OWNER_SPACE, ...names];
+  try { names = readdirSync(ACCOUNTS_DIR, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => handleOfFolder(d.name)); } catch { /* none yet */ }
+  return [OWNER_SPACE, ...[...new Set(names)].sort()];
 }
 
 // A space's own files and folders.

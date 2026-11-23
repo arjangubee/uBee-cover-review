@@ -4,7 +4,7 @@
 import { post } from "../api.js";
 
 const NAMES = ["listitems", "createitem", "generatedraft", "savereview", "publishitem", "confirmpublish", "revealactual", "deleteitem",
-  "exporttraining", "getvoiceprofile", "savevoiceprofile", "resetvoiceprofile", "getaccount", "openthread"];
+  "exporttraining", "getvoiceprofile", "savevoiceprofile", "resetvoiceprofile", "getaccount", "openthread", "setlabel", "importlabels"];
 
 export const api = Object.fromEntries(NAMES.map((n) => [`dm_${n}`, (args) => post(`/api/dm/${n}`, args)]));
 

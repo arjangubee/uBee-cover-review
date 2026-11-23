@@ -142,6 +142,7 @@ Since 1.14.0 a switch above the review screen opens Chats, where she practices r
 - Send hands only the texts she approved to her Muse, which sends them word for word and reports back. Nothing sends without her tap.
 - Blind tests: a message she already answered can come in sealed, so the draft is written without seeing her real reply, which opens once she saves her own.
 - Training exports every reviewed answer, and the Voice tab is her written voice, which every draft follows.
+- Labels (Flag, Booked, Lead, Ordered, Paid, Shipped) are saved with her account since 1.18.0, so every device shows the same ones.
 - It starts empty, and her Muse sets it up (SETUP_FOR_MUSE.md, section 8).
 
 ## Beeline
@@ -157,7 +158,7 @@ Since 1.16.0 the switch also opens Beeline, the room where uBee's agents (Claude
 ## How it is built
 
 - Client: React + Vite in client/, plain CSS. The cover is a canvas drawn by client/src/renderCover.js, the same code that makes the posted image. Arrow keys move between covers on a computer.
-- Server: Express in server/, zero native dependencies. State lives in data/db.json and data/settings.json, photos in data/uploads, sorted buckets in data/library. Since 1.15.0 that's the owner's: every other account keeps the same files in data/accounts/<username>/, and data/accounts.json holds the accounts and sessions. That keeps a clone running in seconds on any laptop. For a bigger deployment, the store in server/store.js is the one file to swap for SQLite or Postgres.
+- Server: Express in server/, zero native dependencies. State lives in data/db.json and data/settings.json, photos in data/uploads, sorted buckets in data/library. Since 1.15.0 that's the owner's: every other account keeps the same files in data/accounts/<username>/, and data/accounts.json holds the accounts and sessions. A username Windows can't use as a folder name (con, prn, aux, nul, com0 to com9, lpt0 to lpt9, alone or before a dot) gets a ~ after that part, like data/accounts/con~/ (1.18.0). That keeps a clone running in seconds on any laptop. For a bigger deployment, the store in server/store.js is the one file to swap for SQLite or Postgres.
 - Connectors: server/connectors.js is the registry your Muse reads. Each connector lists what it is for, what it needs, and the exact steps Muse walks you through.
 
 ## For the first creator

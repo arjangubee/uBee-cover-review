@@ -1,8 +1,9 @@
 {
-  "version": "1.17.1",
+  "version": "1.18.0",
   "date": "2026-11-20",
   "whatsNew": [
-    "A quote counts as one of yours even with different capitals, curly quotes, punctuation or extra spaces, the way the original checks it",
-    "A remix of a remix keeps one (remix) in its name"
+    "Chats labels are saved with your account, so every phone and computer shows the same ones",
+    "Labels a device kept before move up to your account the first time Chats opens there",
+    "A username like con or nul works on a Windows copy too"
   ]
 }

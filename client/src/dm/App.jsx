@@ -544,6 +544,22 @@ export function App() {
   const items = itemsQuery.data?.items ?? [];
   const stats = itemsQuery.data?.stats;
 
+  // 1.18.0: labels this browser kept before they were saved with her account move up once, onto chats with no label yet,
+  // and then the browser's copy goes. If it can't reach the server, it tries again on the next load.
+  const labelsMoved = useRef(false);
+  useEffect(() => {
+    if (labelsMoved.current || !itemsQuery.data) return;
+    labelsMoved.current = true;
+    const local = readLabels();
+    if (!Object.keys(local).length) return;
+    api.dm_importlabels({ labels: local })
+      .then(() => {
+        try { window.localStorage.removeItem(labelKey()); } catch { /* the server has them now */ }
+        queryClient.invalidateQueries({ queryKey: ["items"] });
+      })
+      .catch(() => { labelsMoved.current = false; });
+  }, [itemsQuery.data, queryClient]);
+
   const tabs = [
     { id: "practice", label: "Chats" },
     { id: "ready", label: "Ready to Publish" },
@@ -956,7 +972,7 @@ function PracticeView({
                     <span>
                       {item.kind === "dm" ? "DM" : "Comment"} · {statusText}
                     </span>
-                    <SimLabel itemId={item.id} />
+                    <SimLabel label={item.label} />
                   </span>
                 </span>
                 {unread && (
@@ -1001,13 +1017,13 @@ function PracticeView({
 }
 
 // ---------------------------------------------------------------------------
-// Chat labels (Flag / Booked / Lead / Ordered / Paid / Shipped), kept in
-// this browser only, like the rest of the simulator's chrome.
+// Chat labels (Flag / Booked / Lead / Ordered / Paid / Shipped). Since 1.18.0
+// a label is saved with her account (dm_setlabel), so every device shows it.
 // ---------------------------------------------------------------------------
 
 const LABEL_KEY = "reply-sim-labels";
-// Labels are kept on this device, by chat number. Since 1.15.0 each account's chats are numbered on their own, so another
-// account's labels go under its handle; the owner's stay where they always were.
+// Before 1.18.0 labels were kept in each browser, by chat number, another account's under its handle (1.15.0). The page
+// moves what this browser kept up to her account once (dm_importlabels) and then lets the browser's copy go.
 const labelKey = () => { const s = currentSession(); return s.owner || !s.handle ? LABEL_KEY : `${LABEL_KEY}:${s.handle}`; };
 
 function readLabels() {
@@ -1019,11 +1035,7 @@ function readLabels() {
   }
 }
 
-function SimLabel({ itemId }) {
-  const [label, setLabel] = useState(null);
-  useEffect(() => {
-    setLabel(readLabels()[String(itemId)] ?? null);
-  }, [itemId]);
+function SimLabel({ label }) {
   if (!label) return null;
   return (
     <span
@@ -1311,9 +1323,8 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
     item.revealed ? item.actual_reply : null,
   );
   const [toast, setToast] = useState(null);
-  const [label, setLabel] = useState(
-    () => readLabels()[String(item.id)] ?? null,
-  );
+  const [label, setLabel] = useState(item.label ?? null);
+  useEffect(() => { setLabel(item.label ?? null); }, [item.label]);
   const [muted, setMuted] = useState(false);
   const [nickname, setNickname] = useState("");
   const [fx, setFx] = useState("gradient");
@@ -1637,16 +1648,16 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
     },
   });
 
+  // Saved with her account (1.18.0). It shows at once, and goes back if the save doesn't land.
   const saveLabel = (next) => {
+    const before = label;
     setLabel(next);
-    try {
-      const all = readLabels();
-      if (next) all[String(item.id)] = next;
-      else delete all[String(item.id)];
-      window.localStorage.setItem(labelKey(), JSON.stringify(all));
-    } catch {
-      // localStorage unavailable: the label still shows for this session.
-    }
+    api.dm_setlabel({ id: item.id, label: next })
+      .then(() => invalidate())
+      .catch((e) => {
+        setLabel(before);
+        showToast(`Couldn't save the label: ${e.message}`);
+      });
   };
 
   const toastEl = toast ? (
@@ -2957,7 +2968,8 @@ function LabelSheet({ current, onClose, onSave }) {
       </div>
       <p className="px-6 pt-2 text-sm text-[var(--dim)]">
         Only people who manage your Instagram account can view and change
-        labels. In the simulator the label is kept in this browser.
+        labels. In the simulator the label is saved with your account, so
+        every device shows it.
       </p>
       <div className="px-5 pt-4">
         <button

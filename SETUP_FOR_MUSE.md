@@ -138,4 +138,8 @@ Sending, only what she tapped Send on:
 5. Report every one with `confirmpublish`: `{ "id": ..., "ok": true }`, or `{ "id": ..., "ok": false, "detail": "the reason, in plain words" }`. A failed one goes back to her Ready to Publish list to try again.
 6. Send nothing else, and never send on your own.
 
+Labels (1.18.0): a chat's label (Flag, Booked, Lead, Ordered, Paid or Shipped) is saved with her account, so every device
+shows it. `setlabel` with `{ "id": ..., "label": "Booked" }` sets one and `"label": null` clears it. Label a chat only
+when she asks you to.
+
 The Ready to Publish screen names her account from the Instagram connector's handle (section 5).

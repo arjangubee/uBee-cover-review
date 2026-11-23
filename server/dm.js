@@ -28,6 +28,7 @@ const VARIANTS = ["fresh", "again", "sharper"];
 const THREAD_KINDS = ["text", "share_post", "share_reel", "share_story", "reaction", "voice", "generic", "admin"];
 const REPLY_TO = ["story", "note", "montage"];
 const RULE_KEYS = ["voice", "listening", "deterrence", "dm", "offers"];
+const LABELS = ["Flag", "Booked", "Lead", "Ordered", "Paid", "Shipped"]; // a chat's label (1.18.0), saved with her account
 
 class DmError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -128,7 +129,7 @@ function toItem(r, voice = currentVoice()) {
     published_at: iso(r.publishedAt), has_target: Boolean(r.mediaId || r.commentId || r.threadId),
     thread_messages: cleanThread(r.threadMessages), created_at: iso(r.createdAt), reviewed_at: iso(r.reviewedAt),
     draft_voice_version: r.draftVoiceVersion ?? null, voice_stale: r.draftText != null && r.draftVoiceVersion !== voice,
-    story_reply_not_captured: Boolean(r.storyReplyNotCaptured),
+    story_reply_not_captured: Boolean(r.storyReplyNotCaptured), label: LABELS.includes(r.label) ? r.label : null,
   };
 }
 
@@ -314,6 +315,33 @@ const actions = {
     if (!r.revisionText || r.verdict === "pending") throw new DmError("Save your revision first. The actual reply stays sealed until your own answer is locked in.", 409);
     r.revealed = true;
     return { actual_reply: r.actualReply };
+  },
+
+  // A chat's label (1.18.0, Arjang in room #840): saved with her account, so every device shows it. null or "" clears it.
+  setlabel(a) {
+    const r = find(itemId(a.id));
+    if (!Object.hasOwn(a, "label")) throw new DmError("label is missing.");
+    r.label = a.label === null || a.label === "" ? null : oneOf(a.label, LABELS, "label");
+    return { ok: true, label: r.label };
+  },
+  // A device's labels from before 1.18.0, kept in its browser, sent up once: { labels: { <chat id>: <label> } }. Each one
+  // lands only on a chat that has no label yet, so a saved label stays. A chat that's gone or a label that isn't one of the
+  // six is skipped.
+  importlabels(a) {
+    const given = a.labels;
+    if (!given || typeof given !== "object" || Array.isArray(given)) throw new DmError("labels must be chat ids with their labels.");
+    const entries = Object.entries(given);
+    if (entries.length > 5000) throw new DmError("Send at most 5000 labels at once.");
+    let imported = 0;
+    for (const [key, label] of entries) {
+      const id = Number(key);
+      if (!Number.isInteger(id) || id < 1 || !LABELS.includes(label)) continue;
+      const r = rows().find((x) => x.id === id);
+      if (!r || LABELS.includes(r.label)) continue;
+      r.label = label;
+      imported += 1;
+    }
+    return { ok: true, imported };
   },
 
   deleteitem(a) {

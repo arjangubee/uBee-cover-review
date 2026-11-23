@@ -12,6 +12,53 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.18.0: Chats labels follow her account, and Windows usernames
+
+Arjang in the build chat and in room #840: "Everything and approve all open calls including Sync Chat labels, Windows
+username fix, and everything else." It lifts the holds from Quill's #826 items 2 and 3.
+
+1. **Chats labels follow her account.** A chat's label (Flag, Booked, Lead, Ordered, Paid or Shipped) is saved with the
+   chat on the server, so every device and browser shows the same labels. Before 1.18.0 each browser kept its own.
+2. **Old labels move up once.** The first time the Chats screen loads on a device, the labels that browser kept are sent
+   up in one call. Each lands only on a chat with no label yet, so a saved label stays, and a chat that's gone or a label
+   that isn't one of the six is skipped. Then the browser's copy goes. If the call fails, the next load tries again.
+3. **Windows usernames.** Windows can't make a folder named after a device: con, prn, aux, nul, com0 to com9, lpt0 to lpt9,
+   alone or before a dot. Such an account keeps its data in that name with a "~" after the device part (con~, lpt1~.studio),
+   which no username can contain. A copy that already keeps one under the plain name (made on a Mac or Linux before 1.18.0)
+   keeps using that folder. Everywhere the copy lists its accounts, the folder reads back as the username.
+4. **The rest of the open list.** Upstream's reject and revise never adds " (remix)", so there's nothing to cap there (#830
+   item 1 stands for a space's own copy). Cover 2's saved check reads in stock on its next verify (#830 item 2). The fork
+   check is in the 1.18.0 report.
+
+### Chats actions
+
+| Action | Change |
+| --- | --- |
+| dm_listitems | Each item carries `label`: one of the six, or null |
+| dm_setlabel | New. `{ id, label }`: one of Flag, Booked, Lead, Ordered, Paid, Shipped, or null or "" to clear. Answers `{ ok: true, label }`. 400 "label is missing." without the key, 400 for any other label, 404 for a chat that's gone |
+| dm_importlabels | New. `{ labels: { <chat id>: <label> } }`, at most 5000. Fills only chats with no label, skips the rest, and answers `{ ok: true, imported }` |
+
+Data: add a `label` column (text, may be empty) to dm_practice_items. No row is rewritten: every old chat reads as no
+label until she sets one or a device moves its labels up.
+
+### Server
+
+| Where | Change |
+| --- | --- |
+| server/dm.js | LABELS, `label` on each item, setlabel and importlabels |
+| server/store.js | folderOf and handleOfFolder; spaceDir uses the safe folder, and knownSpaces answers usernames. A space keeps data in tables, not folders, so item 3 has nothing to port there |
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| dm/App.jsx | The inbox and the chat read `item.label`. Saving a label calls dm_setlabel, shows at once and goes back if the save fails. The Chats screen moves the browser's old labels up once after its first load. The label sheet says labels are saved with her account |
+| dm/dmApi.js | setlabel and importlabels |
+
+Checks after the port: the counts don't change. dm_practice_items has the new empty label column. On a test account
+only: a label set on one device shows on another, clearing it there clears it here, and a browser's old labels move up
+once onto chats with none.
+
 ## 1.17.1: the quote stock check reads quotes the original's way
 
 Quill's #826, items 1 and 4. Server only: no client, data, settings or tables change, so the counts don't move.

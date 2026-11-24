@@ -11,7 +11,7 @@ import Icon from "./icons.jsx";
 import InfoSheet from "./InfoSheet.jsx";
 import LibraryView from "./LibraryView.jsx";
 import RemixSheet from "./RemixSheet.jsx";
-import { STYLE_DEFAULTS, canvasMeasureAt, ensureFonts, normalizePlacement, randomizeLayout, renderCover, withDefaults } from "./renderCover.js";
+import { STYLE_DEFAULTS, canvasMeasureAt, colorPatch, ensureFonts, lookOf, normalizePlacement, randomizeLayout, registerFonts, renderCover, withDefaults, withLook } from "./renderCover.js";
 import { changedFields, displayTitle, valueForStars } from "./reviewMath.js";
 import ScheduleSheet from "./ScheduleSheet.jsx";
 import { coverSongEdit } from "./songs/songsData.js";
@@ -22,6 +22,8 @@ import { setBusy as setScreenBusy } from "./busy.js";
 
 const STYLE_KEYS = Object.keys(STYLE_DEFAULTS);
 const MAX_BOXES = 5;
+const LOOK_KEYS = ["textFont", "textColor"]; // the queue's look (1.20.0, Big Edit item 1): one font and one color for every queued cover
+const NO_PALETTE = { palette: [], fonts: [], customColors: [], brandColors: [], lock: { textFont: null, textColor: null }, customFonts: [] };
 
 /** A cover's style with every default filled in, so an edit compares what she actually sees. */
 function effectiveStyle(item) {
@@ -32,6 +34,9 @@ function effectiveStyle(item) {
   return out;
 }
 const pickStyle = (item, keys) => Object.fromEntries(keys.map((k) => [k, effectiveStyle(item)[k]]));
+/** A cover with one text box at a new spot: index -1 is the quote, 0 and up her own boxes. */
+const placeBox = (item, m) => (m.index === -1 ? { ...item, horizontalPosition: m.h, verticalPosition: m.v }
+  : { ...item, extraTexts: (item.extraTexts || []).map((b, i) => (i === m.index ? { ...b, horizontalPosition: m.h, verticalPosition: m.v } : b)) });
 // Resolves when the browser has a free moment (or after a short wait where it can't say), so a pass in the background
 // never competes with her taps.
 const whenIdle = () => new Promise((done) => (typeof window !== "undefined" && window.requestIdleCallback
@@ -48,12 +53,23 @@ export default function App() {
   const [draft, setDraft] = useState(null);
   const [zoom, setZoom] = useState(null); // the magnifier (1.7): { source, slideUrl } while the photo is flown up
   const [activeBox, setActiveBox] = useState(-1);
+  const [editSlide, setEditSlide] = useState(null); // the photo the editor is on: null is the cover, a number a carousel photo (1.20.0)
   const [pickMode, setPickMode] = useState(false);
   const [saveState, setSaveState] = useState("idle"); // the editor saves as she goes (1.8): idle | saving | saved | error
   const [busy, setBusy] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [sheet, setSheet] = useState(null); // { items, stop } while the Schedule sheet is open
-  const [palette, setPalette] = useState({ palette: [], fonts: [], customColors: [] });
+  const [palette, setPalette] = useState(NO_PALETTE);
+  // The editor reads the palette while it works, so it never reads one from before the last change (1.20.0).
+  const paletteNow = useRef(NO_PALETTE);
+  const applyPalette = useCallback((p) => {
+    if (!p) return;
+    registerFonts(p.customFonts); // her own fonts, from her data folder (1.20.0, Big Edit item 4)
+    const next = { palette: p.palette || [], fonts: p.fonts || [], customColors: p.customColors || [], brandColors: p.brandColors || [],
+      lock: p.lock || NO_PALETTE.lock, customFonts: p.customFonts || [] };
+    paletteNow.current = next;
+    setPalette(next);
+  }, []);
   const [quotesStatus, setQuotesStatus] = useState(null);
   const [quizQuotes, setQuizQuotes] = useState([]);
   const [pollen, setPollen] = useState(null);
@@ -96,10 +112,10 @@ export default function App() {
     setQuotesStatus(qs);
     setQuizQuotes(quiz.quotes);
     setPollen(pc);
-    if (pal) setPalette({ palette: pal.palette, fonts: pal.fonts, customColors: pal.customColors || [] });
+    applyPalette(pal);
     setCtas(calls?.ctas || []);
     setLoads((n) => n + 1);
-  }, [list]);
+  }, [list, applyPalette]);
   useEffect(() => { load().catch((e) => say(e.message)); }, [load, say]);
 
   // Captions (1.9), the original's fill loop: every caption a model may draft (blank, or the offline placeholder)
@@ -204,7 +220,14 @@ export default function App() {
   const inUse = Boolean(draft) || infoOpen || Boolean(sheet) || remixOpen;
   useEffect(() => { setScreenBusy("covers", inUse); }, [inUse]);
   useEffect(() => () => setScreenBusy("covers", false), []);
-  const shown = draft && current && draft.id === current.id ? draft : current;
+  // A queued cover draws with the queue's look (1.20.0, Big Edit items 1 and 2): her last font and color, or her default color.
+  const look = useMemo(() => lookOf(palette), [palette]);
+  // A text box she's placing by hold and drag (1.20.0, Big Edit item 9) shows where her thumb has it until it's saved.
+  const [moving, setMoving] = useState(null);
+  const movingNow = useRef(null);
+  const drawnNow = withLook(current, look);
+  const shown = draft && current && draft.id === current.id ? draft
+    : moving && current && moving.id === current.id ? placeBox(drawnNow, moving) : drawnNow;
   const quoteOn = Boolean(quoteShown(shown, quotesStatus?.quoteOverlay) && quotesStatus?.unlocked); // 1.13.9: global hide, else the post's own (on by default)
   const activeSlides = useMemo(() => (shown?.slides || []).map((s, at) => ({ ...s, at }))
     .filter((s) => !s.deletedAt).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)), [shown]);
@@ -245,6 +268,7 @@ export default function App() {
   // Every change goes through here, so undo and redo can play it back the same way.
   async function applyChange(itemId, ch) {
     let item = null;
+    if (ch.lock) applyPalette(await post("/api/text-lock", ch.lock)); // the queue's font and color (1.20.0)
     if (ch.style) item = (await post(`/api/items/${itemId}/style`, ch.style)).item;
     if (ch.edit) item = (await post(`/api/items/${itemId}/edit`, ch.edit)).item;
     if (ch.imageEdit) item = (await post(`/api/items/${itemId}/image-edit`, ch.imageEdit)).item;
@@ -403,7 +427,7 @@ export default function App() {
   // A remix from before this page opened: one that's done goes next, one still being made is waited for.
   useEffect(() => { if (loads === 1) settleRemixes(); }, [loads]); // eslint-disable-line react-hooks/exhaustive-deps
   const download = () => attempt(async () => {
-    const blob = await renderCover(current, { quoteOn, free }); // as the deck shows it, held boxes and all (1.13.8)
+    const blob = await renderCover(withLook(current, look), { quoteOn, free }); // as the deck shows it, held boxes and all (1.13.8), with the queue's look (1.20.0)
     const name = `${displayTitle(current.title)}-cover.jpg`;
     const file = new File([blob], name, { type: "image/jpeg" });
     const touch = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
@@ -447,17 +471,21 @@ export default function App() {
     // The original's six layouts, kept inside the safe zone (1.8). Layout only: never the color, the font or the weight.
     // With Color lock off (1.14.1, Arjang #790 item 4) it also picks a new color from the palette.
     const img = await loadImage(imageUrlFor(current));
-    const box = effectiveStyle(current);
+    const drawn = withLook(current, look);
+    const box = effectiveStyle(drawn);
     const measure = canvasMeasureAt(box) || ((px) => (t) => t.length * px * 0.5);
     const patch = randomizeLayout({ ...box, quote: current.quote || "" }, img.naturalWidth / img.naturalHeight, measure);
-    const others = colorLock ? [] : palette.palette.filter((c) => c.hex.toUpperCase() !== String(box.textColor || "").toUpperCase());
+    // Her colors first, then the 11 (1.20.0); on a queued cover a new color is the whole queue's, like any color she picks.
+    const colors = [...palette.brandColors, ...palette.palette.filter((c) => !palette.brandColors.some((b) => b.hex.toUpperCase() === c.hex.toUpperCase()))];
+    const others = colorLock ? [] : colors.filter((c) => c.hex.toUpperCase() !== String(box.textColor || "").toUpperCase());
     if (others.length) patch.textColor = others[Math.floor(Math.random() * others.length)].hex;
-    await record("Randomize", current.id, { style: pickStyle(current, Object.keys(patch)) }, { style: patch });
+    const before = { style: pickStyle(drawn, Object.keys(patch)) }, after = { style: patch };
+    if (patch.textColor && current.status === "queue") { before.lock = { textColor: palette.lock.textColor ?? null }; after.lock = { textColor: patch.textColor }; }
+    await record("Randomize", current.id, before, after);
   });
   // Takes one of her custom colors off her list (1.9.1). Covers that use it keep it.
   const removeCustomColor = (hex) => attempt(async () => {
-    const p = await post("/api/palette/custom-colors/remove", { hex });
-    setPalette({ palette: p.palette, fonts: p.fonts, customColors: p.customColors || [] });
+    applyPalette(await post("/api/palette/custom-colors/remove", { hex }));
     say(`Removed ${hex} from your colors.`);
   });
   const postNote = (note) => attempt(async () => {
@@ -510,6 +538,19 @@ export default function App() {
   });
   const restorePhoto = () => attempt(async () => { patchItem((await post(`/api/items/${current.id}/restore-original`)).item); });
   const searchPhotos = async (q) => (await api(`/api/photos/search?q=${encodeURIComponent(q)}`)).results;
+  // Hold and drag (1.20.0, Big Edit item 9): the lifted box follows her thumb, and letting go saves the spot as one step.
+  const moveText = (index, h, v) => { if (!current) return; movingNow.current = { id: current.id, index, h, v }; setMoving(movingNow.current); };
+  const dropText = () => {
+    const m = movingNow.current;
+    movingNow.current = null;
+    const item = current;
+    if (!m || !item || m.id !== item.id) { setMoving(null); return; }
+    const was = effectiveStyle(item);
+    const change = m.index === -1
+      ? [{ style: { horizontalPosition: was.horizontalPosition, verticalPosition: was.verticalPosition } }, { style: { horizontalPosition: m.h, verticalPosition: m.v } }]
+      : [{ style: { extraTexts: item.extraTexts || [] } }, { style: { extraTexts: placeBox(item, m).extraTexts } }];
+    attempt(() => record("Move text", item.id, ...change)).finally(() => setMoving(null));
+  };
   const pan = (key, value) => patchItem({ ...current, [key]: value });
   const panDone = () => attempt(async () => {
     patchItem((await post(`/api/items/${current.id}/story-framing`, { storyPanX: current.storyPanX, storyPanY: current.storyPanY })).item);
@@ -517,7 +558,12 @@ export default function App() {
 
   // ---------- The editor: every change saves as she goes (1.8), each save one undo step ----------
   // What the editor works on: the cover with its full style and its photo edits filled in.
-  const editorCopy = (item) => JSON.parse(JSON.stringify({ ...item, ...effectiveStyle(item), imageEdit: { contrast: "normal", mosaics: [], ...(item.imageEdit || {}) } }));
+  // A queued cover opens with the queue's look on it (1.20.0), and the lock as she set it, so a change knows what it changes.
+  const editorCopy = (raw) => {
+    const item = withLook(raw, lookOf(paletteNow.current));
+    return JSON.parse(JSON.stringify({ ...item, ...effectiveStyle(item), imageEdit: { contrast: "normal", mosaics: [], ...(item.imageEdit || {}) },
+      lockRaw: { ...paletteNow.current.lock } }));
+  };
   // An undo or redo inside the editor (1.13.5): the editor shows the cover as it now is, with nothing waiting to save.
   function refreshDraft(item) {
     const fresh = editorCopy(item);
@@ -526,16 +572,25 @@ export default function App() {
     setDraft(fresh);
     setActiveBox((b) => (b >= (fresh.extraTexts || []).length ? -1 : b));
   }
-  function startEdit(box = -1) {
+  // The editor opens on the photo she's looking at (1.20.0, Big Edit item 3): the cover, or the carousel photo she swiped
+  // to, with that photo's own text. A tap on a carousel photo's text names the photo (at); the pencil uses the one on screen.
+  function startEdit(box = -1, at) {
     if (!current) return;
+    let photo = null;
+    if (at !== undefined && at !== null) photo = at;
+    else if (at === undefined && !story && slide > 0) {
+      const s = activeSlides[slide - 1];
+      if (s?.mediaType === "video") { say("Text goes on photos. This one is a video."); return; }
+      photo = s ? s.at : null;
+    }
     setStory(false);
-    setSlide(0);
     const opened = editorCopy(current);
     draftSaved.current = JSON.parse(JSON.stringify(opened));
     draftNow.current = opened;
     setSaveState("idle");
     setDraft(opened);
-    setActiveBox(box);
+    setEditSlide(photo);
+    setActiveBox(photo === null ? box : box >= 0 ? box : (opened.extraTexts || []).findIndex((b) => b.slide === photo));
     // The sheet covers the lower part of the screen, like the original. If the cover's top is hidden under
     // the header, bring it down into view; otherwise the page stays where she left it.
     requestAnimationFrame(() => {
@@ -552,27 +607,41 @@ export default function App() {
     draftNow.current = null;
     setDraft(null);
     setActiveBox(-1);
+    setEditSlide(null);
     setPickMode(false);
     // Back to the cover she just changed, wherever the editor left the page.
     requestAnimationFrame(() => document.querySelector(".stage")?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
   }
   const setDraftItem = (patch) => setDraft((d) => ({ ...d, ...patch }));
-  const setBox = (patch) => setDraft((d) => (activeBox === -1 ? { ...d, ...patch } : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === activeBox ? { ...b, ...patch } : b)) }));
+  const setBox = (patch) => setDraft((d) => {
+    let next = activeBox === -1 ? { ...d, ...patch } : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === activeBox ? { ...b, ...patch } : b)) };
+    // On a queued cover, the font and the color are the queue's (1.20.0, Big Edit item 1): every text box shows the pick
+    // at once, and the lock saves with this change, so undo takes both back together.
+    const shared = d.status === "queue" ? Object.fromEntries(LOOK_KEYS.filter((k) => k in patch).map((k) => [k, patch[k]])) : {};
+    if (Object.keys(shared).length) next = { ...next, ...shared, extraTexts: next.extraTexts.map((b) => ({ ...b, ...shared })), lockRaw: { ...next.lockRaw, ...shared } };
+    return next;
+  });
   const setImageEdit = (patch) => setDraft((d) => ({ ...d, imageEdit: { ...(d.imageEdit || {}), ...patch } }));
   const moveBox = (box, h, v) => setDraft((d) => (box === -1 ? { ...d, horizontalPosition: h, verticalPosition: v }
     : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === box ? { ...b, horizontalPosition: h, verticalPosition: v } : b)) }));
+  // The text boxes on the photo the editor is on: up to 5 on each photo (1.20.0).
+  const boxesHere = (d) => (d?.extraTexts || []).filter((b) => (editSlide === null ? b.slide == null : b.slide === editSlide)).length;
   function newBox() {
-    if (!draft || draft.extraTexts.length >= MAX_BOXES) return;
+    if (!draft || boxesHere(draft) >= MAX_BOXES) return;
     const main = effectiveStyle(draft);
     const at = draft.extraTexts.length;
     // A new text box starts in TikTok Sans Regular (1.8), with the rest of the cover's look.
-    const box = { ...pickStyle(draft, STYLE_KEYS), textFont: "tiktok", fontWeight: 400, quote: "Your text", verticalPosition: main.verticalPosition > 55 ? 22 : 78, lineCount: 0 };
+    const font = (draft.status === "queue" && lookOf(paletteNow.current).textFont) || "tiktok"; // the queue's font, if she picked one (1.20.0)
+    const box = { ...pickStyle(draft, STYLE_KEYS), textFont: font, fontWeight: 400, quote: "Your text", verticalPosition: main.verticalPosition > 55 ? 22 : 78, lineCount: 0,
+      ...(editSlide === null ? {} : { slide: editSlide, verticalPosition: 50, horizontalPosition: 50 }) }; // on a carousel photo, its middle
     setDraft((d) => ({ ...d, extraTexts: [...d.extraTexts, box] }));
     setActiveBox(at);
   }
   function removeBox() {
+    const left = draft.extraTexts.filter((_, i) => i !== activeBox);
     setDraft((d) => ({ ...d, extraTexts: d.extraTexts.filter((_, i) => i !== activeBox) }));
-    setActiveBox(-1);
+    // On a carousel photo the next box there is picked, or none; on the cover, the quote.
+    setActiveBox(editSlide === null ? -1 : left.findIndex((b) => b.slide === editSlide));
   }
   function addMosaic() {
     setImageEdit({ mosaics: [...(draft.imageEdit?.mosaics || []), { x: 35, y: 25, w: 30, h: 30 }] });
@@ -585,12 +654,14 @@ export default function App() {
     const imageEdit = changedFields({ contrast: base.imageEdit?.contrast || "normal", mosaics: base.imageEdit?.mosaics || [] },
       { contrast: now.imageEdit?.contrast || "normal", mosaics: now.imageEdit?.mosaics || [] }, ["contrast", "mosaics"]);
     const flip = Boolean(base.showQuote) !== Boolean(now.showQuote);
-    if (!style && !edit && !imageEdit && !flip) return null;
+    const lock = now.status === "queue" ? changedFields(base.lockRaw || {}, now.lockRaw || {}, LOOK_KEYS) : null; // 1.20.0
+    if (!style && !edit && !imageEdit && !flip && !lock) return null;
     const before = {}, after = {};
     if (style) { before.style = style.before; after.style = style.after; }
     if (edit) { before.edit = edit.before; after.edit = edit.after; }
     if (imageEdit) { before.imageEdit = imageEdit.before; after.imageEdit = imageEdit.after; }
     if (flip) { before.showQuote = Boolean(base.showQuote); after.showQuote = Boolean(now.showQuote); }
+    if (lock) { before.lock = lock.before; after.lock = lock.after; }
     return { before, after, style };
   }
   // Sends what changed since the last save, one save at a time. Each save is one step for Undo, like the original's
@@ -608,7 +679,7 @@ export default function App() {
         bumpHistory();
         if (draftSaved.current?.id === now.id) draftSaved.current = JSON.parse(JSON.stringify(now));
         setSaveState("saved");
-        if (ch.style?.after.textColor || ch.style?.after.extraTexts) api("/api/palette").then((p) => setPalette({ palette: p.palette, fonts: p.fonts, customColors: p.customColors || [] })).catch(() => {});
+        if (ch.style?.after.textColor || ch.style?.after.extraTexts) api("/api/palette").then(applyPalette).catch(() => {});
         return true;
       } catch (e) {
         setSaveState("error");
@@ -632,7 +703,8 @@ export default function App() {
   }
   function onPick(hex) {
     setPickMode(false);
-    if (hex) setBox({ textColor: hex });
+    // A color from the photo is a color like any other: after a 50% preset the text is 100% again (1.20.0).
+    if (hex) setBox(colorPatch(withDefaults(activeBox === -1 ? draft : draft?.extraTexts?.[activeBox] || {}), hex));
     else say("Couldn't read that color. Try another spot.");
   }
 
@@ -700,6 +772,7 @@ export default function App() {
           onClose={closeSongs} onUse={putSongOnCover} />
       ) : view === "library" ? (
         <LibraryView list={list} setList={switchList} items={items} counts={counts} pollenOn={Boolean(pollen?.connected)} canClose
+          look={look} quoteOverlay={quotesStatus?.quoteOverlay ?? null} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
           onOpen={openFromLibrary} onUpload={uploadPhotos} onClose={() => setView("cover")} onSongs={symphony?.connected ? () => showSongs("library") : null}
           onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} />
       ) : (
@@ -727,9 +800,9 @@ export default function App() {
                   onSongs={symphony?.connected ? () => showSongs("cover") : null} onPlayer={setPlayerUp} />
               </div>
               <CoverStage item={shown} quoteOn={quoteOn} slides={activeSlides} slide={slide} setSlide={setSlide} story={story && !draft}
-                editing={Boolean(draft)} activeBox={activeBox} onStartEdit={(box) => startEdit(box)} onSelectBox={setActiveBox} onMoveBox={moveBox}
+                editing={Boolean(draft)} editSlide={editSlide} activeBox={activeBox} onStartEdit={(box, at) => startEdit(box, at)} onSelectBox={setActiveBox} onMoveBox={moveBox}
                 pickMode={pickMode} onPick={onPick} onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} burst={burst} onDrawn={setDrawnId}
-                onZoom={setZoom} zoomRef={zoomRef} onTapOff={() => sheetDismiss.current?.()} free={free} onFree={freeBox} />
+                onZoom={setZoom} zoomRef={zoomRef} onTapOff={() => sheetDismiss.current?.()} free={free} onFree={freeBox} onMoveText={moveText} onDropText={dropText} />
               <div className="behind" inert={draft ? true : undefined}>
                 <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={() => setRemixOpen(true)} onDownload={download}
                   quote={{ on: quoteOn, locked: !quotesStatus?.unlocked, onTap: tapQuote, onHold: holdQuotes }}
@@ -762,9 +835,9 @@ export default function App() {
                 <EditorSheet onDismiss={finishEdit} status={saveState} dismissRef={sheetDismiss}
                   history={{ canUndo: history.current.canUndo(), canRedo: history.current.canRedo(), onUndo: () => step("undo"), onRedo: () => step("redo") }}>
                   <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
-                    palette={palette.palette} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
-                    pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox}
-                    onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={draft.extraTexts.length < MAX_BOXES} onRemoveCustomColor={removeCustomColor} />
+                    palette={palette.palette} brandColors={palette.brandColors} locked={draft.status === "queue"} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
+                    pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox} photo={editSlide}
+                    onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={boxesHere(draft) < MAX_BOXES} onRemoveCustomColor={removeCustomColor} />
                 </EditorSheet>
               )}
             </>
@@ -772,7 +845,7 @@ export default function App() {
           <BrandFoot />
         </main>
         {zoom && current && (
-          <ZoomView item={shown} quoteOn={quoteOn} slideUrl={zoom.slideUrl} source={zoom.source} free={free}
+          <ZoomView item={shown} quoteOn={quoteOn} slideUrl={zoom.slideUrl} slideAt={zoom.slideAt ?? null} source={zoom.source} free={free}
             onClose={() => { setZoom(null); requestAnimationFrame(() => document.querySelector(".zoomBtn")?.focus({ preventScroll: true })); }} />
         )}
         </>

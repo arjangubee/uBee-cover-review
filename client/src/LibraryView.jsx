@@ -1,13 +1,22 @@
 import ApprovedGrid from "./ApprovedGrid.jsx";
 import Icon from "./icons.jsx";
+import { quoteShown } from "./quoteOverlay.js";
+import { withLook } from "./renderCover.js";
 import { displayTitle } from "./reviewMath.js";
+import TileCover from "./TileCover.jsx";
 
 // All covers, behind the back arrow: Queue, Approved and Passed as grids. Approved keeps Select and
 // Schedule with Pollen. Tapping a cover opens it.
 
 const TABS = [["queue", "Queue"], ["approved", "Approved"], ["rejected", "Passed"]];
 
-export default function LibraryView({ list, setList, items, counts, pollenOn, onOpen, onSchedule, onUpload, onClose, canClose, onSongs }) {
+export default function LibraryView({ list, setList, items, counts, pollenOn, onOpen, onSchedule, onUpload, onClose, canClose, onSongs,
+  look = null, quoteOverlay = null, quotesUnlocked = false }) {
+  // Each preview shows its text the way its cover does (1.20.0, Big Edit item 19): the overlay rule, and the queue's look.
+  const tile = (item) => {
+    const it = withLook(item, look);
+    return <TileCover item={it} quoteOn={Boolean(quoteShown(it, quoteOverlay) && quotesUnlocked)} />;
+  };
   return (
     <section className="library" aria-label="All covers">
       <header className="libraryHead">
@@ -35,12 +44,12 @@ export default function LibraryView({ list, setList, items, counts, pollenOn, on
         </div>
       )}
       {items.length > 0 && (list === "approved" ? (
-        <ApprovedGrid items={items} pollenOn={pollenOn} onOpen={onOpen} onSchedule={onSchedule} />
+        <ApprovedGrid items={items} pollenOn={pollenOn} onOpen={onOpen} onSchedule={onSchedule} tile={tile} />
       ) : (
         <div className="approvedGrid">
           {items.map((item) => (
-            <button type="button" key={item.id} className="tile" onClick={() => onOpen(item)} aria-label={`Open ${displayTitle(item.title)}`}>
-              <img src={item.imageUrl} alt="" loading="lazy" draggable={false} />
+            <button type="button" key={item.id} data-id={item.id} className="tile" onClick={() => onOpen(item)} aria-label={`Open ${displayTitle(item.title)}`}>
+              {tile(item)}
             </button>
           ))}
         </div>

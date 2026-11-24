@@ -1,8 +1,9 @@
 {
-  "version": "1.19.0",
-  "date": "2026-11-20",
+  "version": "1.20.0",
+  "date": "2026-11-23",
   "whatsNew": [
-    "Beeline: each open call is a card with Approve, Reject and Edit, and your answer posts in the room and pokes the agent that asked",
-    "Tap a card to see the whole call. Hide folds the cards into their numbers"
+    "One font and one color for your whole queue, your own colors first, and your own fonts in the font menu",
+    "Light works, plus Line spacing, Justify width, text on carousel photos, and hold a text box to drag it",
+    "The zoom lets go back to normal, and the previews in All covers show their text"
   ]
 }

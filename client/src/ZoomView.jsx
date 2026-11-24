@@ -5,7 +5,8 @@ import { ZOOM_REST, zoomPan, zoomSettle, zoomTo } from "./reviewMath.js";
 // The magnifier (1.7): Arjang's spec, on the original's zoom state ({ scale 1 to 4, x and y: the zoom center in % }).
 // The photo flies up from where it sits to fill the view, over a dark, blurred background. Pinch zooms 1 to 4 like
 // Apple Photos (a trackpad pinch or ctrl + wheel on a computer), a drag moves a zoomed photo, a double tap zooms in
-// or back out, and letting go under 1.08 snaps back to 1. A tap off the photo, or Escape, flies it back to its place.
+// or back out. A tap off the photo, or Escape, flies it back to its place. Since 1.20.0 (Big Edit item 17) a pinch zooms
+// only while it's held: letting go puts the photo back to its normal framing, like Instagram. A double tap still stays.
 
 const FLY_MS = 320;
 const TAP = 8; // a press that moves less than this is a tap
@@ -22,7 +23,7 @@ function targetRect(aspect) {
 }
 const flip = (from, to) => (from && from.width ? `translate(${from.left - to.x}px, ${from.top - to.y}px) scale(${from.width / to.w}, ${from.height / to.h})` : null);
 
-export default function ZoomView({ item, quoteOn, slideUrl, source, onClose, free = null }) {
+export default function ZoomView({ item, quoteOn, slideUrl, slideAt = null, source, onClose, free = null }) {
   const [target] = useState(() => {
     const r = source()?.getBoundingClientRect();
     return targetRect(r && r.height ? r.width / r.height : 4 / 5);
@@ -81,7 +82,7 @@ export default function ZoomView({ item, quoteOn, slideUrl, source, onClose, fre
         setGesturing(true);
         setZoom(zoomTo(z, (z.raw ?? z.scale) * Math.exp(-e.deltaY * 0.01), atPoint(e.clientX, e.clientY)));
         clearTimeout(settle);
-        settle = setTimeout(() => { setGesturing(false); setZoom((cur) => zoomSettle(cur)); }, 220);
+        settle = setTimeout(() => { setGesturing(false); setZoom({ ...ZOOM_REST }); }, 220); // the pinch ended: back to normal (1.20.0)
       } else if (z.scale > 1) {
         setZoom(zoomPan(z, -e.deltaX, -e.deltaY, target.w, target.h));
       }
@@ -136,7 +137,7 @@ export default function ZoomView({ item, quoteOn, slideUrl, source, onClose, fre
     if (g.kind === "pinch") {
       if (pointers.current.size < 2) {
         setGesturing(false);
-        setZoom((z) => zoomSettle(z));
+        setZoom({ ...ZOOM_REST }); // letting go of the pinch puts the framing back (1.20.0, Big Edit item 17)
         gesture.current = pointers.current.size === 1 ? { kind: "after" } : null; // the last finger lifting is not a tap
       }
       return;
@@ -161,8 +162,9 @@ export default function ZoomView({ item, quoteOn, slideUrl, source, onClose, fre
       <div className="zoomFrame" style={{ left: target.x, top: target.y, width: target.w, height: target.h, transform: phase === "open" ? "none" : from || "none" }}>
         <div className={gesturing ? "zoomLayer gesturing" : "zoomLayer"} data-scale={scaleLabel}
           style={{ transform: `scale(${zoom.scale})`, transformOrigin: `${zoom.x}% ${zoom.y}%` }}>
-          {slideUrl ? <img src={slideUrl} alt="" draggable={false} />
-            : <CoverCanvas item={item} quoteOn={quoteOn} maxW={target.w} maxH={target.h} detail={4} safe free={free} />}
+          {slideAt !== null ? <CoverCanvas item={item} quoteOn={false} slideAt={slideAt} maxW={target.w} maxH={target.h} detail={4} safe free={free} />
+            : slideUrl ? <img src={slideUrl} alt="" draggable={false} />
+              : <CoverCanvas item={item} quoteOn={quoteOn} maxW={target.w} maxH={target.h} detail={4} safe free={free} />}
         </div>
       </div>
       {zoom.scale > 1 && phase === "open" && (

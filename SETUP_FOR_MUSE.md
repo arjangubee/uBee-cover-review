@@ -104,6 +104,18 @@ Most creators save in their own Drive. A uBee client is different:
 - Her switch in the editor is one switch for every cover (1.13.3). `POST /api/settings/quote-overlay` with `{ "on": true }` or `false` sets it for all covers, and `{ "on": null }` unsets it, so each cover's own choice decides again. It never changes a cover's own choice. It's hers: change it only when she asks.
 - Quote over image starts OFF and locked. Offer the creator two ways to unlock it: connect their own quote list (POST /api/quotes/connect; add replace: true to swap her whole list for the one sent), or take the quote quiz in the app. The quiz pool (data/quiz-quotes.json) is generalized quotes only, Arjang specific quotes were filtered out before shipping, so what they steal sounds like them. If a creator flags a quiz quote as too specific, remove it from the pool and log it in the grievance resolution.
 
+## 6b. Her colors and her fonts (1.20)
+
+- Her own colors come first in the editor's color row, before the 11. Set them once, in her order, with
+  `POST /api/palette/brand` and `{ "colors": [{ "name": "...", "hex": "#RRGGBB" }, ...] }`, up to 12. Mark the one she
+  wants new text to start in with `"default": true`. An empty list takes them away.
+- Her own fonts join the font menu: `POST /api/fonts` as multipart with the `font` file (TTF, OTF, WOFF or WOFF2), a
+  `label` (its name in the menu) and a `weight` (400 for Regular, 700 for Bold and so on). Send each weight of a font
+  with the same label. The files stay in her data folder's `fonts/`, never in the repo.
+- One font and one color for her whole queue: when she picks a font or a color on a queued cover, every queued cover
+  takes it. `POST /api/text-lock` with `{ "textFont": ... }` or `{ "textColor": ... }` sets it, and `null` takes a pick
+  back. It's hers: change it only when she asks. A cover she approves or passes keeps the look it had.
+
 ## 7. Ongoing jobs for you
 
 - When new photos land in DUMP or "Images", queue them for review.

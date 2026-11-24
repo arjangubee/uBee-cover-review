@@ -68,6 +68,7 @@ export const uploadsDir = (space = currentSpace()) => folder("uploads", space);
 export const dumpDir = (space = currentSpace()) => folder("dump", space);
 export const libraryDir = (space = currentSpace()) => folder("library", space);
 export const rendersDir = (space = currentSpace()) => folder("renders", space);
+export const fontsDir = (space = currentSpace()) => folder("fonts", space); // her own fonts (1.20.0)
 for (const d of [DATA_DIR, uploadsDir(OWNER_SPACE), dumpDir(OWNER_SPACE), libraryDir(OWNER_SPACE)]) mkdirSync(d, { recursive: true });
 
 export function readJson(path, fallback) {

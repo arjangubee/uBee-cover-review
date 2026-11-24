@@ -1856,6 +1856,130 @@ try {
       assert(callsFolded() === false, "and opens again");
     } finally { globalThis.localStorage = was; }
   });
+  // 1.20.0 (Big Edit items 1, 2 and 4, Arjang Nov 23): her colors first with one default, one font and one color for
+  // every cover in the queue, and her own fonts from her data folder.
+  const sendJson = (path, body) => fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const palette = async () => (await fetch(`${base}/api/palette`)).json();
+  const BRAND = [{ name: "Sea Glass", hex: "#9fe2bf" }, { name: "Peach", hex: "#FFCBA4", default: true }, { name: "Sand", hex: "#F4E1C1" }, { name: "White", hex: "#FFFFFF" }];
+  await check("v1.20 brand colors: her colors in her order with one default, answered with the palette; a bad list is refused", async () => {
+    const none = await palette();
+    assert(Array.isArray(none.brandColors) && none.brandColors.length === 0, `none by default: ${JSON.stringify(none.brandColors)}`);
+    assert(none.lock && none.lock.textFont === null && none.lock.textColor === null, `nothing locked by default: ${JSON.stringify(none.lock)}`);
+    const set = await postJson("/api/palette/brand", { colors: BRAND });
+    assert(set.brandColors.map((c) => c.hex).join(",") === "#9FE2BF,#FFCBA4,#F4E1C1,#FFFFFF", `her order, hex upper case: ${JSON.stringify(set.brandColors)}`);
+    assert(set.brandColors.map((c) => c.name).join(",") === "Sea Glass,Peach,Sand,White", "her names");
+    assert(set.brandColors.filter((c) => c.default).length === 1 && set.brandColors[1].default === true, "one default");
+    assert((await palette()).brandColors.length === 4, "kept");
+    for (const bad of [{ colors: "pink" }, { colors: [{ name: "Pink", hex: "pink" }] }, { colors: [{ name: "", hex: "#000000" }] },
+      { colors: [{ name: "A", hex: "#000000", default: true }, { name: "B", hex: "#111111", default: true }] },
+      { colors: Array.from({ length: 13 }, (_, i) => ({ name: `C${i}`, hex: "#000000" })) }]) {
+      const r = await sendJson("/api/palette/brand", bad);
+      assert(r.status === 400, `refused: ${JSON.stringify(bad).slice(0, 80)} answered ${r.status}`);
+    }
+    assert((await palette()).brandColors.length === 4, "a refused list changes nothing");
+  });
+  await check("v1.20 text lock: the queue's font and color answer with the palette, one field at a time; null clears; a bad font or color is refused", async () => {
+    let p = await postJson("/api/text-lock", { textColor: "#fb0909" });
+    assert(p.lock.textColor === "#FB0909" && p.lock.textFont === null, `color only: ${JSON.stringify(p.lock)}`);
+    p = await postJson("/api/text-lock", { textFont: "serif" });
+    assert(p.lock.textFont === "serif" && p.lock.textColor === "#FB0909", `font only, the color stays: ${JSON.stringify(p.lock)}`);
+    p = await postJson("/api/text-lock", { textColor: null });
+    assert(p.lock.textColor === null && p.lock.textFont === "serif", "null clears just that field");
+    for (const bad of [{ textFont: "comic-sans" }, { textColor: "red" }, { textColor: "#12345" }]) {
+      const r = await sendJson("/api/text-lock", bad);
+      assert(r.status === 400, `refused: ${JSON.stringify(bad)} answered ${r.status}`);
+    }
+    // A color she picks for the queue joins her custom colors, unless it's one of the 11 or one of her own.
+    await postJson("/api/text-lock", { textColor: "#123456" });
+    await postJson("/api/text-lock", { textColor: "#FFCBA4" });
+    await postJson("/api/text-lock", { textColor: "#FB0909" });
+    const cc = (await palette()).customColors;
+    assert(cc.includes("#123456") && !cc.includes("#FFCBA4") && !cc.includes("#FB0909"), `custom colors: ${JSON.stringify(cc)}`);
+    await postJson("/api/text-lock", { textColor: null, textFont: null });
+  });
+  await check("v1.20 a cover that leaves the queue keeps the look it had: approve and reject write the queue's font and color into it and its text boxes", async () => {
+    const a = await newItem("lock-a.png"), b = await newItem("lock-b.png"), c = await newItem("lock-c.png");
+    const extra = [{ quote: "one more line", textColor: "#000000", textFont: "avenir" }];
+    for (const it of [a, b, c]) await postJson(`/api/items/${it.id}/style`, { textColor: "#FFFFFF", textFont: "tiktok", extraTexts: extra });
+    const onDisk = async (id) => {
+      for (const st of ["queue", "approved", "rejected"]) {
+        const hit = (await (await fetch(`${base}/api/items?status=${st}`)).json()).items.find((i) => i.id === id);
+        if (hit) return hit;
+      }
+      return null;
+    };
+    await postJson("/api/text-lock", { textColor: "#FB0909", textFont: "serif" });
+    const queued = await onDisk(a.id);
+    assert(queued.textColor === "#FFFFFF" && queued.textFont === "tiktok" && queued.extraTexts[0].textColor === "#000000", "a queued cover keeps its own on disk: the lock draws over it");
+    await postJson(`/api/items/${a.id}/decide`, { decision: "approved" });
+    await postJson(`/api/items/${b.id}/decide`, { decision: "rejected" });
+    for (const id of [a.id, b.id]) {
+      const it = await onDisk(id);
+      assert(it.textColor === "#FB0909" && it.textFont === "serif", `cover ${id} keeps the queue's look: ${it.textColor} ${it.textFont}`);
+      assert(it.extraTexts[0].textColor === "#FB0909" && it.extraTexts[0].textFont === "serif" && it.extraTexts[0].quote === "one more line", `and so do its text boxes: ${JSON.stringify(it.extraTexts[0])}`);
+    }
+    // Reject and revise rejects the cover the same way: the rejected one keeps the look it had in the queue.
+    await postJson("/api/text-lock", { textColor: "#9FE2BF" });
+    await postJson(`/api/items/${c.id}/reject-revise`, { note: "again" });
+    assert((await onDisk(c.id)).textColor === "#9FE2BF", "reject and revise keeps the look too");
+    // No color picked: her default color is the queue's color, so that's what a cover keeps.
+    await postJson("/api/text-lock", { textColor: null, textFont: null });
+    const d = await newItem("lock-d.png");
+    await postJson(`/api/items/${d.id}/decide`, { decision: "approved" });
+    assert((await onDisk(d.id)).textColor === "#FFCBA4", "with no color picked, her default color");
+    // With no colors of hers and nothing picked, a cover keeps its own, as before 1.20.0.
+    await postJson("/api/palette/brand", { colors: [] });
+    const e = await newItem("lock-e.png");
+    await postJson(`/api/items/${e.id}/style`, { textColor: "#D7E310" });
+    await postJson(`/api/items/${e.id}/decide`, { decision: "approved" });
+    assert((await onDisk(e.id)).textColor === "#D7E310" && (await onDisk(e.id)).textFont === "tiktok", "nothing locked: its own look");
+  });
+  await check("v1.20 her own fonts: a font file with a name and a weight joins the fonts, is served only signed in, and covers and the lock take it", async () => {
+    const FAKE_TTF = Buffer.concat([Buffer.from([0, 1, 0, 0]), Buffer.from("a stand-in font body for the smoke test")]);
+    const sendFont = async (bytes, fields, name = "Test-Sans.ttf") => {
+      const form = new FormData();
+      for (const [k, v] of Object.entries(fields)) form.append(k, String(v));
+      form.append("font", new Blob([bytes], { type: "font/ttf" }), name);
+      return fetch(`${base}/api/fonts`, { method: "POST", body: form });
+    };
+    const r = await sendFont(FAKE_TTF, { label: "Test Sans", weight: 400 });
+    assert(r.ok, `uploaded: ${r.status} ${await r.clone().text()}`);
+    const j = await r.json();
+    const font = j.customFonts.find((f) => f.label === "Test Sans");
+    assert(font && font.id === "custom-test-sans" && j.fonts.includes("custom-test-sans"), `in the fonts: ${JSON.stringify(j.customFonts)}`);
+    assert(font.faces.length === 1 && font.faces[0].weight === 400 && font.faces[0].url.startsWith("/api/fonts/"), `one face: ${JSON.stringify(font.faces)}`);
+    const served = await fetch(`${base}${font.faces[0].url}`);
+    assert(served.ok && Buffer.from(await served.arrayBuffer()).equals(FAKE_TTF), "served as uploaded, signed in");
+    assert((await realFetch(`${base}${font.faces[0].url}`)).status === 401, "a font file needs a session, like her photos");
+    const bold = await (await sendFont(FAKE_TTF, { label: "Test Sans", weight: 700 }, "Test-Sans-Bold.ttf")).json();
+    assert(bold.customFonts.find((f) => f.id === "custom-test-sans").faces.map((f) => f.weight).join(",") === "400,700", "a second weight adds a face");
+    const it = await newItem("font.png");
+    const styled = await postJson(`/api/items/${it.id}/style`, { textFont: "custom-test-sans", extraTexts: [{ quote: "hi", textFont: "custom-test-sans" }] });
+    assert(styled.item.textFont === "custom-test-sans" && styled.item.extraTexts[0].textFont === "custom-test-sans", "a cover and its text boxes take her font");
+    assert((await postJson("/api/text-lock", { textFont: "custom-test-sans" })).lock.textFont === "custom-test-sans", "and so does the queue's lock");
+    await postJson("/api/text-lock", { textFont: null });
+    for (const [bytes, fields, why] of [[Buffer.from("not a font at all"), { label: "Junk", weight: 400 }, "not a font file"],
+      [FAKE_TTF, { label: "", weight: 400 }, "no name"], [FAKE_TTF, { label: "Odd", weight: 450 }, "weight off the 100 steps"]]) {
+      const bad = await sendFont(bytes, fields);
+      assert(bad.status === 400, `refused, ${why}: ${bad.status}`);
+    }
+    const ignored = readFileSync(new URL("../.gitignore", import.meta.url).pathname, "utf8");
+    assert(ignored.split("\n").includes("data/fonts/"), "her fonts stay out of the repo: data/fonts/ is ignored");
+  });
+  await check("v1.20 a text box can sit on a carousel photo: its photo is kept while that photo exists, and each photo holds up to 5", async () => {
+    const it = await newItem("slides-text.png");
+    const form = new FormData();
+    form.append("slide", new Blob([PNG_1PX], { type: "image/png" }), "second.png");
+    await fetch(`${base}/api/items/${it.id}/slides`, { method: "POST", body: form });
+    const box = (quote, slide) => ({ quote, ...(slide === undefined ? {} : { slide }) });
+    const sent = [box("on the cover"), box("on photo two", 0), box("no such photo", 3), box("not a number", "x"), box("negative", -1),
+      ...Array.from({ length: 6 }, (_, i) => box(`two ${i}`, 0)), ...Array.from({ length: 5 }, (_, i) => box(`cover ${i}`))];
+    const saved = (await postJson(`/api/items/${it.id}/style`, { extraTexts: sent })).item.extraTexts;
+    const onTwo = saved.filter((b) => b.slide === 0), onCover = saved.filter((b) => b.slide === undefined || b.slide === null);
+    assert(onTwo.length === 5 && onTwo[0].quote === "on photo two", `photo two holds 5: ${JSON.stringify(onTwo.map((b) => b.quote))}`);
+    assert(onCover.length === 5 && onCover[0].quote === "on the cover", `the cover holds 5: ${JSON.stringify(onCover.map((b) => b.quote))}`);
+    assert(!saved.some((b) => ["no such photo", "not a number", "negative"].includes(b.quote)), "a box on a photo that isn't there is dropped");
+  });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);
     const root = new URL("../", import.meta.url).pathname;

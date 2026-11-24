@@ -3,7 +3,7 @@ import { badgeFor, selectable } from "./pollenView.js";
 
 // Approved covers as a grid, like the Photos app. Select lets her check covers and schedule them with
 // Pollen. Covers already with Pollen show where they stand and can't be picked again.
-export default function ApprovedGrid({ items, pollenOn, onOpen, onSchedule }) {
+export default function ApprovedGrid({ items, pollenOn, onOpen, onSchedule, tile = null }) {
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState([]);
   const stop = () => { setSelecting(false); setPicked([]); };
@@ -29,7 +29,7 @@ export default function ApprovedGrid({ items, pollenOn, onOpen, onSchedule }) {
             <button key={item.id} type="button" data-id={item.id} onClick={() => tap(item)}
               className={["tile", checked && "checked", selecting && locked && "locked"].filter(Boolean).join(" ")}
               aria-pressed={selecting ? checked : undefined} aria-label={item.title} title={badge?.why || item.title}>
-              <img src={item.imageUrl} alt="" loading="lazy" draggable={false} />
+              {tile ? tile(item) : <img src={item.imageUrl} alt="" loading="lazy" draggable={false} />}
               {selecting && !locked && <span className={checked ? "check on" : "check"} aria-hidden="true" />}
               {badge && (
                 <span className={`badge ${badge.tone}`}>

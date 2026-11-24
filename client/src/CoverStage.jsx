@@ -5,16 +5,18 @@ import { safeZoneFor, textHitBoxes } from "./renderCover.js";
 import { lockAxis, startAxis } from "./safeLock.js";
 
 // The stage: a 4:5 frame like a post. The cover is slide one; her slides follow in a strip she swipes
-// through, like Instagram. While she edits, only the cover shows: tap a text box to pick it, drag it to
-// move it, and the Face mosaic boxes can be dragged and resized right on the photo.
+// through, like Instagram. While she edits, only the photo she's editing shows (the cover, or since 1.20.0 the carousel
+// photo she was on): tap a text box to pick it, drag it to move it, and on the cover the Face mosaic boxes can be
+// dragged and resized right on the photo. On a computer, a click on the photo away from the text closes the editor.
 
 const measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
 const TAP = 8; // a press that moves less than this many pixels is a tap
 const FREE = 3; // a drag past this many pixels lets the box leave the safe rectangle for this session (1.13.8)
+const HOLD_MS = 320; // a press held this long on a text box lifts it for placing (1.20.0, Big Edit item 9)
 
 export default function CoverStage({
-  item, quoteOn, slides, slide, setSlide, story, editing, activeBox, onStartEdit, onSelectBox, onMoveBox,
-  pickMode, onPick, onMosaicsChange, burst = 0, onDrawn, onZoom, zoomRef, onTapOff, free = null, onFree,
+  item, quoteOn, slides, slide, setSlide, story, editing, editSlide = null, activeBox, onStartEdit, onSelectBox, onMoveBox,
+  pickMode, onPick, onMosaicsChange, burst = 0, onDrawn, onZoom, zoomRef, onTapOff, free = null, onFree, onMoveText, onDropText,
 }) {
   const [showBurst, setShowBurst] = useState(false);
   useEffect(() => {
@@ -66,40 +68,68 @@ export default function CoverStage({
     }, 140);
   }
 
-  // Pointer work on the cover: tap to edit, drag the picked box, pick a color.
+  // Pointer work on a photo, the cover or a carousel photo (slideAt): tap to edit, drag a box, pick a color, and outside
+  // the editor hold a box to lift it and place it (1.20.0, Big Edit item 9).
   const press = useRef(null);
-  const boxesAt = (cssW, cssH) => (measureCtx ? textHitBoxes(item, cssW, cssH, measureCtx, quoteOn, { safe, free }) : []);
-  function hitAt(x, y, cssW, cssH) {
+  const [lift, setLift] = useState(null); // the box held up for placing: { index, slideAt }
+  useEffect(() => () => clearTimeout(press.current?.timer), []);
+  // While a box is lifted, her finger places it and the page never scrolls under it.
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return undefined;
+    const hold = (e) => { if (press.current?.lifted && e.cancelable) e.preventDefault(); };
+    el.addEventListener("touchmove", hold, { passive: false });
+    return () => el.removeEventListener("touchmove", hold);
+  }, []);
+  const boxesAt = (cssW, cssH, slideAt) => (measureCtx ? textHitBoxes(item, cssW, cssH, measureCtx, quoteOn, { safe, free, slideAt }) : []);
+  function hitAt(x, y, cssW, cssH, slideAt) {
     if (!measureCtx) return null;
-    const boxes = boxesAt(cssW, cssH);
+    const boxes = boxesAt(cssW, cssH, slideAt);
     const pad = 10;
     const hit = boxes.reverse().find((b) => x >= b.left - pad && x <= b.right + pad && y >= b.top - pad && y <= b.bottom + pad);
     return hit ? hit.index : null;
   }
-  const pointer = (cssW, cssH) => ({
+  // The safe edges catch a dragged block only when its edge crosses one (1.13.8, the original's crossing locks): the
+  // block's own half extents, from where it is now; an edge within 1.5px of a safe edge starts caught.
+  function grab(p, cssW, cssH, slideAt) {
+    const b = boxesAt(cssW, cssH, slideAt).find((bx) => bx.index === p.hit);
+    if (!b) return;
+    const z = safeZoneFor(cssW, cssH);
+    Object.assign(p, { zone: z, halfW: b.halfW, halfH: b.halfH,
+      lockX: startAxis(b.centerX, b.halfW, z.left, z.right), lockY: startAxis(b.centerY, b.halfH, z.top, z.bottom) });
+  }
+  const pointer = (cssW, cssH, slideAt = null) => ({
     onPointerDown(e) {
       const r = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - r.left, y = e.clientY - r.top;
-      const hit = hitAt(x, y, cssW, cssH);
-      press.current = { x0: e.clientX, y0: e.clientY, x, y, hit, moved: false, drag: editing && !pickMode && hit != null && hit === activeBox };
-      if (press.current.drag) {
+      const hit = hitAt(x, y, cssW, cssH, slideAt);
+      // In the editor a press on any text box picks it and drags it at once (1.20.0, Big Edit item 9).
+      const p = { x0: e.clientX, y0: e.clientY, x, y, hit, moved: false, mouse: e.pointerType === "mouse", drag: editing && !pickMode && hit != null, lifted: false };
+      press.current = p;
+      if (p.drag) {
         e.currentTarget.setPointerCapture?.(e.pointerId);
-        // The safe edges catch the block only when its edge crosses one (1.13.8, the original's crossing locks): the
-        // block's own half extents, from where it is now; an edge within 1.5px of a safe edge starts caught.
-        const b = boxesAt(cssW, cssH).find((bx) => bx.index === activeBox);
-        if (b) {
-          const z = safeZoneFor(cssW, cssH);
-          Object.assign(press.current, { zone: z, halfW: b.halfW, halfH: b.halfH,
-            lockX: startAxis(b.centerX, b.halfW, z.left, z.right), lockY: startAxis(b.centerY, b.halfH, z.top, z.bottom) });
-        }
+        if (hit !== activeBox) onSelectBox(hit);
+        grab(p, cssW, cssH, slideAt);
+      } else if (!editing && hit != null && onMoveText) {
+        // Outside the editor a held box lifts: her thumb places it and letting go saves the spot. A tap still opens the editor.
+        const el = e.currentTarget, id = e.pointerId;
+        p.timer = setTimeout(() => {
+          if (press.current !== p || p.moved) return;
+          p.lifted = true;
+          p.drag = true;
+          try { el.setPointerCapture?.(id); } catch { /* the pointer may be gone already */ }
+          grab(p, cssW, cssH, slideAt);
+          navigator.vibrate?.(10);
+          setLift({ index: hit, slideAt });
+        }, HOLD_MS);
       }
     },
     onPointerMove(e) {
       const p = press.current;
       if (!p) return;
-      if (Math.abs(e.clientX - p.x0) > TAP || Math.abs(e.clientY - p.y0) > TAP) p.moved = true;
+      if (Math.abs(e.clientX - p.x0) > TAP || Math.abs(e.clientY - p.y0) > TAP) { p.moved = true; if (!p.lifted) clearTimeout(p.timer); }
       if (!p.drag) return;
-      if (!p.freed && Math.hypot(e.clientX - p.x0, e.clientY - p.y0) > FREE) { p.freed = true; onFree?.(activeBox); }
+      if (!p.freed && Math.hypot(e.clientX - p.x0, e.clientY - p.y0) > FREE) { p.freed = true; onFree?.(p.hit); }
       const r = e.currentTarget.getBoundingClientRect();
       let x = e.clientX - r.left, y = e.clientY - r.top;
       if (p.zone) {
@@ -109,18 +139,32 @@ export default function CoverStage({
       }
       const h = Math.min(100, Math.max(0, (x / r.width) * 100));
       const v = Math.min(100, Math.max(0, (y / r.height) * 100));
-      onMoveBox(activeBox, Math.round(h), Math.round(v));
+      if (!p.lifted) onMoveBox(p.hit, Math.round(h), Math.round(v));
+      else if (p.moved) { p.placed = true; onMoveText(p.hit, Math.round(h), Math.round(v), slideAt); } // past a tap's wiggle
     },
     onPointerUp() {
       const p = press.current;
       press.current = null;
-      if (!p || p.moved) return;
+      if (!p) return;
+      clearTimeout(p.timer);
+      if (p.lifted) setLift(null);
+      if (p.placed) { onDropText?.(); return; } // placed: the editor stays closed
+      if (p.moved) return; // a lift let go without moving is still a tap (1.13.6): it opens the editor
       if (pickMode) return sampleColor(p.x, p.y, cssW);
-      if (p.hit == null) return;
+      // A click away from the text closes the editor on a computer (1.20.0, Big Edit item 3). A tap on a phone doesn't:
+      // there her thumb often lands just off the text while she works.
+      if (p.hit == null) { if (editing && p.mouse) onTapOff?.(); return; }
       if (editing) onSelectBox(p.hit);
-      else onStartEdit(p.hit);
+      else onStartEdit(p.hit, slideAt);
     },
-    onPointerCancel() { press.current = null; },
+    onPointerCancel() {
+      const p = press.current;
+      press.current = null;
+      if (!p) return;
+      clearTimeout(p.timer);
+      if (p.lifted) setLift(null);
+      if (p.placed) onDropText?.(); // it stays where she had it
+    },
   });
 
   function sampleColor(x, y, cssW) {
@@ -135,24 +179,30 @@ export default function CoverStage({
     }
   }
 
-  // The magnifier (1.7) flies up whatever she's looking at: the cover, or a photo slide.
+  // The magnifier (1.7) flies up whatever she's looking at: the cover, or a photo slide with its own text (1.20.0).
   const shownSlide = !single && slide > 0 ? slides[slide - 1] : null;
   const zoomable = Boolean(onZoom) && !story && shownSlide?.mediaType !== "video";
   const zoomSource = () => stageRef.current?.querySelector(single ? ".coverCanvas" : ".slideItem.current .coverCanvas, .slideItem.current img") || null;
   // Its button is in the action row now (1.14.1, Arjang #790 item 2): it opens the zoom through zoomRef.
   useLayoutEffect(() => {
     if (!zoomRef) return undefined;
-    zoomRef.current = zoomable ? () => { if (zoomSource()) onZoom({ source: zoomSource, slideUrl: shownSlide?.mediaUrl || null }); } : null;
+    zoomRef.current = zoomable ? () => { if (zoomSource()) onZoom({ source: zoomSource, slideUrl: shownSlide?.mediaUrl || null, slideAt: shownSlide ? shownSlide.at : null }); } : null;
     return () => { zoomRef.current = null; };
   });
 
-  const cover = (maxW, maxH, extra = {}) => (
-    <CoverCanvas item={item} quoteOn={quoteOn} maxW={maxW} maxH={maxH} story={story} safe={safe} free={free} canvasRef={canvasRef} onDrawn={onDrawn}
-      className={[editing && "editing", pickMode && "picking"].filter(Boolean).join(" ")} {...extra}>
+  // slideAt null is the cover; a number is that carousel photo, drawn with the text she put on it (1.20.0).
+  const cover = (maxW, maxH, slideAt = null) => (
+    <CoverCanvas item={item} quoteOn={quoteOn} maxW={maxW} maxH={maxH} story={story && slideAt === null} safe={safe} free={free} slideAt={slideAt}
+      canvasRef={single || slideAt === null ? canvasRef : undefined} onDrawn={onDrawn}
+      className={[editing && "editing", pickMode && "picking"].filter(Boolean).join(" ")}>
       {({ cssW, cssH }) => (
         <>
-          <div className="hitLayer" style={{ touchAction: editing ? "none" : "auto" }} {...pointer(cssW, cssH)} />
-          {editing && (item.imageEdit?.mosaics || []).map((m, i) => (
+          <div className="hitLayer" style={{ touchAction: editing ? "none" : "auto" }} {...pointer(cssW, cssH, slideAt)} />
+          {lift && lift.slideAt === slideAt && (() => {
+            const b = boxesAt(cssW, cssH, slideAt).find((x) => x.index === lift.index);
+            return b ? <div className="liftRing" aria-hidden="true" style={{ left: b.left - 8, top: b.top - 8, width: b.right - b.left + 16, height: b.bottom - b.top + 16 }} /> : null;
+          })()}
+          {editing && slideAt === null && (item.imageEdit?.mosaics || []).map((m, i) => (
             <MosaicBox key={i} m={m} cssW={cssW} cssH={cssH}
               onChange={(next) => onMosaicsChange((item.imageEdit.mosaics || []).map((x, j) => (j === i ? next : x)))}
               onRemove={() => onMosaicsChange((item.imageEdit.mosaics || []).filter((_, j) => j !== i))} />
@@ -167,7 +217,7 @@ export default function CoverStage({
       onClick={(e) => { if (editing && (e.target === e.currentTarget || e.target.classList.contains("stageSingle"))) onTapOff?.(); }}>
       {total > 1 && !single && <span className="slideCount" aria-live="polite">{slide + 1}/{total}</span>}
       {single ? (
-        <div className="stageSingle">{cover(stageW, stageH)}</div>
+        <div className="stageSingle">{cover(stageW, stageH, editing ? editSlide : null)}</div>
       ) : (
         <div className="track" ref={trackRef} onScroll={onScroll} aria-label="Slides" role="group">
           <div className={slide === 0 ? "slideItem current" : "slideItem"} style={{ width: slideW }}>{cover(slideW, stageH)}</div>
@@ -175,7 +225,7 @@ export default function CoverStage({
             <div key={`${s.mediaUrl}-${i}`} className={slide === i + 1 ? "slideItem current" : "slideItem"} style={{ width: slideW }}>
               {s.mediaType === "video"
                 ? <video src={s.mediaUrl} muted playsInline controls preload="metadata" aria-label={`Slide ${i + 2}`} />
-                : <img src={s.mediaUrl} alt={`Slide ${i + 2}`} draggable={false} />}
+                : cover(slideW, stageH, s.at)}
             </div>
           ))}
         </div>

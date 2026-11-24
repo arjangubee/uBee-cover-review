@@ -12,6 +12,99 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.20.0: the text editor round of the Big Edit
+
+Arjang's Big Edit list (Nov 23, room #877), items 1 to 9, 11, 17 and 19, as Quill batched them in #883. The reach of
+item 1 is Arjang's answer in #886: every cover in the queue.
+
+1. **One font and one color for the queue (item 1).** A font or a color picked on any queued cover is the whole queue's:
+   every text box on every queued cover draws with it at once. It's kept as the queue's text lock, `textLock:
+   { textFont, textColor }` in settings. Each cover keeps its own values on disk, and the lock draws over them while it
+   waits in the queue. A cover that leaves the queue (approved, passed, or passed with Reject and revise) keeps the look
+   it had: the lock is written into it and into its text boxes at that moment. Undo takes a pick back off the queue and
+   redo puts it back. Approved and passed covers never change. The editor says so under the colors on a queued cover:
+   "Font and color change on every cover in your queue."
+2. **Her colors first (item 2).** Up to 12 colors of her own, set by her Muse, come first in the color row in her
+   order, then the 11. A color in both shows once, as hers. One of them can be her default: until she picks a color,
+   it's the queue's color. Picking one of hers doesn't add it to her custom colors.
+3. **The editor opens on the photo she's on (item 3).** On a carousel photo it holds that photo's own text boxes, up to 5
+   like the cover, and starts with none: "No text on this photo yet" and New text box. The text draws on that photo only,
+   in the deck and in the magnifier, and a tap on it opens the editor on it. Face mosaic and Image contrast stay with the
+   cover. Carousels still post as the cover alone, so a photo's text shows in the app for now.
+   - On a computer, a click on the photo away from the text closes the editor. A tap on a phone doesn't, as before:
+     there her thumb often lands just off the text while she works.
+4. **Her own fonts (item 4).** A font file her Muse adds (TTF, OTF, WOFF or WOFF2, up to 8 MB) joins the font menu under
+   its name, one face per weight. The files live in her data folder's `fonts/`, which git ignores, and open only signed
+   in, like her photos. A font of hers draws under its own family name, so it never mixes with a font of the same name
+   on her phone.
+5. **Light works (item 5).** The weights are Light, Regular, Medium and Bold, and TikTok Sans Light now loads with the app.
+   A font with no Light face greys Light out and says so, since it would draw as Regular.
+6. **Justify width (item 6).** With Justify on, a Justify width slider moves both sides of the column in and out: the
+   box's `textWidth`, 20 to 100%.
+7. **Line spacing (item 7).** A Line spacing slider on every text box: the box's `textHeight`, 60 to 200% of the size.
+8. **A color after a 50% preset (item 8).** Any color picked after White 50% or Black 50% brings the text back to 100%,
+   however it's picked. An opacity set by hand on the slider stays.
+9. **Hold and drag (item 9).** On the review screen, holding a text box lifts it and a ring shows around it. Her thumb, or
+   the mouse, places it, and letting go saves the spot as one undo step ("Move text"). The editor doesn't open, and the
+   page doesn't scroll while she places it. A hold let go without moving is still a tap (1.13.6) and opens the editor. In
+   the editor, a press on any text box picks it and drags it at once.
+10. **The last justified line (item 11).** Every justified row of two or more words runs edge to edge, the last row too.
+    A row of one word starts at the left edge.
+11. **Letting go of the zoom (item 17).** In the magnifier a pinch, or a trackpad pinch, zooms while it's held, and letting
+    go puts the photo back to its normal framing, like Instagram. A double tap still zooms in and stays until the next.
+12. **Text on the previews (item 19).** With the text overlay on, every preview in All covers (Queue, Approved and Passed)
+    shows its text the way its cover draws it, the queue's look included. Hidden quotes are hidden there too. A preview
+    draws its text once it's near the screen.
+
+### Server
+
+| Where | Change |
+| --- | --- |
+| server/brand.js (new) | The 11 colors and six fonts (moved from full.js, unchanged), her colors, the text lock, her fonts, and the routes for them |
+| server/full.js | Text boxes keep `slide` and hold 5 on each photo; a font of hers is a font; Reject and revise writes the lock into the cover it passes |
+| server/index.js | Decide writes the lock into a cover that leaves the queue; registers brand.js |
+| server/store.js | `fontsDir`: her data folder's `fonts/` |
+| .gitignore | `data/fonts/` |
+
+What a space maps, new or changed:
+
+- `GET /api/palette` also answers `brandColors`, `lock` (as she set it: `{ textFont, textColor }`, each null until she
+  picks one) and `customFonts` (`[{ id, label, faces: [{ weight, url }] }]`). `fonts` lists her fonts' ids after the six.
+- `POST /api/palette/brand { colors: [{ name, hex, default? }] }`: up to 12, each a name and a #RRGGBB, at most one
+  default. An empty list takes them away.
+- `POST /api/text-lock { textFont?, textColor? }`: only the fields sent change, and null takes one back (undo does that).
+  A color that isn't one of the 11 or hers joins her custom colors, as before.
+- `POST /api/fonts`, multipart: the `font` file, `label` (its name in the menu) and `weight` (100, 200 and so on to 900).
+  The same name with another weight adds a face, and the same weight replaces it. Its id is `custom-` and the name as a
+  slug. `GET /api/fonts/:file` sends the file, signed in.
+- Decide, and Reject and revise: a cover leaving the queue gets the queue's font and color written into it and its text
+  boxes (the lock as it draws: her last pick, or her default color).
+- A text box may carry `slide`: the place of its carousel photo in the cover's `slides`. A box on a photo that isn't there
+  is dropped, and each photo holds up to 5.
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| renderCover.js | `lookOf`, `withLook`, `registerFonts`, `colorPatch` and `hasFace`; `textBoxes`, `drawCover` and `textHitBoxes` take `slideAt`; the justify rule |
+| App.jsx | The queue's look on screen, lock changes in the undo stack, the editor on the photo she's on, hold and drag |
+| CoverEditor.jsx | Light, Justify width, Line spacing, her colors first, the lock line, a carousel photo's own boxes and its empty state |
+| CoverStage.jsx | Carousel photos drawn as canvases, taps and drags on any photo, a click off on a computer, hold and drag |
+| CoverCanvas.jsx | `slideAt`: a carousel photo with its own text |
+| ZoomView.jsx | Letting go puts the framing back; a carousel photo with its text |
+| TileCover.jsx (new), LibraryView.jsx, ApprovedGrid.jsx | The previews' text |
+| main.jsx | TikTok Sans Light |
+| styles.css | The greyed Light, the lock line, the empty photo line, the lift ring, the previews' text |
+
+### Data steps (her space, never the repo)
+
+Her own colors and her own font are data. Her Muse sets them in her space: her colors with `POST /api/palette/brand`
+(her default marked `default: true`), and her font with `POST /api/fonts`, once for each weight. Nothing else moves:
+the covers' rows keep their own values, and the queue's look draws over them.
+
+Checks after the port: the counts don't change. Settings gain `brandColors`, `textLock` and `customFonts` only when they
+are set.
+
 ## 1.19.0: open calls as cards on the Beeline screen
 
 Built by Claude (Beeline chat), room #861; folded in as 1.19.0 per Quill's #854 and #862. Client only: no server

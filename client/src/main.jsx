@@ -8,6 +8,7 @@ import { useAnyBusy } from "./busy.js";
 import { BUILT_VERSION } from "./release.js";
 import { checkSession, useSession } from "./session.js";
 // TikTok Sans (SIL Open Font License), served from this app so the cover text looks the same everywhere.
+import "@fontsource/tiktok-sans/latin-300.css"; // Light (1.20.0, Big Edit item 5)
 import "@fontsource/tiktok-sans/latin-400.css";
 import "@fontsource/tiktok-sans/latin-500.css";
 import "@fontsource/tiktok-sans/latin-700.css";

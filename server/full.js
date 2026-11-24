@@ -7,26 +7,15 @@ import { canDraft, captionPrompt, captionState, draftProblems, needsDescription 
 import { cleanCtas } from "./captionCtas.js";
 import { downloadedSongs, matchSongClip } from "./songs.js";
 import { overlayOf, quoteShown } from "../client/src/quoteOverlay.js";
+import { FONTS, HEX, PALETTE, bakeLock, fontOk, rememberCustomColor } from "./brand.js";
+
+export { FONTS, PALETTE }; // they live in brand.js since 1.20.0
 
 // Full Cover Review feature set, ported from the Muse original.
 // The original server/src/actions.ts (5,020 lines) maps onto these endpoints.
 // Hatch-only parts are replaced as documented per section.
 
-// The 11-color palette, Arjang's finalized names and hex values. No other colors.
-export const PALETTE = [
-  { name: "Cream", hex: "#FAFFB4" },
-  { name: "Lemon Lime", hex: "#D7E310" },
-  { name: "White", hex: "#FFFFFF" },
-  { name: "Spotify Green", hex: "#1ED760" },
-  { name: "Yellow", hex: "#FBFA38" },
-  { name: "Icy Aqua", hex: "#B8FFFF" },
-  { name: "Pure Red", hex: "#FB0909" },
-  { name: "Black", hex: "#000000" },
-  { name: "Cherry Blossom", hex: "#FFB8CF" },
-  { name: "Baby Blue Ice", hex: "#92AFFF" },
-  { name: "Hot Fuchsia", hex: "#FE0956" },
-];
-export const FONTS = ["tiktok", "avenir", "serif", "condensed", "papyrus", "papyrus_condensed"];
+// The 11 colors and the six fonts are in brand.js since 1.20.0, with her own colors, the queue's text lock and her fonts.
 
 export function styleDefaults() {
   return {
@@ -39,7 +28,6 @@ export function styleDefaults() {
 }
 
 // ---------- v1.4 (Quill look): text box fields, her custom colors, image edits, why it matches ----------
-const HEX = /^#[0-9A-Fa-f]{6}$/;
 export const ALIGNS = ["left", "center", "right", "justify"];
 export const CONTRASTS = ["normal", "high", "bw"];
 const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v)));
@@ -82,21 +70,24 @@ export function placementPrompt(item) {
   ].join("\n");
 }
 
-/** A custom color she used goes to the front of her custom colors, newest first, at most 24. */
-function rememberCustomColor(hex) {
-  if (PALETTE.some((c) => c.hex.toUpperCase() === hex)) return;
-  const list = (store.settings.customColors || []).filter((c) => c !== hex);
-  store.settings.customColors = [hex, ...list].slice(0, 24);
-  store.saveSettings();
-}
-
-/** Her extra text boxes, cleaned: at most 5, text up to 300 characters, only known style fields. */
-export function cleanTextBoxes(list, stored = []) {
-  return (Array.isArray(list) ? list : []).slice(0, 5).filter((b) => b && typeof b === "object").map((b, i) => {
-    const box = { ...styleDefaults(), quote: String(b.quote ?? "").slice(0, 300) };
+/**
+ * Her extra text boxes, cleaned: text up to 300 characters, only known style fields. Since 1.20.0 (Big Edit item 3) a
+ * box can sit on a carousel photo: slide is that photo's place in the cover's slides, kept while the photo exists. Each
+ * photo, the cover and every carousel photo, holds up to 5. A box on a photo that isn't there is dropped.
+ */
+export function cleanTextBoxes(list, stored = [], slideCount = 0) {
+  const per = new Map();
+  const fits = (b) => {
+    const on = b.slide === undefined || b.slide === null ? "cover" : b.slide;
+    if (on !== "cover" && !(Number.isInteger(on) && on >= 0 && on < slideCount)) return false;
+    per.set(on, (per.get(on) || 0) + 1);
+    return per.get(on) <= 5;
+  };
+  return (Array.isArray(list) ? list : []).filter((b) => b && typeof b === "object").filter(fits).map((b, i) => {
+    const box = { ...styleDefaults(), quote: String(b.quote ?? "").slice(0, 300), ...(Number.isInteger(b.slide) ? { slide: b.slide } : {}) };
     delete box.extraTexts; delete box.barColor; delete box.textNegative;
     if (typeof b.textColor === "string" && HEX.test(b.textColor)) box.textColor = b.textColor.toUpperCase();
-    if (FONTS.includes(b.textFont)) box.textFont = b.textFont;
+    if (fontOk(b.textFont)) box.textFont = b.textFont; // her own fonts too (1.20.0)
     if (ALIGNS.includes(b.textAlign)) box.textAlign = b.textAlign;
     setNumbers(box, b, (Array.isArray(stored) ? stored : [])[i]);
     return box;
@@ -371,15 +362,7 @@ export function registerFull(app, upload) {
   });
   app.get("/api/workspace", (_req, res) => res.json({ workspace: store.settings.workspace }));
 
-  app.get("/api/palette", (_req, res) => res.json({ palette: PALETTE, fonts: FONTS, customColors: store.settings.customColors || [] }));
-  // Remove one of her custom colors (1.9.1, Arjang's yes to #282). Covers that use it keep it; only the shortcut goes.
-  app.post("/api/palette/custom-colors/remove", (req, res) => {
-    const hex = String(req.body?.hex ?? "").toUpperCase();
-    if (!HEX.test(hex)) return res.status(400).json({ error: "Send the color as #RRGGBB." });
-    const list = store.settings.customColors || [];
-    if (list.includes(hex)) { store.settings.customColors = list.filter((c) => c !== hex); store.saveSettings(); }
-    res.json({ palette: PALETTE, fonts: FONTS, customColors: store.settings.customColors || [] });
-  });
+  // The palette, her colors, the text lock and her fonts are answered by brand.js since 1.20.0.
 
   // Style editor: updatecoverstyle + updatebarcolor in the original.
   app.post("/api/items/:id/style", (req, res) => {
@@ -390,10 +373,10 @@ export function registerFull(app, upload) {
       item.textColor = b.textColor.toUpperCase();
       rememberCustomColor(item.textColor);
     }
-    if (b.textFont && FONTS.includes(b.textFont)) item.textFont = b.textFont;
+    if (b.textFont && fontOk(b.textFont)) item.textFont = b.textFont;
     if (ALIGNS.includes(b.textAlign)) item.textAlign = b.textAlign;
     setNumbers(item, b);
-    if (b.extraTexts !== undefined) item.extraTexts = cleanTextBoxes(b.extraTexts, item.extraTexts);
+    if (b.extraTexts !== undefined) item.extraTexts = cleanTextBoxes(b.extraTexts, item.extraTexts, (item.slides || []).length);
     if (["#FFFFFF", "#000000"].includes(b.barColor)) item.barColor = b.barColor;
     if (b.textNegative != null) item.textNegative = Boolean(b.textNegative);
     store.saveDb();
@@ -447,6 +430,7 @@ export function registerFull(app, upload) {
   // Reject and revise: sends the cover back as a fresh queue revision with a note.
   app.post("/api/items/:id/reject-revise", (req, res) => {
     const src = mustItem(req, res); if (!src) return;
+    if (src.status === "queue") bakeLock(src); // it keeps the queue's font and color (1.20.0)
     src.status = "rejected"; src.decidedAt = Date.now(); store.saveDb();
     const copy = store.addItem({ ...revisionOf(src), status: "queue", parentId: src.id, revision: (src.revision || 1) + 1, note: String(req.body?.note || src.note || "") });
     res.json({ item: copy });

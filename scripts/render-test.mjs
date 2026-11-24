@@ -1,7 +1,7 @@
 // Client logic checked without a browser: the layout math that puts the quote on the posted cover where
 // the review deck shows it, the words the Approved grid uses, and the new-version check for hosted copies.
 // Run: node scripts/render-test.mjs
-import { FONT_LABELS, HALF_PRESETS, PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, contrastPixel, coverLayout, drawCover, estimatedLineCount, insideSafeZone, mosaicRects, normalizePlacement, presetOn, randomizeLayout, safeZoneFor, textBoxes, textHitBoxes } from "../client/src/renderCover.js";
+import { FONT_CSS, FONT_LABELS, HALF_PRESETS, PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, colorPatch, contrastPixel, coverLayout, drawCover, estimatedLineCount, insideSafeZone, lookOf, mosaicRects, normalizePlacement, presetOn, randomizeLayout, registerFonts, safeZoneFor, textBoxes, textHitBoxes, withLook } from "../client/src/renderCover.js";
 import { createHistory } from "../client/src/undo.js";
 import { globalHide, overlayOf, ownQuote, quoteShown } from "../client/src/quoteOverlay.js";
 import { RANDOM_LAYOUTS, ZOOM_REST, changedFields, displayTitle, parseSong, randomEditorialLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars, zoomPan, zoomSettle, zoomTo } from "../client/src/reviewMath.js";
@@ -118,18 +118,25 @@ check("rows stay on the photo even when the slider sits near an edge", () => {
   const J = coverLayout({ ...base, quote: longQuote, horizontalPosition: 10, textAlign: "justify", textWidth: 100 }, W, 600, atPx);
   assert(inside(J), "justified rows stay on the photo");
 });
-check("justify spreads each row to both box edges, except a paragraph's last row", () => {
-  const W = PREVIEW_WIDTH, L = coverLayout({ ...base, quote: longQuote, textAlign: "justify", textWidth: 60 }, W, 600, atPx);
-  assert(L.rows.length >= 2, `rows ${L.rows.length}`);
+check("justify spreads every row of two or more words to both box edges, the last row too (1.20.0, Big Edit item 11)", () => {
+  // Three rows whose last one ("on my skin") is far narrower than the box when set with plain spaces.
+  const W = PREVIEW_WIDTH, L = coverLayout({ ...base, quote: "soft light on the water and on my skin", lineCount: 3, textAlign: "justify", textWidth: 60 }, W, 600, atPx);
+  assert(L.rows.length === 3, `rows ${L.rows.length}`);
   const m = atPx(L.fontPx);
-  for (const row of L.rows.slice(0, -1)) {
+  assert(m(L.rows[2].text) < L.boxW * 0.7, `the last row should be short when set plainly: ${m(L.rows[2].text)} of ${L.boxW}`);
+  for (const row of L.rows) {
     const first = row.words[0], last = row.words[row.words.length - 1];
     assert(Math.abs(first.x - L.boxLeft) < 1e-6, `row starts at ${first.x}, box at ${L.boxLeft}`);
-    if (row.words.length > 1) assert(Math.abs(last.x + m(last.text) - (L.boxLeft + L.boxW)) < 1e-6, "row should end at the box edge");
+    assert(row.words.every((w, i, a) => i === 0 || w.x > a[i - 1].x), "each row reads left to right");
+    if (row.words.length > 1) assert(Math.abs(last.x + m(last.text) - (L.boxLeft + L.boxW)) < 1e-6, `row "${row.text}" should end at the box edge`);
   }
   const lastRow = L.rows[L.rows.length - 1];
-  assert(!lastRow.words || lastRow.words.every((w, i, a) => i === 0 || w.x > a[i - 1].x), "last row reads left to right");
-  assert(L.align === "left" && Math.abs(lastRow.x - L.boxLeft) < 1e-6, "the last row sits on the left edge");
+  assert(lastRow.words.length > 1, `the test quote's last row should have two or more words: "${lastRow.text}"`);
+  assert(L.align === "left", "justify lays out from the left edge");
+  // A last row of one word has nothing to spread: it starts at the left edge, like every row.
+  const one = coverLayout({ ...base, quote: "golden hour again tonight", lineCount: 4, textAlign: "justify", textWidth: 60 }, W, 600, atPx);
+  const tail = one.rows[one.rows.length - 1];
+  assert(tail.words.length === 1 && Math.abs(tail.words[0].x - one.boxLeft) < 1e-6, `a one-word last row starts at the left edge: ${JSON.stringify(tail)}`);
 });
 // A stand-in for a canvas: fonts measure half as wide as they are tall, and every fillText is recorded
 // in screen space through the translate and scale calls drawCover makes.
@@ -658,6 +665,48 @@ check("songs: the replay graph draws across the song inside its box, and chart m
   assert(d.startsWith("M0,10 L0.5,10.00 L1.5,1.00 L2.5,1.00 L3.5,10.00") && d.endsWith("L4,10Z"), d);
   assert(replayPath(null) === null && replayPath([]) === null, "no graph");
   assert(moveText("NEW") === "New today" && moveText("+3") === "Up 3 since yesterday" && moveText("-2") === "Down 2 since yesterday" && moveText("=") === "Same as yesterday" && moveText(null) === "Same as yesterday", "moves");
+});
+
+// 1.20.0 (Big Edit items 1, 2, 4 and 8): the queue's look, her default color, her own fonts, and colors after a 50% preset.
+check("v1.20 the queue's look: her last font and color, else her default color; nothing set means each cover draws its own", () => {
+  const brand = [{ name: "Sea Glass", hex: "#9FE2BF" }, { name: "Peach", hex: "#FFCBA4", default: true }];
+  assert(JSON.stringify(lookOf({ lock: { textFont: null, textColor: null }, brandColors: brand })) === JSON.stringify({ textFont: null, textColor: "#FFCBA4" }), "her default color");
+  assert(JSON.stringify(lookOf({ lock: { textFont: "serif", textColor: "#FB0909" }, brandColors: brand })) === JSON.stringify({ textFont: "serif", textColor: "#FB0909" }), "what she picked wins");
+  assert(JSON.stringify(lookOf({ lock: { textFont: null, textColor: null }, brandColors: [] })) === JSON.stringify({ textFont: null, textColor: null }), "nothing set");
+  assert(JSON.stringify(lookOf(null)) === JSON.stringify({ textFont: null, textColor: null }), "no palette yet");
+});
+check("v1.20 a queued cover draws with the queue's look in every text box; a decided cover and an empty look leave it as it is", () => {
+  const item = { id: 1, status: "queue", textFont: "tiktok", textColor: "#FFFFFF", fontSize: 70, extraTexts: [{ quote: "two", textFont: "avenir", textColor: "#000000", fontSize: 40 }] };
+  const look = { textFont: "serif", textColor: "#FB0909" };
+  const q = withLook(item, look);
+  assert(q.textFont === "serif" && q.textColor === "#FB0909" && q.fontSize === 70, `the cover: ${JSON.stringify(q)}`);
+  assert(q.extraTexts[0].textFont === "serif" && q.extraTexts[0].textColor === "#FB0909" && q.extraTexts[0].quote === "two" && q.extraTexts[0].fontSize === 40, "and its text boxes");
+  assert(item.textColor === "#FFFFFF" && item.extraTexts[0].textColor === "#000000", "the cover itself is untouched");
+  const colorOnly = withLook(item, { textFont: null, textColor: "#9FE2BF" });
+  assert(colorOnly.textFont === "tiktok" && colorOnly.textColor === "#9FE2BF" && colorOnly.extraTexts[0].textFont === "avenir", "only what's set");
+  assert(withLook({ ...item, status: "approved" }, look).textColor === "#FFFFFF", "an approved cover keeps its own");
+  assert(withLook({ ...item, status: "rejected" }, look).textFont === "tiktok", "a passed cover keeps its own");
+  assert(withLook(item, { textFont: null, textColor: null }) === item, "nothing to apply: the same cover");
+  assert(withLook(null, look) === null, "no cover");
+});
+check("v1.20 her own fonts are drawn by their own family and listed by their own name", () => {
+  registerFonts([{ id: "custom-test-round", label: "Test Round", faces: [{ weight: 400, url: "/api/fonts/test-round-400.otf" }, { weight: 700, url: "/api/fonts/test-round-700.otf" }] }]);
+  assert(FONT_LABELS["custom-test-round"] === "Test Round", `label: ${FONT_LABELS["custom-test-round"]}`);
+  assert(FONT_CSS["custom-test-round"].startsWith("\"uBee custom-test-round\""), `family: ${FONT_CSS["custom-test-round"]}`);
+  assert(FONT_CSS.tiktok.includes("TikTok Sans") && FONT_LABELS.serif === "Serif", "the six stay as they are");
+});
+check("v1.20 a carousel photo draws only its own text; the cover draws the quote and the boxes on the cover (item 3)", () => {
+  const item = { quote: "the quote", showQuote: true, extraTexts: [{ quote: "cover box" }, { quote: "photo two", slide: 0 }, { quote: "photo three", slide: 1 }, { quote: "  ", slide: 0 }] };
+  assert(textBoxes(item, true).map((b) => b.quote).join("|") === "the quote|cover box", `the cover: ${textBoxes(item, true).map((b) => b.quote)}`);
+  assert(textBoxes(item, true, 0).map((b) => b.quote).join("|") === "photo two", "photo two: its own box, never the quote, an empty box draws nothing");
+  assert(textBoxes(item, true, 0)[0].extraIndex === 1, "a box keeps its place in her boxes, for tapping and editing");
+  assert(textBoxes(item, true, 1).map((b) => b.quote).join("|") === "photo three" && textBoxes(item, true, 2).length === 0, "photo three, and a photo with none");
+});
+check("v1.20 a color picked after either 50% preset is at 100% again; a hand-set opacity stays (item 8)", () => {
+  assert(JSON.stringify(colorPatch({ textColor: "#FFFFFF", opacity: 50 }, "#FB0909")) === JSON.stringify({ textColor: "#FB0909", opacity: 100 }), "after White 50%");
+  assert(JSON.stringify(colorPatch({ textColor: "#000000", opacity: 50 }, "#FFFFFF")) === JSON.stringify({ textColor: "#FFFFFF", opacity: 100 }), "after Black 50%");
+  assert(JSON.stringify(colorPatch({ textColor: "#FB0909", opacity: 70 }, "#FFFFFF")) === JSON.stringify({ textColor: "#FFFFFF" }), "a hand-set opacity stays");
+  assert(JSON.stringify(colorPatch({ textColor: "#FB0909", opacity: 50 }, "#FFFFFF")) === JSON.stringify({ textColor: "#FFFFFF" }), "50% on another color isn't a preset");
 });
 
 console.log(failed ? "RENDER TEST FAILED" : "RENDER TEST OK");

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { drawCover, ensureFonts } from "./renderCover.js";
+import { drawCover, ensureFonts, fontsVersion } from "./renderCover.js";
 import { storyCrop } from "./reviewMath.js";
 
 // The cover on screen. It is drawn by drawCover, the same function that makes the posted JPEG, so the
@@ -32,12 +32,16 @@ export function loadImage(url) {
   return images.get(url);
 }
 
-/** The cover fit inside maxW x maxH. children({ cssW, cssH }) draws overlays on top, in CSS pixels. */
-export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, detail = 1, safe = false, free = null, canvasRef, onDrawn, children, className = "", ...rest }) {
+/**
+ * The cover fit inside maxW x maxH. children({ cssW, cssH }) draws overlays on top, in CSS pixels. With slideAt (1.20.0,
+ * Big Edit item 3) it's one of the cover's carousel photos instead, with the text she put on that photo.
+ */
+export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, detail = 1, safe = false, free = null, slideAt = null, canvasRef, onDrawn, children, className = "", ...rest }) {
   const ref = useRef(null);
   const base = useRef({ key: "", canvas: null });
   const reported = useRef(null);
-  const url = imageUrlFor(item);
+  const slide = slideAt === null ? null : (item.slides || [])[slideAt] || null;
+  const url = slide ? slide.mediaUrl : imageUrlFor(item);
   // The photo belongs to one address: while the next cover's photo loads, nothing of the last one shows.
   const [photo, setPhoto] = useState(() => ({ url, img: ready.get(url) || null, failed: false }));
   const [, setFontsReady] = useState(0);
@@ -55,7 +59,8 @@ export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, 
   const img = photo.url === url ? photo.img : null;
   const failed = photo.url === url && photo.failed;
 
-  const fontKey = JSON.stringify([quoteOn, item.textFont, item.fontWeight, (item.extraTexts || []).map((b) => [b.textFont, b.fontWeight])]);
+  // fontsVersion: her own fonts can arrive after the first draw (1.20.0); then they load and the cover draws again.
+  const fontKey = JSON.stringify([quoteOn, item.textFont, item.fontWeight, (item.extraTexts || []).map((b) => [b.textFont, b.fontWeight]), fontsVersion()]);
   useEffect(() => {
     let alive = true;
     ensureFonts(item, quoteOn).then(() => { if (alive) setFontsReady((n) => n + 1); });
@@ -76,26 +81,28 @@ export default function CoverCanvas({ item, quoteOn, maxW, maxH, story = false, 
     const W = Math.max(1, Math.round(cssW * dpr)), H = Math.max(1, Math.round(cssH * dpr));
     if (canvas.width !== W) canvas.width = W;
     if (canvas.height !== H) canvas.height = H;
-    const src = story ? storyCrop(natural.w, natural.h, item.storyPanX, item.storyPanY) : null;
-    const edit = item.imageEdit || {};
+    const src = story && !slide ? storyCrop(natural.w, natural.h, item.storyPanX, item.storyPanY) : null;
+    const edit = (!slide && item.imageEdit) || {}; // contrast and mosaics belong to the cover photo
     // The photo with its contrast and mosaic is drawn once per change; text redraws on top of it.
     const key = [img.src, W, H, edit.contrast || "normal", JSON.stringify(edit.mosaics || []), src ? [src.x, src.y, src.w, src.h].join(",") : ""].join("|");
     if (base.current.key !== key) {
       const layer = base.current.canvas || document.createElement("canvas");
       layer.width = W;
       layer.height = H;
-      drawCover(layer.getContext("2d"), { ...item, extraTexts: [] }, img, W, H, { quoteOn: false, src });
+      drawCover(layer.getContext("2d"), { ...item, extraTexts: [] }, img, W, H, { quoteOn: false, src, slideAt });
       base.current = { key, canvas: layer };
     }
-    drawCover(canvas.getContext("2d"), { ...item, imageEdit: null }, base.current.canvas, W, H, { quoteOn, safe, free }); // safe: the deck's hold (1.13.8)
-    if (reported.current !== url) { reported.current = url; onDrawn?.(item.id); }
+    drawCover(canvas.getContext("2d"), { ...item, imageEdit: null }, base.current.canvas, W, H, { quoteOn, safe, free, slideAt }); // safe: the deck's hold (1.13.8)
+    if (reported.current !== url) { reported.current = url; if (!slide) onDrawn?.(item.id); }
   });
   useEffect(() => { if (!img) reported.current = null; }, [img]);
 
   const setRef = (el) => { ref.current = el; if (canvasRef) canvasRef.current = el; };
-  const label = [item.title, quoteOn && item.quote ? `Quote: ${item.quote}` : "", ...(item.extraTexts || []).map((b) => b.quote)].filter(Boolean).join(". ");
+  const label = slide
+    ? ["Carousel photo", ...(item.extraTexts || []).filter((b) => b.slide === slideAt).map((b) => b.quote)].filter(Boolean).join(". ")
+    : [item.title, quoteOn && item.quote ? `Quote: ${item.quote}` : "", ...(item.extraTexts || []).filter((b) => b.slide == null).map((b) => b.quote)].filter(Boolean).join(". ");
   return (
-    <div className={`coverWrap ${className}`} style={{ width: cssW, height: cssH }} {...rest}>
+    <div className={`coverWrap ${className}`} data-photo={slide ? `slide-${slideAt}` : "cover"} style={{ width: cssW, height: cssH }} {...rest}>
       {failed ? (
         <div className="coverMissing" role="img" aria-label="The photo didn't load">The photo didn't load. Ask your Muse to import it again.</div>
       ) : img ? (

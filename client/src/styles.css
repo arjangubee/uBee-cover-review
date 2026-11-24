@@ -102,6 +102,7 @@ img { max-width: 100%; }
 .hitLayer { position: absolute; inset: 0; z-index: 1; }
 .coverWrap.editing .hitLayer { cursor: grab; }
 .coverWrap.picking .hitLayer { cursor: crosshair; }
+.liftRing { position: absolute; z-index: 2; border: 2px solid rgba(255, 255, 255, 0.92); border-radius: 14px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); pointer-events: none; } /* a text box held up for placing (1.20.0) */
 .track { display: flex; align-items: center; width: 100%; height: 100%; overflow-x: auto; overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory; scrollbar-width: none; }
 .track::-webkit-scrollbar { display: none; }
@@ -352,6 +353,10 @@ textarea.field { resize: vertical; }
 .segmented { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
 .segmented button { height: 48px; padding: 0 6px; border: 1px solid transparent; border-radius: 12px; background: transparent; color: var(--text-2); font-size: 17px; }
 .segmented button.on { border-color: #fff; background: var(--bg); color: #fff; }
+.segmented button:disabled { color: var(--off); } /* Light, on a font with no Light face (1.20.0) */
+.weightHint { margin: 6px 0 0; }
+.lockHint { margin: 8px 0 0; } /* the queue's one font and color (1.20.0) */
+.emptyPhoto { margin: 14px 0 6px; } /* a carousel photo with no text yet (1.20.0) */
 .dangerLink { min-height: 44px; margin-top: 6px; padding: 0; border: 0; background: none; color: var(--red); font-size: 16px; font-weight: 600; }
 .primaryBtn, .secondaryBtn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 20px; border-radius: 14px; font-size: 17px; font-weight: 700; }
 .primaryBtn { border: 0; background: var(--blue); color: #fff; }
@@ -426,6 +431,9 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 .tile.checked img { opacity: 0.72; }
 .tile.locked { cursor: not-allowed; }
 .tile.locked img { opacity: 0.4; }
+.tileText { position: absolute; pointer-events: none; transition: opacity 0.12s; } /* the preview's text (1.20.0) */
+.tile.checked .tileText { opacity: 0.72; }
+.tile.locked .tileText { opacity: 0.4; }
 .check { position: absolute; right: 6px; bottom: 6px; width: 22px; height: 22px; border-radius: 50%; border: 2px solid #fff; background: rgba(0, 0, 0, 0.3); }
 .check.on { background: var(--accent); border-color: var(--accent); }
 .check.on::after { content: ""; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px; border: solid #101010; border-width: 0 2px 2px 0; transform: rotate(45deg); }

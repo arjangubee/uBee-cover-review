@@ -23,6 +23,44 @@ export const FONT_LABELS = {
   papyrus_condensed: "Papyrus Condensed",
 };
 
+/**
+ * Her own fonts (1.20.0, Big Edit item 4), from her data folder: each gets its own family name, so it never mixes with
+ * a font of the same name on the device, and its faces are loaded from the app's own address, signed in.
+ */
+let fontsSeen = 0;
+/** Goes up each time her fonts change, so a cover drawn before they arrived loads them and draws again. */
+export const fontsVersion = () => fontsSeen;
+export function registerFonts(list) {
+  const rules = [];
+  for (const f of Array.isArray(list) ? list : []) {
+    if (!f?.id || !Array.isArray(f.faces)) continue;
+    const family = `uBee ${f.id}`;
+    FONT_CSS[f.id] = `"${family}", system-ui, sans-serif`;
+    FONT_LABELS[f.id] = f.label || f.id;
+    for (const face of f.faces) rules.push(`@font-face { font-family: "${family}"; src: url("${face.url}"); font-weight: ${Number(face.weight) || 400}; font-display: block; }`);
+  }
+  if (typeof document === "undefined") return;
+  let tag = document.getElementById("ubeeCustomFonts");
+  if (!tag) { tag = document.createElement("style"); tag.id = "ubeeCustomFonts"; document.head.appendChild(tag); }
+  if (tag.textContent !== rules.join("\n")) { tag.textContent = rules.join("\n"); fontsSeen += 1; }
+}
+
+/**
+ * The queue's look (1.20.0, Big Edit items 1 and 2): the font and the color she last picked on any queued cover, and
+ * her default color until she picks one. Null for either means each cover draws its own, as before.
+ */
+export function lookOf(palette) {
+  const lock = palette?.lock || {};
+  const fallback = (Array.isArray(palette?.brandColors) ? palette.brandColors : []).find((c) => c.default)?.hex || null;
+  return { textFont: lock.textFont || null, textColor: lock.textColor || fallback };
+}
+/** A queued cover as it draws: the queue's look on it and on every text box. A decided cover keeps its own. */
+export function withLook(item, look) {
+  if (!item || item.status !== "queue" || !look || (!look.textFont && !look.textColor)) return item;
+  const put = (b) => ({ ...b, ...(look.textFont ? { textFont: look.textFont } : {}), ...(look.textColor ? { textColor: look.textColor } : {}) });
+  return { ...put(item), extraTexts: (Array.isArray(item.extraTexts) ? item.extraTexts : []).map(put) };
+}
+
 // Two presets beside the 11 colors (1.8, Arjang #263, Quill #269). Each sets the color and the opacity together;
 // they are not palette colors, so the palette stays 11 and a palette color picked after sets the color only.
 export const HALF_PRESETS = [
@@ -32,6 +70,11 @@ export const HALF_PRESETS = [
 /** True when a text box carries exactly this preset's color and opacity. */
 export const presetOn = (box, preset) =>
   String(box?.textColor || "").toUpperCase() === preset.patch.textColor && Number(box?.opacity) === preset.patch.opacity;
+/**
+ * What picking a color does to a box (1.20.0, Big Edit item 8): a color picked after either 50% preset brings the text
+ * back to 100%. Any other opacity, set by hand on the slider, stays.
+ */
+export const colorPatch = (box, hex) => (HALF_PRESETS.some((p) => presetOn(box, p)) ? { textColor: hex, opacity: 100 } : { textColor: hex });
 
 // The deck's photo width on a computer screen. Text sizes are set against it, so a cover drawn wider
 // scales them up by (cover width / this) and the quote covers the same share of the photo.
@@ -157,15 +200,14 @@ export function coverLayout(box, width, height, measureAt, { safe = false } = {}
   const boxLeft = cx - boxW / 2;
   const top = cy - naturalH / 2;
 
-  // The last row is never stretched. Her line breaks are balanced like any space (1.13.8), so it's the only paragraph end.
-  const paraEnds = new Set([lines.length - 1]);
-
+  // Every row of two or more words is stretched edge to edge, the last row too (1.20.0, Big Edit item 11: the last word
+  // touches the right edge). A row of one word has nothing to spread, so it starts at the left edge.
   const rows = lines.map((text, i) => {
     const w = measure(text);
     const y = top + (i + 0.5) * lineHeight;
     if (justify) {
       const words = text.split(" ").filter(Boolean);
-      if (!paraEnds.has(i) && words.length > 1) {
+      if (words.length > 1) {
         const gap = (boxW - words.reduce((sum, wd) => sum + measure(wd), 0)) / (words.length - 1);
         let x = boxLeft;
         const placed = words.map((wd) => { const at = x; x += measure(wd) + gap; return { text: wd, x: at }; });
@@ -201,12 +243,18 @@ export function autoLineCount(box, measureAt) {
   return Math.max(1, Math.min(words, L.rows.length));
 }
 
-/** The text boxes a cover draws: the quote when it's on, then her extra boxes, which always draw. */
-export function textBoxes(item, quoteOn) {
+/** True for a text box on the cover itself; a box with a slide sits on that carousel photo (1.20.0, Big Edit item 3). */
+export const onCoverPhoto = (box) => box?.slide === undefined || box?.slide === null;
+/**
+ * The text boxes a photo draws. The cover (slideAt null): the quote when it's on, then her extra boxes on the cover.
+ * A carousel photo (slideAt, its place in the cover's slides): only the boxes she put on it.
+ */
+export function textBoxes(item, quoteOn, slideAt = null) {
   const boxes = [];
-  if (quoteOn && String(item.quote || "").trim()) boxes.push({ ...withDefaults(item), quote: String(item.quote), main: true });
+  if (slideAt === null && quoteOn && String(item.quote || "").trim()) boxes.push({ ...withDefaults(item), quote: String(item.quote), main: true });
   (Array.isArray(item.extraTexts) ? item.extraTexts : []).forEach((extra, extraIndex) => {
-    if (extra && String(extra.quote || "").trim()) boxes.push({ ...withDefaults(extra), extraIndex });
+    const here = slideAt === null ? onCoverPhoto(extra) : extra?.slide === slideAt;
+    if (extra && here && String(extra.quote || "").trim()) boxes.push({ ...withDefaults(extra), extraIndex });
   });
   return boxes;
 }
@@ -253,10 +301,39 @@ export function canvasMeasureAt(box) {
   return (px) => { measureCtx.font = fontString(box, px); return (t) => measureCtx.measureText(t).width; };
 }
 
+// Whether a font really has a face at a weight (1.20.0, Big Edit item 5): a font with no Light face draws Light as
+// Regular, so the editor greys Light out for it. Found by drawing a sample at both weights; kept per font and weight.
+const faces = new Map();
+/** Resolves true when this font draws differently at `weight` than at Regular (400), false when it's the same face. */
+export function hasFace(fontId, weight) {
+  const key = `${fontId}|${weight}`;
+  if (typeof document === "undefined" || !document.fonts?.load) return Promise.resolve(true);
+  if (!faces.has(key)) {
+    const family = FONT_CSS[fontId] || FONT_CSS.tiktok;
+    faces.set(key, Promise.all([weight, 400].map((w) => document.fonts.load(`${w} 40px ${family}`).catch(() => null))).then(() => {
+      const c = document.createElement("canvas");
+      c.width = 460; c.height = 64;
+      const x = c.getContext("2d", { willReadFrequently: true });
+      const ink = (w) => {
+        x.clearRect(0, 0, c.width, c.height);
+        x.font = `${w} 40px ${family}`;
+        x.fillText("Hamburgefonstiv", 4, 46);
+        let s = 0;
+        const d = x.getImageData(0, 0, c.width, c.height).data;
+        for (let i = 3; i < d.length; i += 4) s += d[i];
+        return s;
+      };
+      return Math.abs(ink(weight) - ink(400)) >= 1;
+    }).catch(() => true));
+  }
+  return faces.get(key);
+}
+
 /** Loads every font the cover's text uses, so canvas measures and draws with the real face. */
 export async function ensureFonts(item, quoteOn = true) {
   if (typeof document === "undefined" || !document.fonts?.load) return;
-  const boxes = textBoxes(item, quoteOn);
+  const slides = [...new Set((item.extraTexts || []).filter((b) => !onCoverPhoto(b)).map((b) => b.slide))];
+  const boxes = [...textBoxes(item, quoteOn), ...slides.flatMap((at) => textBoxes(item, false, at))]; // the carousel photos' text too (1.20.0)
   await Promise.all(boxes.map((b) => document.fonts.load(fontString(b, 40), b.quote).catch(() => null)));
 }
 
@@ -265,7 +342,7 @@ export async function ensureFonts(item, quoteOn = true) {
  * Image contrast, face mosaic, then the text. Returns { effectsSkipped } when the photo's pixels
  * couldn't be read (a photo from another site), so the screen can say so.
  */
-export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(item.showQuote), src = null, safe = false, free = null } = {}) {
+export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(item.showQuote), src = null, safe = false, free = null, slideAt = null } = {}) {
   let effectsSkipped = false;
   ctx.save();
   ctx.clearRect(0, 0, width, height);
@@ -273,7 +350,7 @@ export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(ite
     if (src) ctx.drawImage(img, src.x, src.y, src.w, src.h, 0, 0, width, height);
     else ctx.drawImage(img, 0, 0, width, height);
   }
-  const edit = item.imageEdit || {};
+  const edit = (slideAt === null && item.imageEdit) || {}; // contrast and mosaics belong to the cover photo
   if (img && edit.contrast && edit.contrast !== "normal") {
     try {
       const data = ctx.getImageData(0, 0, width, height);
@@ -297,7 +374,7 @@ export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(ite
       ctx.imageSmoothingEnabled = true;
     }
   }
-  for (const box of textBoxes(item, quoteOn)) {
+  for (const box of textBoxes(item, quoteOn, slideAt)) {
     const L = coverLayout(box, width, height, (px) => { ctx.font = fontString(box, px); return (t) => ctx.measureText(t).width; }, { safe: held(box, safe, free) });
     ctx.font = fontString(box, L.fontPx);
     ctx.fillStyle = box.textColor || "#FFFFFF";
@@ -331,8 +408,8 @@ export function drawCover(ctx, item, img, width, height, { quoteOn = Boolean(ite
 const held = (box, safe, free) => Boolean(safe) && !free?.has(box.main ? -1 : box.extraIndex);
 
 /** Where each text box sits on a width x height cover, for tapping the text to edit it, with the drawing's own hold. */
-export function textHitBoxes(item, width, height, measureCtx, quoteOn = Boolean(item.showQuote), { safe = false, free = null } = {}) {
-  return textBoxes(item, quoteOn).map((box) => {
+export function textHitBoxes(item, width, height, measureCtx, quoteOn = Boolean(item.showQuote), { safe = false, free = null, slideAt = null } = {}) {
+  return textBoxes(item, quoteOn, slideAt).map((box) => {
     const L = coverLayout(box, width, height, (px) => { measureCtx.font = fontString(box, px); return (t) => measureCtx.measureText(t).width; }, { safe: held(box, safe, free) });
     return { index: box.main ? -1 : box.extraIndex, ...L.bounds, centerX: L.anchorX, centerY: L.anchorY, halfW: L.halfW, halfH: L.halfH };
   });

@@ -12,6 +12,7 @@ import { getImportStatus, registerFull } from "./full.js";
 import { ctaFor } from "./captionCtas.js";
 import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
 import { registerRemix } from "./remix.js";
+import { bakeLock, registerBrand } from "./brand.js";
 import { cleanHook, cleanSongFile, matchSongClip, registerSongs } from "./songs.js";
 import { DATA_DIR, libraryDir, spaceFile, store, uploadsDir } from "./store.js";
 import { accountCount, inSpace, isOwner, ownerOnly, registerAccounts, requireSession, sessionMiddleware } from "./accounts.js";
@@ -166,6 +167,8 @@ app.post("/api/items/:id/decide", (req, res) => {
   if (!item) return res.status(404).json({ error: "item not found" });
   const { decision, rating, note } = req.body || {};
   if (!["approved", "rejected", "queue"].includes(decision)) return res.status(400).json({ error: "decision must be approved, rejected or queue" });
+  // A cover leaving the queue keeps the font and color it had there (1.20.0, Big Edit item 1): the lock is written into it.
+  if (item.status === "queue" && decision !== "queue") bakeLock(item);
   item.status = decision;
   item.decidedAt = decision === "queue" ? null : Date.now();
   if (rating != null) item.rating = Math.max(1, Math.min(10, Number(rating)));
@@ -230,6 +233,7 @@ app.post("/api/voice/samples", (req, res) => {
 app.get("/api/voice/profile", (_req, res) => res.json({ voiceProfile: store.settings.voiceProfile, sampleCount: store.db.voiceSamples.length }));
 
 // ---------- Full feature set (editor, slides, story, ratings, verification) ----------
+registerBrand(app); // her colors, the queue's text lock and her fonts (1.20.0)
 registerFull(app, upload);
 registerRemix(app); // the remix menu (1.17.0)
 

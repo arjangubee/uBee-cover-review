@@ -6,34 +6,20 @@
 // background while she reviews, and the page puts a finished remix right after the cover she's on. A remix that can't pick
 // lands nothing and leaves a note on the cover it came from. A space with a model may make the same pick with it, under the
 // same stock, pool and hidden rules and the same gate.
-import { normalizeForStockCheck, quoteInStock, revisionOf, songInPool } from "./full.js";
+// 1.21.0 (Big Edit item 16): the page remixes on the spot instead (remix-now, at the end). Arjang's final word (room #960):
+// "It should never duplicate." So the background route makes nothing now, and a remix a page from before 1.21.0 left
+// waiting closes with a note instead of a copy. A copy such a page already made still goes where the page puts it.
+import { captionState } from "./captionDrafts.js";
+import { cleanWhy, normalizeForStockCheck, quoteInStock, recheckSaved, songInPool, verifyItem } from "./full.js";
 import { pickable } from "./music.js";
 import { generateCaption, loadQuotes, loadTrending } from "./services.js";
-import { downloadedSongs, songFields } from "./songs.js";
-import { currentSpace, runIn, store } from "./store.js";
+import { SONG_SOURCES, cleanHook, cleanSongFile, downloadedSongs, songFields } from "./songs.js";
+import { store } from "./store.js";
+import { words } from "./words.js";
 
 export const PROMPT_MAX = 300;
-const delay = () => Math.max(0, Number(process.env.COVER_REVIEW_REMIX_DELAY_MS) || 0); // tests slow it down to review meanwhile
 
-// Words that carry no meaning of their own, left out of the match.
-const STOP = new Set(("a an the and or but nor so yet of to in on at by for with from into onto over under about as than then "
-  + "is am are was were be been being it its it's this that these those there here i me my mine you your yours we us our "
-  + "ours they them their he him his she her hers do does did done have has had will would can could should may might must "
-  + "not no just very too all any some each every more most what who whom which when where why how up down out off if").split(" "));
-
-/** The words of a text that a match counts: lower case, accents and apostrophes off, common words out, endings trimmed. */
-export function words(text) {
-  return String(text ?? "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/['’]/g, "")
-    .split(/[^a-z0-9]+/).filter((w) => w.length > 1 && !STOP.has(w)).map(stem);
-}
-// waves, wave -> wav; dancing, danced, dance -> danc; mornings, morning -> morn. Short words stay as they are.
-function stem(w) {
-  if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) w = w.slice(0, -1);
-  if (w.length > 5 && w.endsWith("ing")) w = w.slice(0, -3);
-  else if (w.length > 4 && w.endsWith("ed")) w = w.slice(0, -2);
-  if (w.length > 3 && w.endsWith("e")) w = w.slice(0, -1);
-  return w;
-}
+// The match's words live in words.js since 1.21.0, for the compose check's lines too.
 const same = (a, b) => String(a ?? "").trim().replace(/\s+/g, " ").toLowerCase() === String(b ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 
 /** The best candidate for the weighted texts: the most matched words, then (songs) her saved ones, then a turn that
@@ -127,49 +113,13 @@ function moveItem(id, afterId) {
   return true;
 }
 
-function finish(id) {
-  const rec = remixes().find((r) => r.id === id);
-  if (!rec || rec.status !== "pending") return;
-  const src = store.getItem(rec.sourceId);
-  const out = src ? pickFor(src, rec) : { error: "The cover this remix came from isn't there anymore." };
-  rec.finishedAt = Date.now();
-  if (out.error) {
-    Object.assign(rec, { status: "failed", error: out.error });
-    if (src) src.lastRemix = { status: "failed", error: out.error, at: rec.finishedAt, remixId: rec.id };
-    store.saveDb();
-    return;
-  }
-  // The new cover is the old remix's copy (the photo, its layout, style and color, slides and photo edits, her note) with
-  // the new picks. What explained or rated the old quote or song doesn't carry: why it matches, and that part's stars.
-  // A remix of a remix keeps one " (remix)" on its title (Quill #826 item 4).
-  const title = String(src.title ?? "").endsWith(" (remix)") ? src.title : `${src.title} (remix)`;
-  const copy = { ...revisionOf(src), status: "queue", parentId: src.id, revision: (src.revision || 1) + 1, title,
-    createdAt: rec.finishedAt, why: null, ...out.fields };
-  delete copy.lastRemix;
-  if (rec.quote.on) {
-    // She asked for a new quote, so it shows: a quote she had turned off on the old cover comes back on here.
-    delete copy.showQuoteSet;
-    copy.showQuote = false;
-    copy.quoteRating = null;
-    copy.caption = generateCaption(copy, store.settings.voiceProfile);
-    copy.captionSource = "placeholder"; // the offline draft; a model may replace it, as on any new cover
-  }
-  if (rec.song.on) copy.songRating = null;
-  const item = store.addItem(copy);
-  moveItem(item.id, src.id); // it waits right after the cover it came from until the page puts it after the one she's on
-  delete src.lastRemix;
-  Object.assign(rec, { status: "done", itemId: item.id });
-  store.saveDb();
-}
-
-// One timer per waiting remix. A remix a restart left waiting starts again the next time the page asks.
-const running = new Set();
-function schedule(rec) {
-  const space = currentSpace();
-  const key = `${space}\u0000${rec.id}`;
-  if (running.has(key)) return;
-  running.add(key);
-  setTimeout(() => runIn(space, () => { try { finish(rec.id); } finally { running.delete(key); } }), delay());
+// What a remix left waiting by a page from before 1.21.0 says when it closes: it makes no copy (room #960).
+export const LEFT_WAITING = "Remix works on the spot now. Open the cover and remix it again.";
+/** A remix a page from before 1.21.0 left waiting closes with a note, and nothing new comes into the queue. */
+function closeWaiting() {
+  let closed = 0;
+  for (const r of remixes()) if (r.status === "pending") { Object.assign(r, { status: "failed", error: LEFT_WAITING, finishedAt: Date.now() }); closed += 1; }
+  if (closed) store.saveDb();
 }
 
 function partOf(v) {
@@ -178,24 +128,71 @@ function partOf(v) {
   return prompt.length > PROMPT_MAX ? { error: `Keep each prompt to ${PROMPT_MAX} characters or fewer.` } : { on, prompt };
 }
 
+// ---------- Remix on the spot (1.21.0, Big Edit item 16) ----------
+// Arjang: "It should remix it instantly instead of putting it next in queue." Submit changes the cover she's on right
+// away, in any list, with the picks and the gate above. Nothing new comes into the queue. What was about the old quote or
+// song drops, as on 1.17's copy, and the cover is one version newer. A caption she typed stays hers; a drafted one is
+// drafted again for a new quote. A checked cover is checked again. The answer carries the fields before and after, so
+// undo and redo can put either back through remix-fields.
+
+/** Every field a remix can change, and so every field undo puts back. A field the cover doesn't have reads as null. */
+const OWN = ["quote", "song", "songSource", "songPreviewUrl", "songSpotifyUrl", "songFile", "songHook", "showQuote", "showQuoteSet",
+  "quoteRating", "songRating", "why", "caption", "captionSource", "revision", "remixedAt"];
+const GONE_WHEN_NULL = new Set(["showQuoteSet", "captionSource", "revision", "remixedAt"]); // null takes the field off
+const ownFields = (item) => Object.fromEntries(OWN.map((k) => [k, item[k] === undefined ? null : structuredClone(item[k])]));
+const rating = (v) => Number.isInteger(v) && v >= 1 && v <= 10;
+
+/** The fields undo or redo sends back, each checked like the route that sets it. Anything else is left out. */
+function cleanOwn(f) {
+  if (!f || typeof f !== "object" || Array.isArray(f) || !OWN.some((k) => k in f)) return { error: "Send the fields to put back." };
+  const out = {};
+  for (const k of OWN.filter((key) => key in f)) {
+    const v = f[k];
+    if (v === null) { out[k] = null; continue; }
+    switch (k) {
+      case "songSource":
+        if (!SONG_SOURCES.includes(v)) return { error: "That song source isn't one." };
+        out[k] = v; break;
+      case "songFile":
+        if (!cleanSongFile(v)) return { error: "That song clip isn't a clip in the songs folder or in Symphony." };
+        out[k] = cleanSongFile(v); break;
+      case "songHook":
+        if (!cleanHook(v)) return { error: "That song hook isn't a start and an end." };
+        out[k] = cleanHook(v); break;
+      case "showQuote": case "showQuoteSet":
+        if (typeof v !== "boolean") return { error: `${k} is true or false.` };
+        out[k] = v; break;
+      case "quoteRating": case "songRating":
+        if (!rating(v)) return { error: "A rating is a whole number from 1 to 10." };
+        out[k] = v; break;
+      case "why": {
+        const why = cleanWhy(v);
+        if (!why) return { error: "Say why it matches, in a sentence or two." };
+        if (Number.isFinite(Number(v.recordedAt)) && Number(v.recordedAt) > 0) why.recordedAt = Number(v.recordedAt); // when it was said
+        out[k] = why; break;
+      }
+      case "captionSource":
+        if (!["placeholder", "model", "human"].includes(v)) return { error: "That caption source isn't one." };
+        out[k] = v; break;
+      case "revision":
+        if (!Number.isInteger(v) || v < 1) return { error: "A version is a whole number from 1 up." };
+        out[k] = v; break;
+      case "remixedAt":
+        if (!Number.isFinite(v) || v < 0) return { error: "remixedAt is a time." };
+        out[k] = v; break;
+      default: out[k] = String(v); // quote, song, caption and the song's two links
+    }
+  }
+  return { fields: out };
+}
+
 export function registerRemix(app) {
-  // { quote: { on, prompt }, song: { on, prompt } }: at least one ticked. Answers the waiting remix right away.
-  app.post("/api/items/:id/remix", (req, res) => {
-    const src = store.getItem(req.params.id);
-    if (!src) return res.status(404).json({ error: "item not found" });
-    const quote = partOf(req.body?.quote), song = partOf(req.body?.song);
-    if (quote.error || song.error) return res.status(400).json({ error: quote.error || song.error });
-    if (!quote.on && !song.on) return res.status(400).json({ error: "Tick New quote, New song or both." });
-    const rec = { id: nextRemixId(), sourceId: src.id, quote, song, status: "pending", itemId: null, error: null, createdAt: Date.now(), finishedAt: null };
-    remixes().push(rec);
-    delete src.lastRemix; // a new try clears the old note
-    store.saveDb();
-    schedule(rec);
-    res.json({ remix: rec });
-  });
+  // The 1.17 background remix made a new cover, so it's gone (room #960: "It should never duplicate."). A page opened
+  // before 1.21.0 hears why; reloaded, it remixes on the spot.
+  app.post("/api/items/:id/remix", (_req, res) => res.status(410).json({ error: "Remix changes the cover on the spot now. Reload the page and remix it again." }));
   // The remixes the page hasn't placed or shown yet: waiting, done, or failed.
   app.get("/api/remixes", (_req, res) => {
-    for (const r of remixes()) if (r.status === "pending") schedule(r);
+    closeWaiting();
     res.json({ remixes: remixes() });
   });
   // The page has it: a done remix moves right after the cover she's on ({ after: id }), or to the front of the queue
@@ -210,5 +207,54 @@ export function registerRemix(app) {
     list.splice(at, 1);
     store.saveDb();
     res.json({ remix: { ...rec, placed } });
+  });
+
+  // Remix on the spot (1.21.0): { quote: { on, prompt }, song: { on, prompt } }, at least one ticked. Answers the cover as it
+  // is now, with the remix's fields before and after; 422 with the reason when it can't pick, and then nothing changes.
+  app.post("/api/items/:id/remix-now", (req, res) => {
+    const item = store.getItem(req.params.id);
+    if (!item) return res.status(404).json({ error: "item not found" });
+    const quote = partOf(req.body?.quote), song = partOf(req.body?.song);
+    if (quote.error || song.error) return res.status(400).json({ error: quote.error || song.error });
+    if (!quote.on && !song.on) return res.status(400).json({ error: "Tick New quote, New song or both." });
+    delete item.lastRemix; // a new try clears a note an older remix left (1.17)
+    const out = pickFor(item, { id: nextRemixId(), quote, song }); // the counter moves, so each remix picks something new
+    if (out.error) {
+      store.saveDb();
+      return res.status(422).json({ error: out.error });
+    }
+    const before = ownFields(item);
+    const typed = captionState(item, generateCaption(item, store.settings.voiceProfile)) === "human"; // read with the old quote
+    Object.assign(item, out.fields, { revision: (item.revision || 1) + 1, why: null, remixedAt: Date.now() });
+    if (quote.on) {
+      // She asked for a new quote, so it shows: a quote she had turned off on this cover comes back on.
+      delete item.showQuoteSet;
+      item.showQuote = false;
+      item.quoteRating = null;
+      if (!typed) {
+        item.caption = generateCaption(item, store.settings.voiceProfile);
+        item.captionSource = "placeholder"; // the offline draft; a model may replace it, as on any new cover
+      }
+    }
+    if (song.on) item.songRating = null;
+    if (item.beacons) verifyItem(item); // a checked cover is checked again with its new picks
+    store.saveDb();
+    res.json({ item, before, after: ownFields(item) });
+  });
+
+  // Undo and redo of a remix on the spot (1.21.0): { fields } from remix-now's before or after. Only a remix's own fields,
+  // each checked. A checked cover is checked again, so its check always matches what it shows.
+  app.post("/api/items/:id/remix-fields", (req, res) => {
+    const item = store.getItem(req.params.id);
+    if (!item) return res.status(404).json({ error: "item not found" });
+    const { fields, error } = cleanOwn(req.body?.fields);
+    if (error) return res.status(400).json({ error });
+    for (const [k, v] of Object.entries(fields)) {
+      if (v === null && GONE_WHEN_NULL.has(k)) delete item[k];
+      else item[k] = v;
+    }
+    if (item.beacons) recheckSaved(item);
+    store.saveDb();
+    res.json({ item });
   });
 }

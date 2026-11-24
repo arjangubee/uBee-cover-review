@@ -8,13 +8,23 @@ const ASLEEP_MS = 90 * 1000; // no answer after this long: uBee's computer is pr
 const POLL_MS = 5000;
 const NAMES = { instagram: "Instagram", facebook: "Facebook", threads: "Threads", x: "X", tiktok: "TikTok", pinterest: "Pinterest",
   telegram: "Telegram", discord: "Discord", tumblr: "Tumblr", substack: "Substack" };
+// Each channel's badge (1.21.0, Big Edit item 28): its letters on the platform's own color, black and white until she
+// taps it on. Letters, not the platforms' logos, so nothing here copies their artwork.
+const BADGES = { instagram: ["IG", "#E1306C"], facebook: ["f", "#1877F2"], threads: ["@", "#FFFFFF", "#000"], x: ["X", "#FFFFFF", "#000"],
+  tiktok: ["TT", "#FE2C55"], pinterest: ["P", "#E60023"], telegram: ["TG", "#26A5E4"], discord: ["DC", "#5865F2"], tumblr: ["t", "#36465D"],
+  substack: ["S", "#FF6719"] };
+const badgeOf = (platform) => BADGES[platform] || [String(platform || "?").slice(0, 2).toUpperCase(), "#8E8E93"];
 const WAITING = ["waiting", "leased"];
 
-// The Schedule sheet: her channels with photo channels on, every picked cover drawn exactly as it will
-// post, caption problems before anything is sent, then each cover's booked day as Pollen answers.
+// The Schedule sheet: her channels, every picked cover drawn exactly as it will post, caption problems before anything is
+// sent, then each cover's booked day as Pollen answers. Since 1.21.0 (Big Edit item 28) it reads like Instagram's share
+// step: her channels as icons she taps from black and white to color, a Schedule switch that's on by default, and one
+// bright Post button. With Schedule off the button reads Post now, which Pollen takes once the Bee Hive says it can.
 export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, quoteOverlay = null, api, post, onClose, onDone }) {
   const [channels, setChannels] = useState(null);
   const [on, setOn] = useState({});
+  const [scheduleOn, setScheduleOn] = useState(true);
+  const [canPostNow, setCanPostNow] = useState(false);
   const [rows, setRows] = useState(() => items.map((item) => ({ item, thumb: null, problems: [], hasSlides: false, rendered: false, renderError: null, result: null })));
   const [message, setMessage] = useState(null);
   const [phase, setPhase] = useState("preparing"); // preparing, ready, sending, sent
@@ -29,6 +39,7 @@ export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, quoteO
       if (!alive) return;
       if (!ch.connected) { setMessage(ch.message || "Pollen isn't connected yet."); setChannels([]); return; }
       setChannels(ch.channels);
+      setCanPostNow(Boolean(ch.postNow));
       setOn(Object.fromEntries(ch.channels.map((c) => [c.id, Boolean(c.default_on && c.ready)])));
       if (ch.stale && ch.message) setMessage(ch.message);
     }).catch((e) => { if (alive) { setMessage(e.message); setChannels([]); } });
@@ -65,7 +76,7 @@ export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, quoteO
     setMessage(null);
     for (const r of sendable) {
       try {
-        const out = await post("/api/pollen/schedule", { itemIds: [r.item.id], channelIds: pickedChannels });
+        const out = await post("/api/pollen/schedule", { itemIds: [r.item.id], channelIds: pickedChannels, ...(scheduleOn ? {} : { now: true }) });
         patchRow(r.item.id, { result: out.results[0] });
       } catch (e) {
         patchRow(r.item.id, { result: { status: "not_sent", error: e.message } });
@@ -92,7 +103,10 @@ export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, quoteO
   }, [phase, waiting]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const asleep = phase === "sent" && waiting && sentAt && now - sentAt >= ASLEEP_MS;
-  const label = sendable.length ? `Schedule ${sendable.length} ${sendable.length === 1 ? "cover" : "covers"}` : "Schedule";
+  const many = sendable.length > 1 ? ` ${sendable.length} covers` : "";
+  const label = scheduleOn ? `Post${many}` : `Post${many} now`;
+  const scheduleHint = !canPostNow ? "Pollen books the first day with no photo post, starting a week out. Post now comes once Pollen can post right away."
+    : scheduleOn ? "Pollen books the first day with no photo post, starting a week out." : "Pollen posts as soon as uBee's computer is awake.";
 
   function status(r) {
     if (r.result) {
@@ -112,20 +126,29 @@ export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, quoteO
           <h2>Schedule with Pollen</h2>
           <button className="ghost mini" onClick={phase === "sent" ? onDone : onClose} disabled={phase === "sending"}>Close</button>
         </div>
-        <p className="hint">Pollen books each cover on the first day with no photo post, starting a week out. One photo post a day, never two.</p>
-
-        <label>Post to</label>
+        <p className="sheetLabel" id="postTo">Post to</p>
         {channels === null && <p className="hint">Getting your channels</p>}
-        <div className="channels">
-          {(channels || []).map((c) => (
-            <label key={c.id} className={c.ready ? "channel" : "channel off"}>
-              <input type="checkbox" data-channel={c.id} checked={Boolean(on[c.id])} disabled={!c.ready || phase !== "ready"}
-                onChange={(e) => setOn((o) => ({ ...o, [c.id]: e.target.checked }))} />
-              <span>{NAMES[c.platform] || c.platform}</span>
-              <span className="hint">{c.ready ? c.handle || "" : "needs reconnecting"}</span>
-            </label>
-          ))}
+        <div className="channelChips" role="group" aria-labelledby="postTo">
+          {(channels || []).map((c) => {
+            const [letters, color, ink = "#fff"] = badgeOf(c.platform);
+            return (
+              <button type="button" key={c.id} className="channelChip" data-channel={c.id} aria-pressed={Boolean(on[c.id])}
+                disabled={!c.ready || phase !== "ready"} onClick={() => setOn((o) => ({ ...o, [c.id]: !o[c.id] }))}
+                aria-label={`${NAMES[c.platform] || c.platform}${c.handle ? `, ${c.handle}` : ""}${c.ready ? "" : ", needs reconnecting"}`}>
+                <span className="channelBadge" aria-hidden="true" style={{ "--brand": color, "--ink": ink }}>{letters}</span>
+                <span className="channelName">{NAMES[c.platform] || c.platform}</span>
+                <span className="channelHandle">{c.ready ? c.handle || "" : "Needs reconnecting"}</span>
+              </button>
+            );
+          })}
         </div>
+
+        <label className="scheduleSwitch">
+          <input type="checkbox" role="switch" checked={scheduleOn} disabled={!canPostNow || phase !== "ready"} onChange={(e) => setScheduleOn(e.target.checked)} />
+          <span className="switchTrack" aria-hidden="true"><span className="switchKnob" /></span>
+          <span>Schedule</span>
+        </label>
+        <p className="hint scheduleHint">{scheduleHint} One photo post a day, never two.</p>
         {rows.some((r) => r.hasSlides) && <p className="hint">Covers with slides go out as the cover alone for now. Carousels come next.</p>}
         {rows.some((r) => r.songStays && !r.problems.length) && <p className="hint">Covers with a downloaded song go out without the song for now. Songs come next.</p>}
 
@@ -148,7 +171,7 @@ export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, quoteO
         <div className="sheetActions">
           {phase === "sent"
             ? <button onClick={onDone}>Done</button>
-            : <button onClick={send} disabled={phase !== "ready" || !sendable.length || !pickedChannels.length}>{phase === "sending" ? "Sending" : label}</button>}
+            : <button className="pollenPost" onClick={send} disabled={phase !== "ready" || !sendable.length || !pickedChannels.length}>{phase === "sending" ? "Sending" : label}</button>}
         </div>
       </div>
     </div>

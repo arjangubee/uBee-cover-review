@@ -81,12 +81,12 @@ export function captionState(item, offlineDraft) {
 
 /**
  * True when a model may draft this cover's caption: a queue or approved cover whose caption is blank, or a placeholder
- * on a cover made since drafting started (fillFrom, ms). Older placeholders wait until backfill sets fillFrom to 0.
- * Typed and model captions are never replaced.
+ * on a cover made, or remixed on the spot (1.21.0), since drafting started (fillFrom, ms). Older placeholders wait until
+ * backfill sets fillFrom to 0. Typed and model captions are never replaced.
  */
 export function canDraft(item, { offlineDraft, fillFrom } = {}) {
   if (!item || !["queue", "approved"].includes(item.status)) return false;
   const state = captionState(item, offlineDraft);
   if (state === "blank") return true;
-  return state === "placeholder" && Number(item.createdAt || 0) >= Number(fillFrom || 0);
+  return state === "placeholder" && Math.max(Number(item.createdAt || 0), Number(item.remixedAt || 0)) >= Number(fillFrom || 0);
 }

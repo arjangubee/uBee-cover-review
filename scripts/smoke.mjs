@@ -50,7 +50,7 @@ const TINY_JPEG = Buffer.from("/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYwLjMxLjEwM
 const CH_IG = "11111111-1111-4111-8111-111111111111";
 const CH_SUBSTACK = "22222222-2222-4222-8222-222222222222";
 const hive = { code: "smoke-pollen-code-0123456789-abcdefghijklmnop", revoked: false, dropSubmitOnce: false,
-  uploads: {}, uploadTypes: {}, requests: [], submits: 0, songs: false };
+  uploads: {}, uploadTypes: {}, requests: [], submits: 0, songs: false, postNow: false };
 const hiveServer = http.createServer(async (req, res) => {
   const chunks = [];
   for await (const c of req) chunks.push(c);
@@ -67,7 +67,8 @@ const hiveServer = http.createServer(async (req, res) => {
   if (hive.revoked || req.headers.authorization !== `Bearer ${hive.code}`) return send(401, { error: "That Pollen code doesn't work anymore. Ask uBee for a new one." });
   const body = JSON.parse(raw.toString() || "{}");
   if (body.action === "hello") {
-    return send(200, { ok: true, creator: { id: "cr-1", display_name: "Test Creator" }, ...(hive.songs ? { features: { songs: true } } : {}), channels: [
+    const features = { ...(hive.songs ? { songs: true } : {}), ...(hive.postNow ? { post_now: true } : {}) };
+    return send(200, { ok: true, creator: { id: "cr-1", display_name: "Test Creator" }, ...(Object.keys(features).length ? { features } : {}), channels: [
       { id: CH_IG, platform: "instagram", handle: "@smoke_ig", photo: true, ready: true, default_on: true },
       { id: CH_SUBSTACK, platform: "substack", handle: "smoke", photo: true, ready: true, default_on: false }] });
   }
@@ -88,7 +89,7 @@ const hiveServer = http.createServer(async (req, res) => {
     if (!r) {
       r = { id: `${String(hive.requests.length + 1).padStart(8, "0")}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, client_key: body.client_key, caption: body.caption,
         channel_ids: body.channel_ids, width: body.width, height: body.height, has_slides: body.has_slides, status: "waiting", booked_day: null, posts: [], error: null,
-        ...(body.song ? { song: body.song } : {}) };
+        ...(body.song ? { song: body.song } : {}), ...(body.post_now ? { post_now: true } : {}) };
       hive.requests.push(r);
     }
     if (hive.dropSubmitOnce) { hive.dropSubmitOnce = false; return req.socket.destroy(); }
@@ -187,20 +188,6 @@ async function postJson(path, body) {
   const r = await fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
   if (!r.ok) throw new Error(`${path} answered ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return r.json();
-}
-// The remix menu (1.17.0): ask for a remix, wait for it to be made, put it in place, and answer the new cover.
-async function remixOf(id, body) {
-  const { remix } = await postJson(`/api/items/${id}/remix`, body);
-  for (let i = 0; i < 50; i++) {
-    const r = (await (await fetch(`${base}/api/remixes`)).json()).remixes.find((x) => x.id === remix.id);
-    if (r && r.status !== "pending") {
-      await postJson(`/api/remixes/${r.id}/ack`, { after: null });
-      if (r.status !== "done") throw new Error(`the remix didn't land: ${r.error}`);
-      return (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === r.itemId);
-    }
-    await new Promise((res) => setTimeout(res, 100));
-  }
-  throw new Error("the remix was never made");
 }
 async function newItem(name) {
   const form = new FormData();
@@ -303,8 +290,10 @@ try {
     assert(withSlide.item.slides.length === 1, "slide should attach");
     const framed = await (await fetch(`${base}/api/items/${item.id}/story-framing`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ storyPanX: 20, storyPanY: 80 }) })).json();
     assert(framed.item.storyPanY === 80, "story framing should save");
-    const remix = await remixOf(item.id, { quote: { on: true } });
-    assert(remix.parentId === item.id && remix.revision === 2, "remix should create revision 2 in queue");
+    // 1.21.0 (room #960, "It should never duplicate."): a remix changes the cover on the spot, one version newer.
+    const remix = (await postJson(`/api/items/${item.id}/remix-now`, { quote: { on: true } })).item;
+    const queueNow = (await (await fetch(`${base}/api/items?status=queue`)).json()).items;
+    assert(remix.id === item.id && remix.revision === 2 && queueNow.filter((i) => i.imageUrl === item.imageUrl).length === 1, "remix should change the cover on the spot, with no copy");
     const enq = await (await fetch(`${base}/api/items/enqueue`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: [{ imageUrl: "https://example.com/drive-photo.jpg", driveId: "drive123", title: "drive photo" }, { imageUrl: "https://example.com/blurry.jpg", driveId: "drive999", imageQualityStatus: "quarantined" }] }) })).json();
     assert(enq.created.length === 2 && enq.created[0].quote.length > 0, "drive enqueue should assign a stock quote, never textless");
     assert(enq.created[1].status === "rejected", "quarantined photo must not enter the queue");
@@ -468,6 +457,10 @@ try {
     assert(canDraft(at({}), opts), "an old row that matches its offline draft is a placeholder");
     assert(!canDraft(at({ caption: "my own words" }), opts), "an old row with other words is locked");
     assert(!canDraft(at({ caption: "", status: "rejected" }), opts), "passed covers are left alone");
+    // 1.21.0: a remix on the spot gives an older cover a new quote and a fresh placeholder, which a model may draft, as it
+    // could draft 1.17's remix copy.
+    assert(canDraft(at({ captionSource: "placeholder", createdAt: 500, remixedAt: 3000 }), opts), "a cover remixed since drafting started");
+    assert(!canDraft(at({ captionSource: "placeholder", createdAt: 500, remixedAt: 800 }), opts), "a remix from before drafting started waits for backfill");
   });
   await check("v1.9 captions keep their source; upstream has no model, so its fill keeps the offline draft", async () => {
     const item = await newItem("source.png");
@@ -886,18 +879,21 @@ try {
     const cleared = await postJson(`/api/items/${item.id}/rate`, { songRating: null });
     assert(cleared.item.songRating === null, `cleared to ${cleared.item.songRating}`);
   });
-  await check("v1.4 a remix is its own cover: removing its slide keeps the original's, and it isn't booked with Pollen", async () => {
+  // 1.21.0: a remix makes no copy any more, so Reject and revise is what makes a new version now.
+  await check("v1.4 a revision is its own cover: removing its slide keeps the original's, and it isn't booked with Pollen", async () => {
     const item = await newItem("quill-remix.png");
     const form = new FormData();
     form.append("slide", new Blob([PNG_1PX], { type: "image/png" }), "remix-slide.png");
     await (await fetch(`${base}/api/items/${item.id}/slides`, { method: "POST", body: form })).json();
     await postJson(`/api/items/${item.id}/verify`); // a checked cover: its check and its stamp stay with it (1.13.9)
-    const remix = await remixOf(item.id, { quote: { on: true } });
+    const remix = (await postJson(`/api/items/${item.id}/reject-revise`, { note: "again" })).item;
+    assert(remix.parentId === item.id && remix.revision === 2, `a new version: ${JSON.stringify([remix.parentId, remix.revision])}`);
     await postJson(`/api/items/${remix.id}/slides/0/remove`, {});
-    const original = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === item.id);
+    const original = (await (await fetch(`${base}/api/items?status=rejected`)).json()).items.find((i) => i.id === item.id);
     assert(!original.slides[0].deletedAt, "removing the remix's slide removed the original's too");
-    assert(remix.pollen == null && remix.pollenRender == null && remix.beacons == null && remix.composeAttestedAt == null && remix.beaconsVersion == null,
-      `remix carries Pollen or check state: ${JSON.stringify([remix.pollen, remix.pollenRender, remix.beacons, remix.composeAttestedAt, remix.beaconsVersion])}`);
+    assert(remix.pollen == null && remix.pollenRender == null && remix.beacons == null && remix.composeAttestedAt == null && remix.beaconsVersion == null
+      && remix.rationale == null, // 1.21.0: the check's caveman lines are check state too
+      `remix carries Pollen or check state: ${JSON.stringify([remix.pollen, remix.pollenRender, remix.beacons, remix.composeAttestedAt, remix.beaconsVersion, remix.rationale])}`);
   });
   await check("trending refresh saves", async () => {
     const r = await (await fetch(`${base}/api/trending/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ songs: [{ title: "Smoke Song", artist: "Tester" }], source: "smoke" }) })).json();
@@ -1418,6 +1414,37 @@ try {
       hive.songs = false;
       await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
       await fetch(`${base}/api/connectors/symphony`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: null }) });
+    }
+  });
+  await check("v1.21 Post now waits until the Bee Hive says Pollen can post right away, and Schedule goes as before", async () => {
+    // Big Edit item 28: the sheet's Schedule switch is on by default; off, the button posts now. Like songs in 1.11, a
+    // cover goes out right away only once the Bee Hive's hello says Pollen takes it (features.post_now).
+    let ch = await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
+    assert(ch.connected && ch.postNow === false, `not yet: ${JSON.stringify(ch)}`);
+    const now1 = await approvedItem("post-now-1.png", "right now");
+    await render(now1.id);
+    const before = hive.submits;
+    const refused = await post("/api/pollen/schedule", { itemIds: [now1.id], channelIds: [CH_IG], now: true });
+    const body = await refused.json();
+    assert(refused.status === 400 && /right away/i.test(body.error || "") && hive.submits === before, `refused before sending: ${refused.status} ${JSON.stringify(body)}`);
+    hive.postNow = true;
+    try {
+      ch = await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
+      assert(ch.postNow === true, `now it can: ${JSON.stringify(ch)}`);
+      const out = (await (await post("/api/pollen/schedule", { itemIds: [now1.id], channelIds: [CH_IG], now: true })).json()).results[0];
+      assert(out.status === "waiting", `sent: ${JSON.stringify(out)}`);
+      const key1 = (await pollenOf(now1.id)).clientKey;
+      const r1 = hive.requests.find((x) => x.client_key === key1);
+      assert(r1?.post_now === true, `the request asks to post now: ${JSON.stringify(r1)}`);
+      const later = await approvedItem("post-later.png", "on a free day");
+      await render(later.id);
+      await (await post("/api/pollen/schedule", { itemIds: [later.id], channelIds: [CH_IG] })).json();
+      const key2 = (await pollenOf(later.id)).clientKey;
+      const r2 = hive.requests.find((x) => x.client_key === key2);
+      assert(r2 && !r2.post_now, `Schedule books a day as before: ${JSON.stringify(r2)}`);
+    } finally {
+      hive.postNow = false;
+      await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
     }
   });
   await check("pollen: the image route serves local and remote photos from this app's own address", async () => {

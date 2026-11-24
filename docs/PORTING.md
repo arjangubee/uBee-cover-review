@@ -12,6 +12,101 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.21.0: the review screen round of the Big Edit
+
+Arjang's Big Edit list (Nov 23, room #877), items 10, 12, 12.1, 15, 16, 18 and 28, as Quill batched them in #883. Item
+16 is Arjang's final word in room #960: "remix on the spot instead of putting it next in queue and/or duplicating it. It
+should never duplicate."
+
+1. **Download in one tap (items 10 and 18).** The download icon saves the cover, on a phone too, with no share sheet. The
+   page draws the cover ahead while she looks at it, so the save starts inside her tap: Safari, and a page shown inside
+   another app, only let a tap save a file. A cover she changes is drawn again a moment later.
+2. **The compose check comes checked (item 12).** The moment a cover is second in the queue, the one after the cover on
+   screen, it's checked, and so is the cover on screen when it isn't yet, or when its quote, its song, or whether its
+   quote shows changed since its check. There's no Check it to tap; Re-check stays. A check saved before 1.13.9 is left
+   to that one-time recheck, which runs first.
+   - Each check writes one short line for the quote and one for the song, arguing like a caveman why it goes with the
+     picture. The image comes first, so it gets none. This server has no model, so its own lines come from the words the
+     photo's description, the quote and the song's title share ("Picture have dancing. Words say dance. Same thing, so
+     them go together."), or say where the part came from when they share none. A part that fails its check is never
+     argued for: its line says what to fix ("Words not on your list. Pick words from your list.").
+   - A space with a model maps `rationale-fill` to its model call (below). Its lines land only for the quote and song
+     they were written for and only inside the rules: one line each, 18 words and 120 characters at most, no emoji, no
+     dashes. A later check keeps them while the quote and song stay the same and both parts pass.
+3. **Rate Quality (item 12.1).** What was the "Image info" fold is always open now, titled Rate Quality and centered:
+   the stars first, then the photo's details and the photo swap. My reading of the list: the stars sat right under the
+   fold's title, so they read as one section.
+4. **Under Randomize layout (item 15).** The Instagram caption, then Overlay Text (the quote, under that name instead of
+   the photo's file name), then the note for the next revision.
+5. **Remix on the spot (item 16).** Submit changes the cover she's on, right away, with 1.17's picks and gate: the same
+   word match against her own quote stock and song list, hidden songs never, her saved songs first on a tie. Nothing new
+   comes into the queue, in any list. The cover is one version newer, and what was about the old quote or song drops: why
+   it matches, that part's stars, and for a new quote the quote's off mark and a drafted caption (one she typed stays).
+   A checked cover is checked again. It's one step for Undo, which puts every field back. A remix that can't pick
+   changes nothing, and the sheet stays open to say why.
+   - Never a copy. 1.17's background route (`POST /api/items/:id/remix`) is gone: it answers 410 with "Remix changes the
+     cover on the spot now. Reload the page and remix it again." and makes nothing. A remix a page from before 1.21.0
+     left waiting closes the next time a page asks (`GET /api/remixes`), with "Remix works on the spot now. Open the
+     cover and remix it again." and no copy. A copy such a page already made still goes where the page puts it.
+6. **Schedule, Instagram style (item 28).** An approved cover has one big bright Schedule button under its icons, and a
+   cover already with Pollen says where it stands there instead. The Schedule sheet (from that button, or from Select in
+   Approved) shows her channels as round badges she taps from black and white to color, a Schedule switch that's on by
+   default, and one bright Post button. With Schedule off the button reads Post now. The badges are each platform's
+   letters on its own color, not the platforms' logos.
+   - Post now goes only once the Bee Hive's hello says Pollen takes it (`features.post_now`), the way songs waited for
+     `features.songs` in 1.11. Until then the switch stays on and says so, and every cover is scheduled as before.
+   - Booking still goes through the existing Pollen link. The working Pollen connection Arjang asked for in room #960
+     comes as its own plan, after this release.
+
+### Server
+
+| Where | Change |
+| --- | --- |
+| server/remix.js | `remix-now` and `remix-fields` (remix on the spot and its undo); the 1.17 route answers 410 and a waiting remix closes with no copy; the word match moved to words.js |
+| server/words.js (new) | The word match's words, for the remix picks and the compose check's lines |
+| server/rationale.js (new) | The compose check's lines: this server's own, the rules for a model's, and the prompt |
+| server/full.js | A check writes the lines; `rationale-prompt`, `rationale-draft` and `rationale-fill`; a copy starts without lines |
+| server/captionDrafts.js | A cover remixed since drafting started may get a model's caption, like a new cover |
+| server/pollen.js | `postNow` from the Bee Hive's hello; Post now sends `post_now: true` |
+| server/songs.js, server/index.js | The song sources list moved to songs.js, unchanged |
+
+What a space maps, new or changed:
+
+- `POST /api/items/:id/remix-now { quote: { on, prompt }, song: { on, prompt } }`: at least one ticked, each prompt 300
+  characters at most. Answers `{ item, before, after }`, where before and after hold every field a remix changes:
+  `quote, song, songSource, songPreviewUrl, songSpotifyUrl, songFile, songHook, showQuote, showQuoteSet, quoteRating,
+  songRating, why, caption, captionSource, revision, remixedAt` (a field the cover doesn't have reads as null). 422 with
+  the reason when it can't pick, and nothing changes.
+- `POST /api/items/:id/remix-fields { fields }`: undo and redo of a remix. Only those fields, each checked like the route
+  that sets it; null takes `showQuoteSet`, `captionSource`, `revision` and `remixedAt` off the cover. A checked cover is
+  checked again.
+- `POST /api/items/:id/verify` writes `rationale: { quote, song, source, basedOn: { quote, song, quoteOn }, at }` with the
+  check. `source` is `offline` or `model`.
+- `GET /api/items/:id/rationale-prompt`: `{ prompt, basedOn, imageUrl, description }` for a model, which answers
+  `{ "quote": "...", "song": "..." }`.
+- `POST /api/items/:id/rationale-draft { quote, song, basedOn }`: a model's lines. `{ saved: false, reason: "changed" }`
+  when basedOn isn't what the cover shows now, `reason: "rules"` with `problems` when a line breaks a rule.
+- `POST /api/items/:id/rationale-fill`: this server answers `{ drafted: false, reason: "no-model" }`, and the page stops
+  asking for the session. A space with a model maps it to: rationale-prompt, its model, then rationale-draft's checks,
+  answering `{ drafted: true, item }`.
+- `GET /api/pollen/channels` also answers `postNow`. `POST /api/pollen/schedule` takes `now: true` (Post now): refused
+  with a plain reason until `postNow` is true, then the Bee Hive's submit carries `post_now: true`.
+
+### Client
+
+| Where | Change |
+| --- | --- |
+| App.jsx | Download drawn ahead; remix on the spot with Undo; the check on the cover on screen and the next one; the big Schedule button |
+| RemixSheet.jsx | The new line at the top, and the reason when a remix can't pick |
+| CoverDetails.jsx | The caveman lines in the compose check; Rate Quality; Overlay Text |
+| ScheduleSheet.jsx | Channel badges, the Schedule switch, the Post button |
+| styles.css | The lines, Rate Quality, the badges, the switch, the Post and Schedule buttons |
+
+### Data steps (her space, never the repo)
+
+None. Her covers gain `rationale` the first time each is checked, and `remixedAt` when one is remixed on the spot. The
+counts don't change.
+
 ## 1.20.1: a Drive enqueue lands at the front of the queue
 
 Arjang in room #965: new covers go to the front of the queue, and everything else gets pushed back. The original does

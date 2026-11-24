@@ -205,6 +205,7 @@ img { max-width: 100%; }
 .checks li.na .yes { color: var(--muted); }
 .checks li.na .checkDot { border-style: dashed; }
 .checkWhat, .checkDetail { margin: 3px 0 0; color: var(--muted); font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.checkWhy { margin: 8px 0 0; color: var(--text-2); font-size: 16px; line-height: 1.45; } /* 1.21.0: the caveman line */
 .chipBtn { height: 46px; margin-top: 12px; padding: 0 20px; border: 1px solid var(--line-strong); border-radius: 999px; background: transparent; color: #fff; font-size: 16px; font-weight: 700; }
 .why { margin-top: 22px; }
 .why h3 { margin: 0 0 8px; font-size: 17px; font-weight: 700; }
@@ -212,15 +213,13 @@ img { max-width: 100%; }
 .tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .tag { padding: 8px 14px; border-radius: 999px; background: var(--surface); color: var(--text-2); font-size: 14px; }
 .why .audience { color: var(--muted); }
-.imageInfo { margin-top: 20px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.imageInfo summary { display: flex; align-items: center; justify-content: space-between; min-height: 56px; font-size: 16px; font-weight: 700; list-style: none; cursor: pointer; }
-.imageInfo summary::-webkit-details-marker { display: none; }
-.imageInfo .chev { color: var(--muted); transition: transform 0.2s; }
-.imageInfo[open] .chev { transform: rotate(180deg); }
-.imageInfo dl { margin: 0 0 6px; }
-.imageInfo dl div { display: grid; grid-template-columns: 84px 1fr; gap: 10px; padding: 6px 0; font-size: 15px; }
-.imageInfo dt { color: var(--muted); }
-.imageInfo dd { margin: 0; overflow-wrap: anywhere; }
+/* Rate Quality (1.21.0, Big Edit item 12.1): always open, title centered, the stars first. */
+.rateQuality { margin-top: 20px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.rateQuality h3 { margin: 0; padding: 16px 0 6px; font-size: 17px; font-weight: 700; text-align: center; }
+.rateQuality dl { margin: 10px 0 6px; }
+.rateQuality dl div { display: grid; grid-template-columns: 84px 1fr; gap: 10px; padding: 6px 0; font-size: 15px; }
+.rateQuality dt { color: var(--muted); }
+.rateQuality dd { margin: 0; overflow-wrap: anywhere; }
 .swapRow { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
 .swapGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 10px; }
 .swapTile { aspect-ratio: 1; padding: 0; border: 0; border-radius: 8px; overflow: hidden; background: var(--surface); }
@@ -469,6 +468,7 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 .remixOption:not(.on) .remixPrompt { color: var(--muted); } /* her words stay, left out until she ticks it again */
 .remixPrompt:disabled { opacity: 0.5; }
 .remixSheet .remixLocked { margin: 8px 0 0; }
+.remixSheet .remixProblem { margin: 16px 0 0; } /* 1.21.0: why a remix on the spot didn't work */
 .remixActions { display: flex; gap: 10px; margin-top: 22px; }
 .remixActions > button { flex: 1; }
 /* While a remix is made: a quiet line under the icons, where she asked for it. */
@@ -490,6 +490,36 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 .asleep { background: #141414; border: 1px solid #444; border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.45; margin-top: 12px; }
 .sheetActions { display: flex; gap: 10px; margin-top: 14px; }
 .sheetActions button { flex: 1; padding: 14px; font-size: 15px; }
+
+/* The Schedule sheet, Instagram style (1.21.0, Big Edit item 28): her channels as round badges, black and white until she
+   taps one on; a Schedule switch, on by default; one big bright Post button. */
+.sheetLabel { margin: 14px 0 8px; color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.channelChips { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; }
+.channelChip { display: flex; flex-direction: column; align-items: center; gap: 6px; min-height: 44px; padding: 10px 4px; border: 1px solid transparent; border-radius: 14px; background: transparent; color: var(--text); cursor: pointer; }
+.channelChip .channelBadge { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--brand); color: var(--ink); font-size: 18px; font-weight: 800; letter-spacing: 0.02em; filter: grayscale(1); opacity: 0.55; transition: filter 160ms ease, opacity 160ms ease, transform 160ms ease; }
+.channelChip[aria-pressed="true"] .channelBadge { filter: none; opacity: 1; transform: scale(1.04); box-shadow: 0 0 0 3px #111, 0 0 0 5px var(--brand); }
+.channelChip .channelName { font-size: 13px; font-weight: 700; }
+.channelChip .channelHandle { max-width: 100%; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.channelChip:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.channelChip:disabled { cursor: not-allowed; }
+.channelChip:disabled .channelBadge { opacity: 0.3; }
+@media (prefers-reduced-motion: reduce) { .channelChip .channelBadge { transition: none; } }
+.scheduleSwitch { position: relative; display: flex; align-items: center; gap: 12px; min-height: 44px; margin: 16px 0 0; color: var(--text); font-size: 17px; font-weight: 700; cursor: pointer; }
+.scheduleSwitch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; } /* the whole row is the switch */
+.switchTrack { position: relative; flex: none; width: 52px; height: 32px; border-radius: 999px; background: #3a3a3c; transition: background 160ms ease; }
+.switchKnob { position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%; background: #fff; transition: transform 160ms ease; }
+.scheduleSwitch input:checked + .switchTrack { background: var(--green-solid); }
+.scheduleSwitch input:checked + .switchTrack .switchKnob { transform: translateX(20px); }
+.scheduleSwitch input:focus-visible + .switchTrack { outline: 2px solid var(--ring); outline-offset: 2px; }
+.scheduleSwitch input:disabled + .switchTrack { opacity: 0.5; }
+.scheduleSwitch:has(input:disabled) { cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) { .switchTrack, .switchKnob { transition: none; } }
+.scheduleHint { margin: 4px 0 14px; }
+.scheduleBig { display: block; width: 100%; min-height: 56px; margin: 12px 0 4px; border: 0; border-radius: 16px; background: var(--accent); color: #101010; font-size: 18px; font-weight: 800; box-shadow: 0 6px 24px rgba(197, 253, 41, 0.3); cursor: pointer; }
+.scheduleBig:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.pollenState { margin: 12px 0 4px; padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: 16px; color: var(--text-2); font-size: 16px; font-weight: 700; text-align: center; }
+.sheet .pollenPost { min-height: 56px; border: 0; border-radius: 16px; background: var(--accent); color: #101010; font-size: 18px; font-weight: 800; box-shadow: 0 6px 24px rgba(197, 253, 41, 0.3); }
+.sheet .pollenPost:disabled { opacity: 0.45; box-shadow: none; }
 
 /* Sign-in (1.15.0): one field and Continue, on the app's own black, sized for a phone first. */
 .signIn { display: grid; min-height: 100vh; min-height: 100dvh; place-items: center; padding: 24px 16px calc(var(--host-bar) + 24px); }

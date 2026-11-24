@@ -3,7 +3,7 @@ import { imageUrlFor, loadImage } from "./CoverCanvas.jsx";
 import Icon from "./icons.jsx";
 import { plainCaption } from "./captionCall.js";
 import { badgeFor } from "./pollenView.js";
-import { displayTitle, parseSong, starsFor } from "./reviewMath.js";
+import { parseSong, starsFor } from "./reviewMath.js";
 
 // Everything under the cover: the icon row, Slides and Posts, Randomize layout, her note, the caption,
 // the Compose check, Why it matches, Image info and the star ratings.
@@ -96,7 +96,7 @@ export function TitleRow({ item }) {
   const badge = badgeFor(item.pollen);
   return (
     <div className="titleRow">
-      <strong className="titleName">{displayTitle(item.title)}</strong>
+      <strong className="titleName">Overlay Text</strong>{/* 1.21.0 (Big Edit item 15): its name, not the photo's file name */}
       <span className="titleQuote">{item.quote || <em>No quote</em>}</span>
       <span className="version" title="Version">v{item.revision || 1}</span>
       {badge && <span className={`state ${badge.tone}`} title={badge.why}>{badge.text}</span>}
@@ -166,8 +166,11 @@ const CHECKS = [
   ["STEPS_VERIFIED", "Steps verified", "Image first, then the quote, then the song."],
 ];
 
-export function ComposeCheck({ item, onRecheck, busy }) {
+// The compose check (1.21.0, Big Edit item 12) comes checked, and argues each decision like a caveman: one line for the
+// quote and one for the song (lines, null while what the cover shows has changed since its check). None for the image.
+export function ComposeCheck({ item, lines, onRecheck, busy }) {
   const b = item.beacons;
+  const why = { QUOTE_IN_STOCK: lines?.quote, SONG_IN_POOL: lines?.song };
   const verdict = !b ? { word: "NOT CHECKED", tone: "idle" } : b.STEPS_VERIFIED ? { word: "PASS", tone: "pass" } : { word: "CHECK", tone: "fail" };
   const detail = {
     QUOTE_IN_STOCK: b?.QUOTE_IN_STOCK === null ? "The quote is off on this cover." : item.quote ? `"${item.quote}"` : "No quote yet",
@@ -193,6 +196,7 @@ export function ComposeCheck({ item, onRecheck, busy }) {
                   <p className="checkName">{name} <span className="yes">{!b ? "" : na ? "NOT NEEDED" : ok ? "YES" : "NO"}</span></p>
                   <p className="checkWhat">{key} · {what}</p>
                   <p className="checkDetail">{detail[key]}</p>
+                  {why[key] && <p className="checkWhy">{why[key]}</p>}
                 </div>
               </li>
             );
@@ -216,18 +220,19 @@ export function WhyMatches({ why }) {
   );
 }
 
-export function ImageInfo({ item, onSwap, onRestore, searchPhotos }) {
-  const [open, setOpen] = useState(false);
+// Rate Quality (1.21.0, Big Edit item 12.1): what was the "Image info" fold is always open now, its title centered: the
+// stars first, then the photo's details and the photo swap.
+export function RateQuality({ item, onRate, onSwap, onRestore, searchPhotos }) {
   const [natural, setNatural] = useState(null);
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
-  useEffect(() => { setNatural(null); setResults([]); }, [item.id]);
+  useEffect(() => { setResults([]); }, [item.id]);
   useEffect(() => {
-    if (!open) return undefined;
     let alive = true;
+    setNatural(null);
     loadImage(imageUrlFor(item)).then((img) => { if (alive) setNatural({ w: img.naturalWidth, h: img.naturalHeight }); }).catch(() => {});
     return () => { alive = false; };
-  }, [open, item.id, item.imageUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [item.id, item.imageUrl]); // eslint-disable-line react-hooks/exhaustive-deps
   const rows = [
     ["File", item.title],
     ["Size", natural ? `${natural.w} x ${natural.h}` : "..."],
@@ -237,8 +242,9 @@ export function ImageInfo({ item, onSwap, onRestore, searchPhotos }) {
     ["Version", `v${item.revision || 1}${item.parentId ? `, remixed from cover ${item.parentId}` : ""}`],
   ];
   return (
-    <details className="imageInfo" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>Image info <Icon name="chevronDown" size={18} className="chev" /></summary>
+    <section className="rateQuality" aria-labelledby="rateQualityTitle">
+      <h3 id="rateQualityTitle">Rate Quality</h3>
+      <Ratings item={item} onRate={onRate} />
       <dl>{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
       <form className="swapRow" onSubmit={async (e) => { e.preventDefault(); setResults(await searchPhotos(q)); }}>
         <input className="field" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Swap the photo: search by name" aria-label="Search your photos by name" />
@@ -252,7 +258,7 @@ export function ImageInfo({ item, onSwap, onRestore, searchPhotos }) {
         </div>
       )}
       {item.originalImageUrl && item.originalImageUrl !== item.imageUrl && <button type="button" className="linkBtn" onClick={onRestore}>Restore the original photo</button>}
-    </details>
+    </section>
   );
 }
 

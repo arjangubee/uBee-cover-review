@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, post, upload } from "./api.js";
-import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, ImageInfo, NoteComposer, Ratings, Steppers, StoryControls, TitleRow, WhyMatches } from "./CoverDetails.jsx";
+import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, NoteComposer, RateQuality, Steppers, StoryControls, TitleRow, WhyMatches } from "./CoverDetails.jsx";
 import CoverEditor from "./CoverEditor.jsx";
 import EditorSheet from "./EditorSheet.jsx";
 import ZoomView from "./ZoomView.jsx";
@@ -11,6 +11,7 @@ import Icon from "./icons.jsx";
 import InfoSheet from "./InfoSheet.jsx";
 import LibraryView from "./LibraryView.jsx";
 import RemixSheet from "./RemixSheet.jsx";
+import { badgeFor, selectable } from "./pollenView.js";
 import { STYLE_DEFAULTS, canvasMeasureAt, colorPatch, ensureFonts, lookOf, normalizePlacement, randomizeLayout, registerFonts, renderCover, withDefaults, withLook } from "./renderCover.js";
 import { changedFields, displayTitle, valueForStars } from "./reviewMath.js";
 import ScheduleSheet from "./ScheduleSheet.jsx";
@@ -82,6 +83,8 @@ export default function App() {
   const [burst, setBurst] = useState(0); // the heart that pops on the cover when she likes it
   const [drawnId, setDrawnId] = useState(null); // the cover whose photo is on screen: only that one can be decided
   const [loads, setLoads] = useState(0); // counts finished loads; each one starts the caption fill loop (1.9)
+  const [checksReady, setChecksReady] = useState(false); // the 1.13.9 recheck has had its turn: checks can start (1.21.0)
+  const [checkTick, setCheckTick] = useState(0);
   const draftSaved = useRef(null); // the open draft as it stands on the server; each autosave sends only what changed
   const draftNow = useRef(null);
   const saveChain = useRef(Promise.resolve(true));
@@ -187,7 +190,10 @@ export default function App() {
         await whenIdle();
         try {
           const r = await post(`/api/items/${id}/recheck`, {});
-          if (!r.rechecked || !r.changed?.length || !r.item) continue;
+          if (!r.rechecked || !r.item) continue;
+          // The check's caveman lines (1.21.0) come with every recheck, so the card has them without a second check.
+          setItems((prev) => prev.map((i) => (i.id === r.item.id && r.item.rationale ? { ...i, rationale: r.item.rationale } : i)));
+          if (!r.changed?.length) continue;
           const fresh = { beacons: r.item.beacons, composeAttestedAt: r.item.composeAttestedAt, beaconsVersion: r.item.beaconsVersion };
           // A check that came back from something else in the meantime is as new as this one: it stays.
           setItems((prev) => prev.map((i) => (i.id === r.item.id && !(Number(i.beaconsVersion || 0) >= fresh.beaconsVersion) ? { ...i, ...fresh } : i)));
@@ -243,11 +249,54 @@ export default function App() {
   useEffect(() => { if (loads) fillCaptions(current?.id ?? null); }, [loads]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!loads) return undefined;
-    const run = async () => { await recheckSavedChecks(current?.id ?? null); await fillPlacements(current?.id ?? null); };
+    const run = async () => { await recheckSavedChecks(current?.id ?? null); setChecksReady(true); await fillPlacements(current?.id ?? null); };
     const idle = typeof window !== "undefined" && window.requestIdleCallback;
     const handle = idle ? window.requestIdleCallback(run, { timeout: 3000 }) : setTimeout(run, 800);
     return () => (idle ? window.cancelIdleCallback(handle) : clearTimeout(handle));
   }, [loads]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The compose check comes checked (1.21.0, Big Edit item 12): the moment a cover is second in the queue, the one after
+  // the cover on screen, it's checked, and so is the cover on screen when it isn't yet, or when what it shows changed
+  // since its check (the quote, the song, or whether the quote shows). A check saved before 1.13.9 is left to that pass,
+  // which runs first. One check at a time, when the browser is free; one that fails waits for the next load. Only the
+  // check is patched in, so nothing else moves. A copy with a model writes its own lines after each check
+  // (rationale-fill); one without answers no-model once, and that rests for the session.
+  const checking = useRef(false);
+  const checkFailed = useRef(new Set());
+  const checkedAs = useRef(new Map()); // id -> what the cover showed when this page checked it: never the same check twice
+  const linesModel = useRef(true);
+  const quoteOnFor = (item) => Boolean(quoteShown(item, quotesStatus?.quoteOverlay) && quotesStatus?.unlocked);
+  const shownAs = (item) => JSON.stringify([String(item.quote ?? ""), String(item.song ?? ""), quoteOnFor(item)]);
+  const linesFor = (item) => {
+    const b = item?.rationale?.basedOn;
+    return b && b.quote === String(item.quote ?? "") && b.song === String(item.song ?? "") && Boolean(b.quoteOn) === quoteOnFor(item) ? item.rationale : null;
+  };
+  const wantsCheck = (item) => Boolean(item?.imageUrl) && !checkFailed.current.has(item.id) && checkedAs.current.get(item.id) !== shownAs(item)
+    && (!item.beacons || !linesFor(item));
+  const toCheck = checksReady && quotesStatus && view === "cover" ? [items[index], items[index + 1]].filter(wantsCheck) : [];
+  const toCheckKey = toCheck.map((i) => i.id).join();
+  useEffect(() => {
+    if (!toCheckKey || checking.current) return;
+    checking.current = true;
+    (async () => {
+      for (const it of toCheck) {
+        await whenIdle();
+        try {
+          checkedAs.current.set(it.id, shownAs(it));
+          let { item } = await post(`/api/items/${it.id}/verify`);
+          if (linesModel.current && item.rationale?.source !== "model") {
+            const r = await post(`/api/items/${it.id}/rationale-fill`, {}).catch(() => null);
+            if (r?.reason === "no-model") linesModel.current = false;
+            else if (r?.drafted && r.item) item = r.item;
+          }
+          const check = { beacons: item.beacons, composeAttestedAt: item.composeAttestedAt, beaconsVersion: item.beaconsVersion, rationale: item.rationale ?? null };
+          setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, ...check } : i)));
+        } catch { checkFailed.current.add(it.id); }
+      }
+      checking.current = false;
+      setCheckTick((t) => t + 1); // look again: she may have moved on meanwhile
+    })();
+  }, [toCheckKey, checkTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // The boxes she has dragged on this cover this session leave the deck's safe hold, like the original's
   // positionedTextIds (1.13.8): never saved, and cleared when the cover changes.
   const [free, setFree] = useState(() => new Set());
@@ -275,6 +324,7 @@ export default function App() {
     if (ch.rate) item = (await post(`/api/items/${itemId}/rate`, ch.rate)).item;
     // The T icon's tap, undo and redo (1.13.9): this post's own quote, with its mark; set false takes the mark back off.
     if (ch.showQuote != null) item = (await post(`/api/items/${itemId}/quote-toggle`, { showQuote: ch.showQuote, set: ch.set !== false })).item;
+    if (ch.remix) item = (await post(`/api/items/${itemId}/remix-fields`, { fields: ch.remix })).item; // a remix on the spot (1.21.0)
     if (ch.slide) item = (await post(`/api/items/${itemId}/slides/${ch.slide.at}/${ch.slide.state === "removed" ? "remove" : "restore"}`)).item;
     if (ch.status) {
       await post(`/api/items/${itemId}/decide`, { decision: ch.status });
@@ -370,9 +420,10 @@ export default function App() {
     });
     setBusy(false);
   }
-  // The remix menu (1.17.0; Rose #796 and #797, Quill #798): Remix opens the sheet, and the remix is made in the background
-  // while she reviews. Once it's done, the page puts it right after the cover she's on, so it comes next wherever she got
-  // to, and she stays where she is. One that can't pick lands nothing: a note says why, here and on the cover it came from.
+  // The remix menu (1.17.0; Rose #796 and #797, Quill #798). Since 1.21.0 (Big Edit item 16) Submit remixes the cover she's
+  // on, right away, as one step for Undo. One that can't pick changes nothing, and the sheet stays open to say why.
+  // A remix a page from before 1.21.0 started is still made in the background: once it's done, the page puts it right
+  // after the cover she's on, so it comes next wherever she got to, and she stays where she is.
   const where = useRef({ list, id: null });
   where.current = { list, id: current?.id ?? null };
   useEffect(() => { if (remixOpen && (!current || view !== "cover")) setRemixOpen(false); }, [remixOpen, current, view]);
@@ -380,17 +431,19 @@ export default function App() {
     setRemixOpen(false);
     requestAnimationFrame(() => document.querySelector(".remixBtn")?.focus({ preventScroll: true }));
   }, []);
+  // Answers true once the cover has changed, or the reason it didn't, for the sheet to show.
   async function submitRemix(parts) {
     const src = current;
-    if (!src) return false;
+    if (!src) return "This cover isn't here anymore.";
     try {
-      const { remix } = await post(`/api/items/${src.id}/remix`, parts);
-      setItems((prev) => prev.map((i) => (i.id === src.id ? { ...i, lastRemix: null } : i))); // a new try clears the old note
-      waitingFor.current.add(remix.id);
-      setRemixing((r) => [...r, remix]);
+      const { item, before, after } = await post(`/api/items/${src.id}/remix-now`, parts);
+      patchItem(item);
+      history.current.push({ label: "Remix", itemId: item.id, before: { remix: before }, after: { remix: after } });
+      bumpHistory();
       closeRemix();
+      say("Remixed. Undo is up top.");
       return true;
-    } catch (e) { say(e.message); return false; }
+    } catch (e) { return e.message || "That remix didn't work. Try again."; }
   }
   const settling = useRef(false);
   const waitingFor = useRef(new Set()); // the remixes this page is waiting for
@@ -426,21 +479,33 @@ export default function App() {
   }, [remixing.length, settleRemixes]);
   // A remix from before this page opened: one that's done goes next, one still being made is waited for.
   useEffect(() => { if (loads === 1) settleRemixes(); }, [loads]); // eslint-disable-line react-hooks/exhaustive-deps
-  const download = () => attempt(async () => {
-    const blob = await renderCover(withLook(current, look), { quoteOn, free }); // as the deck shows it, held boxes and all (1.13.8), with the queue's look (1.20.0)
-    const name = `${displayTitle(current.title)}-cover.jpg`;
-    const file = new File([blob], name, { type: "image/jpeg" });
-    const touch = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
-    if (touch && navigator.canShare?.({ files: [file] })) {
-      try { await navigator.share({ files: [file] }); return; } catch (e) { if (e.name === "AbortError") return; }
-    }
+  // Download (1.21.0, Big Edit items 10 and 18): one tap saves the cover, on a phone too, with no share sheet. The cover is
+  // drawn ahead while she looks at it (as the deck shows it, held boxes and all, with the queue's look), so the save
+  // starts inside her tap: Safari, and a page shown inside another app, let only a tap save a file.
+  const ahead = useRef({ key: null, blob: null });
+  const drawnKey = current ? JSON.stringify([withLook(current, look), quoteOn, [...free]]) : null;
+  useEffect(() => {
+    if (!current || !coverReady || draft || ahead.current.key === drawnKey) return undefined;
+    let alive = true;
+    const cover = withLook(current, look), on = quoteOn, held = free;
+    const t = setTimeout(() => {
+      renderCover(cover, { quoteOn: on, free: held }).then((blob) => { if (alive) ahead.current = { key: drawnKey, blob }; }).catch(() => {});
+    }, 400);
+    return () => { alive = false; clearTimeout(t); };
+  }, [drawnKey, coverReady, draft]); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveFile = (blob, name) => {
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"), { href: url, download: name });
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
-  });
+  };
+  const download = () => {
+    const name = `${displayTitle(current.title)}-cover.jpg`;
+    if (ahead.current.key === drawnKey && ahead.current.blob) { saveFile(ahead.current.blob, name); return; }
+    attempt(async () => saveFile(await renderCover(withLook(current, look), { quoteOn, free }), name)); // not drawn yet: draw it now
+  };
   // The T icon (1.13.9, Arjang via Rose #693 and #694, Quill #695 and #696). A tap turns this post's quote off, or back on,
   // for this post only: a cover edit like any other, so undo puts back exactly what it was, mark and all. A hold is
   // global hide, the 1.13.3 setting: it hides every quote or brings them back, and it isn't a step for undo.
@@ -813,6 +878,10 @@ export default function App() {
                     {remixing.length === 1 ? "Your remix is on its way. It comes next." : `${remixing.length} remixes are on their way. They come next.`}</p>
                 )}
                 {current.lastRemix?.status === "failed" && <p className="problem remixNote">This cover's last remix didn't land. {current.lastRemix.error}</p>}
+                {/* Item 28 (1.21.0): an approved cover's one big Schedule button, or where it stands once it's with Pollen. */}
+                {current.status === "approved" && pollen?.connected && (selectable(current)
+                  ? <button type="button" className="scheduleBig" onClick={() => setSheet({ items: [current], stop: () => {} })}>Schedule</button>
+                  : <p className="pollenState" role="status">{badgeFor(current.pollen)?.text}</p>)}
                 {story && <StoryControls item={current} onPan={pan} onPanDone={panDone} />}
                 <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={addSlide} onRemoveSlide={removeSlide}
                   canPrevPost={index > 0} canNextPost={index < items.length - 1} onPrevPost={() => goTo(index - 1)} onNextPost={() => goTo(index + 1)} />
@@ -822,14 +891,14 @@ export default function App() {
                     <Icon name={colorLock ? "lock" : "unlock"} size={16} /> Color lock
                   </button>
                 </div>
-                <NoteComposer item={current} onPost={postNote} onDraft={(v) => setPending(current.id, "note", v)} inputRef={noteRef} />
+                {/* Under Randomize layout (1.21.0, Big Edit item 15): the caption, then the overlay text, then the note. */}
+                <CaptionRow item={current} ctas={ctas} onCta={setCta} onSave={saveCaption} onRedo={() => regenerate("caption")} onDraft={(v) => setPending(current.id, "caption", v)} />
                 <TitleRow item={current} />
                 {list === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}
-                <CaptionRow item={current} ctas={ctas} onCta={setCta} onSave={saveCaption} onRedo={() => regenerate("caption")} onDraft={(v) => setPending(current.id, "caption", v)} />
-                <ComposeCheck item={current} onRecheck={recheck} busy={busy} />
+                <NoteComposer item={current} onPost={postNote} onDraft={(v) => setPending(current.id, "note", v)} inputRef={noteRef} />
+                <ComposeCheck item={current} lines={linesFor(current)} onRecheck={recheck} busy={busy} />
                 <WhyMatches why={current.why} />
-                <ImageInfo item={current} onSwap={swapPhoto} onRestore={restorePhoto} searchPhotos={searchPhotos} />
-                <Ratings item={current} onRate={rate} />
+                <RateQuality item={current} onRate={rate} onSwap={swapPhoto} onRestore={restorePhoto} searchPhotos={searchPhotos} />
               </div>
               {draft && (
                 <EditorSheet onDismiss={finishEdit} status={saveState} dismissRef={sheetDismiss}

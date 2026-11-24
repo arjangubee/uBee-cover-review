@@ -1,7 +1,9 @@
 {
-  "version": "1.20.1",
-  "date": "2026-11-24",
+  "version": "1.21.0",
+  "date": "2026-11-23",
   "whatsNew": [
-    "New photos from Drive go to the front of your queue, newest batch first, and the rest wait behind them"
+    "Remix changes the cover right away, and Download saves it in one tap",
+    "The compose check comes checked, with a short reason for the quote and the song",
+    "A big Schedule button with your channels as icons, and Rate Quality always open"
   ]
 }

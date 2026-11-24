@@ -44,6 +44,9 @@ export function clipPath(file, folder = songsFolder()) {
 export const clipUrl = (file) => `/api/songs/clips/${String(file).split("/").map(encodeURIComponent).join("/")}`;
 export const clipType = (file) => CLIP_TYPES[extname(String(file)).toLowerCase()] || "application/octet-stream";
 
+/** Where a cover's song came from, as undo may send it back with a song (manual: a ported space's own source, 1.13.1). */
+export const SONG_SOURCES = ["spotify", "trending", "none", "downloaded", "manual", ""];
+
 /** A hook as { start, end } in song seconds, or null when it isn't one. */
 export function cleanHook(hook) {
   const start = Number(hook?.start), end = Number(hook?.end);

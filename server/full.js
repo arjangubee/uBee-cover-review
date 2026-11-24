@@ -6,6 +6,8 @@ import { nextOpacity } from "./styleRules.js";
 import { canDraft, captionPrompt, captionState, draftProblems, needsDescription } from "./captionDrafts.js";
 import { cleanCtas } from "./captionCtas.js";
 import { downloadedSongs, matchSongClip } from "./songs.js";
+import { musicOf } from "./music.js";
+import { basisOf, offlineRationale, rationaleProblems, rationalePrompt, sameBasis } from "./rationale.js";
 import { overlayOf, quoteShown } from "../client/src/quoteOverlay.js";
 import { FONTS, HEX, PALETTE, bakeLock, fontOk, rememberCustomColor } from "./brand.js";
 
@@ -199,12 +201,29 @@ export function verifyItem(item) {
   item.beacons = beacons;
   item.composeAttestedAt = beacons.STEPS_VERIFIED ? Date.now() : null;
   item.beaconsVersion = BEACONS_VERSION;
+  writeRationale(item, beacons);
   return beacons;
+}
+/** She saved the cover's song (1.15.0's Save). */
+function savedSong(item) {
+  if (!item.songFile) return false;
+  const { saved } = musicOf();
+  return downloadedSongs().some((s) => s.hookFile === item.songFile && saved.includes(s.id));
+}
+/** The compose check's lines (1.21.0, Big Edit item 12): a model's lines stay while they're about what the cover shows,
+ * otherwise the check writes this server's own. */
+function writeRationale(item, beacons) {
+  const quoteOn = quoteDrawn(item);
+  const basedOn = basisOf(item, quoteOn);
+  const checked = { quoteInStock: beacons.QUOTE_IN_STOCK !== false, songInPool: Boolean(beacons.SONG_IN_POOL) };
+  const passing = checked.quoteInStock && (checked.songInPool || !basedOn.song.trim()); // no model argues for a part that fails
+  if (passing && item.rationale?.source === "model" && sameBasis(item.rationale.basedOn, basedOn)) return;
+  item.rationale = { ...offlineRationale(item, { quoteOn, saved: savedSong(item), ...checked }), source: "offline", basedOn, at: Date.now() };
 }
 
 // A saved check, checked again under the rule in force, the 1.13.3 switch's way (Quill #707): beacons only, never
 // showQuote or any other choice of hers, and a cover that stays verified keeps when it was. Answers the beacons that changed.
-function recheckSaved(item) {
+export function recheckSaved(item) {
   const was = item.beacons || {}, when = item.composeAttestedAt;
   const now = verifyItem(item);
   if (was.STEPS_VERIFIED && now.STEPS_VERIFIED && when) item.composeAttestedAt = when;
@@ -253,8 +272,8 @@ export function quotesStatus() {
 // Pollen booking and no compose check carried over from the cover it came from. v1.4. The remix menu (1.17.0) builds on it.
 export function revisionOf(src) {
   // A cover's place in the queue isn't part of it (1.20.1): a revision gets its own.
-  const { id, status, decidedAt, pollen, pollenRender, beacons, composeAttestedAt, beaconsVersion, reviewOrderAt, ...rest } = structuredClone(src);
-  return rest;
+  const { id, status, decidedAt, pollen, pollenRender, beacons, composeAttestedAt, beaconsVersion, reviewOrderAt, rationale, ...rest } = structuredClone(src);
+  return rest; // a copy starts unchecked: no check, and none of the check's lines (1.21.0)
 }
 
 export function registerFull(app, upload) {
@@ -620,6 +639,33 @@ export function registerFull(app, upload) {
     item.why = why;
     store.saveDb();
     res.json({ item });
+  });
+
+  // ---------- 1.21.0: the compose check's caveman lines (Big Edit item 12) ----------
+  // A check writes them (verifyItem). This server has no model, so rationale-fill answers no-model. A space with one maps
+  // rationale-fill to its model call with rationalePrompt, and saves the answer the way rationale-draft does: only for the
+  // quote and song it was written for (basedOn), and only inside rationaleProblems' rules.
+  const rationaleBasis = (item) => basisOf(item, quoteDrawn(item));
+  app.get("/api/items/:id/rationale-prompt", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    res.json({ prompt: rationalePrompt(item, { quoteOn: quoteDrawn(item) }), basedOn: rationaleBasis(item), imageUrl: item.imageUrl,
+      description: String(item.description ?? "") });
+  });
+  app.post("/api/items/:id/rationale-draft", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const basedOn = rationaleBasis(item);
+    if (!sameBasis(req.body?.basedOn, basedOn)) return res.json({ saved: false, reason: "changed", item });
+    const line = (v) => (v == null ? null : String(v).trim());
+    const lines = { quote: line(req.body?.quote), song: basedOn.song.trim() ? line(req.body?.song) : null }; // no song, no song line
+    const problems = rationaleProblems(lines);
+    if (problems.length) return res.json({ saved: false, reason: "rules", problems, item });
+    item.rationale = { ...lines, source: "model", basedOn, at: Date.now() };
+    store.saveDb();
+    res.json({ saved: true, item });
+  });
+  app.post("/api/items/:id/rationale-fill", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    res.json({ drafted: false, reason: "no-model", item });
   });
 
   // Verification: verifycover + attestcomposesteps in the original.

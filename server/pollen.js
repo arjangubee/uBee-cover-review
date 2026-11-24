@@ -31,6 +31,9 @@ class HiveError extends Error {
 const pollen = () => store.settings.pollen || null;
 // 1.11: the Bee Hive says in hello whether it takes a song with a cover. Until it does, covers go out as before.
 const takesSongs = () => Boolean(pollen()?.features?.songs);
+// 1.21.0 (Big Edit item 28): and whether Pollen posts a cover right away. Until it does, every cover is scheduled.
+const postsNow = () => Boolean(pollen()?.features?.post_now);
+const NOT_NOW = "Pollen can't post right away yet. Leave Schedule on and Pollen books the first free day.";
 
 /** How a cover's downloaded song fares with Pollen: does it have a clip, will the clip go, and any problem. */
 export function songCheck(item) {
@@ -75,7 +78,7 @@ function revoke() {
 export function pollenStatus() {
   const p = pollen();
   if (!p?.code) return { connected: false, revoked: Boolean(p?.revoked), ...(p?.revoked ? { message: REVOKED } : {}) };
-  return { connected: true, revoked: false, creator: p.creator, channels: channelList(p.channels), checkedAt: p.checkedAt };
+  return { connected: true, revoked: false, creator: p.creator, channels: channelList(p.channels), checkedAt: p.checkedAt, postNow: postsNow() };
 }
 
 export async function connect(code) {
@@ -133,7 +136,7 @@ function saveRender(item, buf) {
   return item.pollenRender;
 }
 
-async function scheduleOne(id, picked) {
+async function scheduleOne(id, picked, now = false) {
   const item = store.getItem(id);
   if (!item) return { itemId: id, status: "refused", error: "That cover is gone." };
   if (item.status !== "approved") return { itemId: id, status: "refused", error: "Only approved covers can be scheduled." };
@@ -181,7 +184,8 @@ async function scheduleOne(id, picked) {
       songBody = { song: { path: upSong.path, ...songMeta(item), content_type: type } };
     }
     const sub = await hive("submit", { client_key: clientKey, caption: caption || "", image_path: up.path,
-      width: render.width, height: render.height, channel_ids: picked, has_slides: (item.slides || []).some((s) => !s.deletedAt), ...songBody });
+      width: render.width, height: render.height, channel_ids: picked, has_slides: (item.slides || []).some((s) => !s.deletedAt), ...songBody,
+      ...(now ? { post_now: true } : {}) }); // 1.21.0: Post now
     Object.assign(item.pollen, { requestId: sub.request.id, status: sub.request.status, updatedAt: Date.now() });
     store.saveDb();
     return { itemId: id, status: item.pollen.status };
@@ -193,14 +197,15 @@ async function scheduleOne(id, picked) {
   }
 }
 
-export async function schedule(itemIds, channelIds) {
+export async function schedule(itemIds, channelIds, { now = false } = {}) {
   const p = pollen();
   if (!p?.code) throw new HiveError(p?.revoked ? REVOKED : "Connect Pollen first.", p?.revoked ? 401 : 400);
   const allowed = new Set(channelList(p.channels).map((c) => c.id));
   const picked = [...new Set((channelIds || []).map(String))].filter((id) => allowed.has(id));
   if (!picked.length) throw new HiveError("Pick at least one channel.", 400);
+  if (now && !postsNow()) throw new HiveError(NOT_NOW, 400);
   const results = [];
-  for (const id of [...new Set((itemIds || []).map(Number))]) results.push(await scheduleOne(id, picked));
+  for (const id of [...new Set((itemIds || []).map(Number))]) results.push(await scheduleOne(id, picked, now));
   return { ok: true, results };
 }
 
@@ -305,7 +310,7 @@ export function registerPollen(app) {
     }) });
   });
   app.post("/api/pollen/schedule", async (req, res) => {
-    try { res.json(await schedule(req.body?.itemIds, req.body?.channelIds)); } catch (e) { fail(res, e); }
+    try { res.json(await schedule(req.body?.itemIds, req.body?.channelIds, { now: req.body?.now === true })); } catch (e) { fail(res, e); }
   });
   app.post("/api/pollen/sync", async (_req, res) => res.json(await sync()));
   app.get("/api/items/:id/image", async (req, res) => {

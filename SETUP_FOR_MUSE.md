@@ -122,6 +122,11 @@ Most creators save in their own Drive. A uBee client is different:
 - When the creator approves in the app, mirror approved photos into the Drive "Approved" folder if Drive is connected.
 - Keep trending fresh, keep the voice profile current as they post, and surface their saved notes back to them when they edit. A note like a body note or a crop note is an instruction for the edit, keep it attached to that photo.
 - Report in short messages. One topic per message.
+- The compose check's lines (1.21): each check argues for the quote and the song in one short caveman line each, and
+  this server writes plain ones from shared words. If you can run a model, write better ones: read
+  `GET /api/items/:id/rationale-prompt`, answer it, and save with `POST /api/items/:id/rationale-draft` and
+  `{ "quote": "...", "song": "...", "basedOn": <the prompt's basedOn> }`. They land only for the quote and song they were
+  written for and only inside the rules the answer lists (one line each, 18 words at most, no emoji, no dashes).
 
 ## 8. Chats: practice replies to her DMs and comments (1.14)
 

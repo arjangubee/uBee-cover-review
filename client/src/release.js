@@ -26,3 +26,16 @@ export function releaseBanner(release, current) {
     ask: `Update my Cover Review to version ${release.version}.`,
   };
 }
+
+/**
+ * The uBee logo's tap (1.24.0, Arjang #1121, Quill #1125): load the latest version at once. A service worker, if there
+ * is one, checks for an update first. The page is fetched past the browser's cache so its saved copy is replaced, and
+ * the reload asks for a fresh address, so an old copy can't come back. No dialog, like a normal reload.
+ */
+export async function hardRefresh() {
+  try { await (await navigator.serviceWorker?.getRegistration?.())?.update?.(); } catch { /* no worker */ }
+  try { await fetch(window.location.pathname, { cache: "reload" }); } catch { /* offline: the reload still tries */ }
+  const url = new URL(window.location.href);
+  url.searchParams.set("fresh", Date.now().toString(36));
+  window.location.replace(url.toString());
+}

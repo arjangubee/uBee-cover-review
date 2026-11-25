@@ -3,6 +3,7 @@ import CoverCanvas from "./CoverCanvas.jsx";
 import Icon from "./icons.jsx";
 import { safeZoneFor, textHitBoxes } from "./renderCover.js";
 import { lockAxis, startAxis } from "./safeLock.js";
+import { GUIDE_IDS, SNAP_PX, guidesFor, snap, snapGuidesOn } from "./snapGuides.js";
 
 // The stage: a 4:5 frame like a post. The cover is slide one; her slides follow in a strip she swipes
 // through, like Instagram. While she edits, only the photo she's editing shows (the cover, or since 1.20.0 the carousel
@@ -73,11 +74,22 @@ export default function CoverStage({
   const press = useRef(null);
   const [lift, setLift] = useState(null); // the box held up for placing: { index, slideAt }
   useEffect(() => () => clearTimeout(press.current?.timer), []);
+  // Snap guides (1.24.0, Arjang #1083): the line(s) the dragged text sits on, { slideAt, x, y }, or null.
+  const [guide, setGuide] = useState(null);
+  const snapPos = useRef({ x: 0, y: 0 }).current, snapOut = useRef({}).current;
+  useEffect(() => {
+    const off = () => { if (document.hidden) { setGuide(null); if (press.current) press.current.gx = press.current.gy = null; } };
+    document.addEventListener("visibilitychange", off);
+    return () => document.removeEventListener("visibilitychange", off);
+  }, []);
   // While a box is lifted, her finger places it and the page never scrolls under it.
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return undefined;
-    const hold = (e) => { if (press.current?.lifted && e.cancelable) e.preventDefault(); };
+    const hold = (e) => {
+      if (press.current) press.current.multi = e.touches.length > 1; // a two-finger drag doesn't snap
+      if (press.current?.lifted && e.cancelable) e.preventDefault();
+    };
     el.addEventListener("touchmove", hold, { passive: false });
     return () => el.removeEventListener("touchmove", hold);
   }, []);
@@ -96,7 +108,8 @@ export default function CoverStage({
     if (!b) return;
     const z = safeZoneFor(cssW, cssH);
     Object.assign(p, { zone: z, halfW: b.halfW, halfH: b.halfH,
-      lockX: startAxis(b.centerX, b.halfW, z.left, z.right), lockY: startAxis(b.centerY, b.halfH, z.top, z.bottom) });
+      lockX: startAxis(b.centerX, b.halfW, z.left, z.right), lockY: startAxis(b.centerY, b.halfH, z.top, z.bottom),
+      snapOn: snapGuidesOn(), guides: null, gx: null, gy: null, slideAt, cssW, cssH });
   }
   const pointer = (cssW, cssH, slideAt = null) => ({
     onPointerDown(e) {
@@ -132,21 +145,41 @@ export default function CoverStage({
       if (!p.freed && Math.hypot(e.clientX - p.x0, e.clientY - p.y0) > FREE) { p.freed = true; onFree?.(p.hit); }
       const r = e.currentTarget.getBoundingClientRect();
       let x = e.clientX - r.left, y = e.clientY - r.top;
+      // Snap guides, in screen px so they hold at any size and zoom. Alt/Option or a second finger lets the text go free.
+      let gx = null, gy = null;
+      if (p.snapOn && p.halfW != null && !e.altKey && !p.multi) {
+        if (!p.guides) {
+          p.guides = guidesFor(r.width, r.height);
+          p.bounds = { halfW: (p.halfW * r.width) / p.cssW, halfH: (p.halfH * r.height) / p.cssH };
+        }
+        snapPos.x = x; snapPos.y = y;
+        snap(snapPos, p.bounds, p.guides, SNAP_PX, snapOut);
+        x = snapOut.x; y = snapOut.y; gx = snapOut.xGuide; gy = snapOut.yGuide;
+      }
       if (p.zone) {
         const ax = lockAxis(p.lockX, x, p.halfW, p.zone.left, p.zone.right), ay = lockAxis(p.lockY, y, p.halfH, p.zone.top, p.zone.bottom);
         p.lockX = ax.state; p.lockY = ay.state;
+        if (ax.center !== x) gx = null; // a safe edge held it off the line: no line shows
+        if (ay.center !== y) gy = null;
         x = ax.center; y = ay.center;
+      }
+      if (gx !== p.gx || gy !== p.gy) {
+        if (!p.mouse && ((gx && gx !== p.gx) || (gy && gy !== p.gy))) navigator.vibrate?.(8); // one light tick per snap
+        p.gx = gx; p.gy = gy;
+        setGuide(gx || gy ? { slideAt, x: gx ? gx.id : null, y: gy ? gy.id : null } : null);
       }
       const h = Math.min(100, Math.max(0, (x / r.width) * 100));
       const v = Math.min(100, Math.max(0, (y / r.height) * 100));
-      if (!p.lifted) onMoveBox(p.hit, Math.round(h), Math.round(v));
-      else if (p.moved) { p.placed = true; onMoveText(p.hit, Math.round(h), Math.round(v), slideAt); } // past a tap's wiggle
+      const hx = gx ? Math.round(h * 1000) / 1000 : Math.round(h), vy = gy ? Math.round(v * 1000) / 1000 : Math.round(v);
+      if (!p.lifted) onMoveBox(p.hit, hx, vy);
+      else if (p.moved) { p.placed = true; onMoveText(p.hit, hx, vy, slideAt); } // past a tap's wiggle
     },
     onPointerUp() {
       const p = press.current;
       press.current = null;
       if (!p) return;
       clearTimeout(p.timer);
+      if (p.gx || p.gy) setGuide(null);
       if (p.lifted) setLift(null);
       if (p.placed) { onDropText?.(); return; } // placed: the editor stays closed
       if (p.moved) return; // a lift let go without moving is still a tap (1.13.6): it opens the editor
@@ -162,6 +195,7 @@ export default function CoverStage({
       press.current = null;
       if (!p) return;
       clearTimeout(p.timer);
+      if (p.gx || p.gy) setGuide(null);
       if (p.lifted) setLift(null);
       if (p.placed) onDropText?.(); // it stays where she had it
     },
@@ -198,6 +232,11 @@ export default function CoverStage({
       {({ cssW, cssH }) => (
         <>
           <div className="hitLayer" style={{ touchAction: editing ? "none" : "auto" }} {...pointer(cssW, cssH, slideAt)} />
+          <div className="snapLines" aria-hidden="true">
+            {GUIDE_IDS.map((id) => (
+              <span key={id} className={guide && guide.slideAt === slideAt && (guide.x === id || guide.y === id) ? `snapLine ${id} on` : `snapLine ${id}`} />
+            ))}
+          </div>
           {lift && lift.slideAt === slideAt && (() => {
             const b = boxesAt(cssW, cssH, slideAt).find((x) => x.index === lift.index);
             return b ? <div className="liftRing" aria-hidden="true" style={{ left: b.left - 8, top: b.top - 8, width: b.right - b.left + 16, height: b.bottom - b.top + 16 }} /> : null;

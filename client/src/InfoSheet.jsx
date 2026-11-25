@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { post } from "./api.js";
 import Icon from "./icons.jsx";
 import { setRestrictSignups, signOut, useSession } from "./session.js";
+import { setSnapGuidesOn, snapGuidesOn } from "./snapGuides.js";
 
 // Behind the info button: adding photos, setup, Pollen, the quote quiz, "Something wrong?" and her account (1.15.0).
 // Everything that used to sit under the cover lives here now, one tap away.
@@ -9,6 +10,7 @@ import { setRestrictSignups, signOut, useSession } from "./session.js";
 export default function InfoSheet({ status, pollen, quotesStatus, quizQuotes, list, currentId, onClose, onUpload, onSortDump, onConsent,
   onConnectPollen, onQuizDecide, onConnectQuotes, onGrievance }) {
   const [pollenCode, setPollenCode] = useState("");
+  const [snapOn, setSnapOn] = useState(snapGuidesOn); // "Snap to guides", on by default (1.24.0)
   const [pollenNote, setPollenNote] = useState("");
   const [ownQuotes, setOwnQuotes] = useState("");
   const [grievance, setGrievance] = useState("");
@@ -143,6 +145,14 @@ export default function InfoSheet({ status, pollen, quotesStatus, quizQuotes, li
             <li>Tap the text on the cover to edit it. Undo and redo sit at the top.</li>
             <li>On a computer: left and right arrow keys move between covers.</li>
           </ul>
+        </section>
+
+        <section className="infoBlock">
+          <h3>Editing</h3>
+          <button type="button" role="switch" aria-checked={snapOn} className="callSwitch" onClick={() => { setSnapOn(!snapOn); setSnapGuidesOn(!snapOn); }}>
+            <span className="track" aria-hidden="true"><span className="knob" /></span>
+            <span className="callLabel">Snap to guides</span>
+          </button>
         </section>
 
         <section className="infoBlock">

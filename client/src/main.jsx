@@ -13,6 +13,12 @@ import "@fontsource/tiktok-sans/latin-400.css";
 import "@fontsource/tiktok-sans/latin-500.css";
 import "@fontsource/tiktok-sans/latin-700.css";
 import "./styles.css";
+
+// A logo tap reloads with ?fresh=... (1.24.0): take it back off the address once the new page is here.
+try {
+  const here = new URL(window.location.href);
+  if (here.searchParams.has("fresh")) { here.searchParams.delete("fresh"); window.history.replaceState(window.history.state, "", here.toString()); }
+} catch { /* an address it can't read stays as it is */ }
 // The Chats screen's styles apply only inside .dm-root (1.14).
 import "./dm/dm-tw.css";
 import "./dm/dm.css";

@@ -445,19 +445,17 @@ const SAFE_ZONES = [
   { aspect: 1, left: 6, top: 6, width: 88, height: 88 },
 ];
 /**
- * A landscape cover (any shape wider than square) uses the original's formula, safeBoundsForGeometry (1.8.1, Quill
- * #283). There the photo sits across the 4:5 frame, inset 5% across (6% from 1.7:1), and top and bottom by the larger
- * of 2% of the frame and 6% of the photo's height (8% from 1.7:1). In the photo's own frame, which this app lays text
- * out in, 2% of the frame is (2.5 x width / height)% of the photo's height.
+ * A landscape cover (any shape wider than square) has no inset since 1.24.0 (Arjang #1087, Quill #1090): its safe zone
+ * is the whole photo, so the fit, the safe-edge locks and Randomize all meet the photo's own edges. Text still stays on
+ * the photo. Portrait and square shapes keep their insets.
  */
-function landscapeZone(a) {
-  const wide = a >= 1.7, across = wide ? 6 : 5, down = Math.max(2.5 * a, wide ? 8 : 6);
-  return { left: across, top: down, width: 100 - 2 * across, height: 100 - 2 * down };
+function landscapeZone() {
+  return { left: 0, top: 0, width: 100, height: 100 };
 }
 /** The safe zone of a width x height cover, in pixels. */
 export function safeZoneFor(width, height) {
   const a = width / height;
-  const z = a > 1 ? landscapeZone(a) : SAFE_ZONES.reduce((best, p) => (Math.abs(Math.log(p.aspect / a)) < Math.abs(Math.log(best.aspect / a)) ? p : best));
+  const z = a > 1 ? landscapeZone() : SAFE_ZONES.reduce((best, p) => (Math.abs(Math.log(p.aspect / a)) < Math.abs(Math.log(best.aspect / a)) ? p : best));
   return { left: (width * z.left) / 100, top: (height * z.top) / 100, right: (width * (z.left + z.width)) / 100, bottom: (height * (z.top + z.height)) / 100 };
 }
 /** True when the whole drawn block (its fit and stretch included) sits inside the safe zone, 2 px in. */

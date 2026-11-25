@@ -103,3 +103,8 @@ export function zoomPan(z, dx, dy, w, h) {
   if (z.scale <= 1) return z;
   return { ...z, x: pct(z.x - (dx / (w * (z.scale - 1))) * 100), y: pct(z.y - (dy / (h * (z.scale - 1))) * 100) };
 }
+
+/** The Drive file a photo came from, as a link that opens it (1.24.0, Arjang #1106). Null with no Drive id. */
+export function driveLinkFor(item) {
+  return item?.source === "drive" && item.driveId ? `https://drive.google.com/file/d/${encodeURIComponent(item.driveId)}/view` : null;
+}

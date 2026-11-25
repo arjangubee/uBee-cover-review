@@ -1,9 +1,9 @@
 {
-  "version": "1.23.1",
+  "version": "1.24.0",
   "date": "2026-11-25",
   "whatsNew": [
-    "Refresh in Chats is a live sync: it pulls new messages and comments from Instagram",
-    "Under each post in Comments: how many comments need a reply, with those comments taking turns",
-    "A chat comes back to Needs Reply when they write again, and a sync never touches your drafts or edits"
+    "Dragging text shows a guide when it lines up with the center or a third, and snaps to it",
+    "On a landscape photo the text can go all the way to the edges",
+    "Tap the uBee logo to load the latest version, and the Drive row opens the photo in Drive"
   ]
 }

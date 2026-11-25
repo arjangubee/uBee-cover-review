@@ -536,3 +536,22 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 .signInError { margin: 14px 0 0; color: var(--red); font-size: 15px; line-height: 1.4; }
 .signInFoot { margin: 18px 0 0; }
 .infoBlock .callSwitch { margin: 4px 0 8px; text-align: left; }
+
+/* The logo loads the latest version (1.24.0): a button with the logo's own look, size and place. */
+.topbar .beeBtn { flex: none; width: 44px; height: 44px; padding: 9px 6px 9px 12px; margin: 0; border: 0; background: none; line-height: 0; cursor: pointer; border-radius: 12px; }
+.topbar .beeBtn .bee { margin: 0; }
+
+/* Snap guides (1.24.0): only the line the dragged text sits on shows, in over 100ms and out over 150ms. */
+.snapLines { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.snapLine { position: absolute; opacity: 0; transition: opacity 150ms ease-out; background: #fff; box-shadow: 0 0 2px rgba(0, 0, 0, 0.65); }
+.snapLine.on { opacity: 0.55; transition-duration: 100ms; }
+.snapLine.xc, .snapLine.x1, .snapLine.x2 { top: 0; bottom: 0; width: 1px; margin-left: -0.5px; }
+.snapLine.yc, .snapLine.y1, .snapLine.y2 { left: 0; right: 0; height: 1px; margin-top: -0.5px; }
+.snapLine.xc { left: 50%; }
+.snapLine.x1 { left: 33.3333%; }
+.snapLine.x2 { left: 66.6667%; }
+.snapLine.yc { top: 50%; }
+.snapLine.y1 { top: 33.3333%; }
+.snapLine.y2 { top: 66.6667%; }
+.snapLine.xc, .snapLine.yc { background: #ef27a6; box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { .snapLine { transition: none; } }

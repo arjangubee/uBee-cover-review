@@ -200,3 +200,10 @@ Since 1.23.0 (Refresh is a live sync):
    ..., "imported": n, "updated": n, "detail": "the reason, in plain words" }`. What came in stays, and her next Refresh
    starts again from the same `since`.
 5. A pull only reads. Never send, edit or delete anything on Instagram during one.
+
+## 9. Why it matches (1.25)
+
+Every cover's compose check has a 4th check, Why it matches. Send `why` (`{ "text": "...", "tags": [...] }`) with every
+cover you compose: the photo's details, the quote's idea and the song's specifics, at least 6 words. A batch item that
+brings a quote or song without one is refused. For a cover already in the queue, write it with
+`POST /api/items/<id>/why`. A cover without one reads INCOMPLETE and waits behind the covers that pass.

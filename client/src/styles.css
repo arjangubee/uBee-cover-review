@@ -198,7 +198,7 @@ img { max-width: 100%; }
 .checks li { display: grid; grid-template-columns: 38px 1fr; gap: 10px; padding: 10px 0; }
 .checkDot { display: grid; place-items: center; width: 32px; height: 32px; border: 2px solid var(--off); border-radius: 50%; }
 .checks li.ok .checkDot { border-color: var(--green-solid); background: var(--green-solid); color: #fff; }
-.checks li.no .checkDot { border-color: #ff6961; }
+.checks li.no .checkDot { border-color: #ff6961; background: #ff6961; color: #fff; } /* 1.25.0: a red X means INCOMPLETE */
 .checkName { margin: 2px 0 0; font-size: 18px; font-weight: 700; }
 .checkName .yes { margin-left: 8px; color: var(--green); font-size: 15px; font-weight: 800; letter-spacing: 0.04em; }
 .checks li.no .yes { color: #ff6961; }
@@ -555,3 +555,8 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 .snapLine.y2 { top: 66.6667%; }
 .snapLine.xc, .snapLine.yc { background: #ef27a6; box-shadow: none; }
 @media (prefers-reduced-motion: reduce) { .snapLine { transition: none; } }
+
+/* Why it matches, merged into the compose check (1.25.0): the blurb beneath the checks. */
+.composeWhy { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line-strong); }
+.composeWhy p { margin: 0; color: var(--text-2); font-size: 16px; line-height: 1.5; }
+.composeWhy .audience { margin-top: 8px; color: var(--muted); font-size: 14px; }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, post, upload } from "./api.js";
-import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, NoteComposer, RateQuality, Steppers, StoryControls, TitleRow, WhyMatches } from "./CoverDetails.jsx";
+import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, NoteComposer, RateQuality, Steppers, StoryControls, TitleRow } from "./CoverDetails.jsx";
 import CoverEditor from "./CoverEditor.jsx";
 import EditorSheet from "./EditorSheet.jsx";
 import ZoomView from "./ZoomView.jsx";
@@ -897,7 +897,6 @@ export default function App() {
                 {list === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}
                 <NoteComposer item={current} onPost={postNote} onDraft={(v) => setPending(current.id, "note", v)} inputRef={noteRef} />
                 <ComposeCheck item={current} lines={linesFor(current)} onRecheck={recheck} busy={busy} />
-                <WhyMatches why={current.why} />
                 <RateQuality item={current} onRate={rate} onSwap={swapPhoto} onRestore={restorePhoto} searchPhotos={searchPhotos} />
               </div>
               {draft && (

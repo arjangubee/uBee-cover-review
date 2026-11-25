@@ -153,8 +153,8 @@ try {
     await withCopy(4185, async (api) => {
       const a = await cover(api, "a.png", { quote: QUOTES[0] });
       const sent = await api.post("/api/items/enqueue", { items: [
-        { imageUrl: "https://example.com/d1.jpg", driveId: "remix-d1", title: "d1", quote: QUOTES[1] },
-        { imageUrl: "https://example.com/d2.jpg", driveId: "remix-d2", title: "d2", quote: QUOTES[2] }] });
+        { imageUrl: "https://example.com/d1.jpg", driveId: "remix-d1", title: "d1", quote: QUOTES[1], why: { text: "The window light on her face carries the quote's quiet promise home." } },
+        { imageUrl: "https://example.com/d2.jpg", driveId: "remix-d2", title: "d2", quote: QUOTES[2], why: { text: "The open road behind her matches the quote's restless hope exactly." } }] });
       const [d1, d2] = sent.created;
       const made = await cover(api, "made-before.png", { quote: QUOTES[3] }); // stands in for the copy a 1.20 page's remix made
       const order = async () => (await api.get("/api/items")).items.map((i) => i.id).join();

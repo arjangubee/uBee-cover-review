@@ -1008,21 +1008,21 @@ try {
       assert(first.ids?.join(",") === "1,2,3,4", `every cover with a saved check is wanted, whatever its status: ${JSON.stringify(first).slice(0, 200)}`);
       assert(JSON.stringify(first.recheck) === JSON.stringify({ rechecked: 0, coversChanged: 0, valuesChanged: 0 }), `the tally starts at zero: ${JSON.stringify(first.recheck)}`);
       const r1 = await post("/api/items/1/recheck");
-      assert(r1.rechecked === true && r1.changed?.join(",") === "QUOTE_IN_STOCK" && r1.item.beacons.QUOTE_IN_STOCK === true && r1.item.beacons.STEPS_VERIFIED === true,
+      assert(r1.rechecked === true && r1.changed?.join(",") === "QUOTE_IN_STOCK,WHY_WRITTEN" && r1.item.beacons.QUOTE_IN_STOCK === true && r1.item.beacons.STEPS_VERIFIED === true,
         `an unmarked cover's quote is checked now: ${JSON.stringify(r1).slice(0, 300)}`);
-      assert(r1.item.composeAttestedAt === 1000 && r1.item.beaconsVersion === 1, `still verified, so it keeps when it was, and it's stamped: ${r1.item.composeAttestedAt} ${r1.item.beaconsVersion}`);
+      assert(r1.item.composeAttestedAt === 1000 && r1.item.beaconsVersion === 2, `still verified, so it keeps when it was, and it's stamped: ${r1.item.composeAttestedAt} ${r1.item.beaconsVersion}`);
       const r2 = await post("/api/items/2/recheck");
-      assert(r2.changed?.join(",") === "QUOTE_IN_STOCK,STEPS_VERIFIED" && r2.item.beacons.QUOTE_IN_STOCK === false && r2.item.composeAttestedAt === null,
+      assert(r2.changed?.join(",") === "QUOTE_IN_STOCK,STEPS_VERIFIED,WHY_WRITTEN" && r2.item.beacons.QUOTE_IN_STOCK === false && r2.item.composeAttestedAt === null,
         `a quote that isn't on her list fails the check now: ${JSON.stringify(r2).slice(0, 300)}`);
       const [r3, r4] = [await post("/api/items/3/recheck"), await post("/api/items/4/recheck")];
-      assert(r3.rechecked === true && r3.changed?.length === 0 && r3.item.beacons.QUOTE_IN_STOCK === null, `a post she turned off stays NOT NEEDED: ${JSON.stringify(r3).slice(0, 300)}`);
-      assert(r4.rechecked === true && r4.changed?.length === 0, `a check that was already right is rechecked and stays: ${JSON.stringify(r4).slice(0, 300)}`);
+      assert(r3.rechecked === true && r3.changed?.join(",") === "WHY_WRITTEN" && r3.item.beacons.QUOTE_IN_STOCK === null, `a post she turned off stays NOT NEEDED: ${JSON.stringify(r3).slice(0, 300)}`);
+      assert(r4.rechecked === true && r4.changed?.join(",") === "WHY_WRITTEN", `a check that was already right is rechecked and stays, and gains the 4th check (1.25.0): ${JSON.stringify(r4).slice(0, 300)}`);
       const r5 = await post("/api/items/5/recheck");
       assert(r5.rechecked === false && r5.reason === "done" && r5.item.beacons == null, `a cover nobody checked is left alone: ${JSON.stringify(r5).slice(0, 300)}`);
       const again = await post("/api/items/1/recheck");
       assert(again.rechecked === false && again.reason === "done", "a cover is rechecked once");
       const after = await get("/api/beacons/wanted");
-      assert(after.ids.length === 0 && JSON.stringify(after.recheck) === JSON.stringify({ rechecked: 4, coversChanged: 2, valuesChanged: 3 }), `the tally: ${JSON.stringify(after)}`);
+      assert(after.ids.length === 0 && JSON.stringify(after.recheck) === JSON.stringify({ rechecked: 4, coversChanged: 4, valuesChanged: 7 }), `the tally (1.25.0: each gains Why it matches): ${JSON.stringify(after)}`);
       const now = await all();
       for (const row of rows) {
         const n = now[row.id];
@@ -1031,9 +1031,9 @@ try {
       }
       assert(!("beaconsVersion" in now[5]), "a cover nobody checked gets no stamp");
       const saved = JSON.parse(readFileSync(join(dir, "db.json"), "utf8")).items;
-      assert(saved.filter((i) => i.beaconsVersion === 1).map((i) => i.id).join(",") === "1,2,3,4", "the stamps are saved");
+      assert(saved.filter((i) => i.beaconsVersion === 2).map((i) => i.id).join(",") === "1,2,3,4", "the stamps are saved");
       const checked = await post("/api/items/5/verify");
-      assert(checked.item.beaconsVersion === 1 && (await get("/api/beacons/wanted")).ids.length === 0, "a check made now is stamped, so it's never wanted");
+      assert(checked.item.beaconsVersion === 2 && (await get("/api/beacons/wanted")).ids.length === 0, "a check made now is stamped, so it's never wanted");
     });
   });
   // ---------- v1.13.9: the quote lock on the server (Quill #725) ----------
@@ -1943,6 +1943,23 @@ try {
     assert((await dmItem(req)).section === "main", "a request isn't General");
   });
   // ---------- 1.23.0: Refresh pulls from Instagram (Arjang in room #1048: "a LIVE SYNC ... It should be RELIABLE") ----------
+  await check("v1.25 Why it matches is the compose check's 4th check, a new why rechecks at once, and only covers that pass lead the queue", async () => {
+    const a = await newItem("why-a.png"), b = await newItem("why-b.png");
+    const reason = "Her open hands in the window light carry the quote's letting go, and the song's slow build lands it";
+    await postJson(`/api/items/${b.id}/why`, { text: reason });
+    await postJson(`/api/items/${a.id}/verify`); // the deck checks a cover ahead of time
+    await postJson(`/api/items/${b.id}/verify`);
+    const list = (await (await fetch(`${base}/api/items`)).json()).items;
+    const A = list.find((i) => i.id === a.id), B = list.find((i) => i.id === b.id);
+    assert(A.beacons && B.beacons && A.beaconsVersion === 2, `a check has the 4th check: ${JSON.stringify(A.beacons)}`);
+    assert(A.beacons.WHY_WRITTEN === false && B.beacons.WHY_WRITTEN === true, `the why is checked: ${JSON.stringify([A.beacons, B.beacons])}`);
+    assert(B.beacons.STEPS_VERIFIED === true, `the uploaded cover's quote and song are in stock: ${JSON.stringify(B.beacons)}`);
+    const order = list.map((i) => i.id);
+    assert(order.indexOf(b.id) < order.indexOf(a.id), "a cover that passes comes before one that doesn't");
+    const bad = await fetch(`${base}/api/items/enqueue`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: [{ imageUrl: "https://example.com/composed.jpg", driveId: "smoke-why-composed", quote: "a quote", song: "Artist - Song" }] }) });
+    assert(bad.status === 400 && /why/i.test((await bad.json()).error), "a composed match can't enter the queue without its why");
+  });
   await check("v1.23 an import finds a chat by its thread id and a comment by its comment id, so a pull never makes a copy", async () => {
     const t1 = new Date(Date.now() - 3_600_000).toISOString();
     const made = await dm("importitem", { kind: "dm", sender: "live.one", incoming_text: "are you around?", thread_id: "live-t1", folder: "primary",

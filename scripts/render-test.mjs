@@ -12,7 +12,7 @@ import { clipNow, clipSource } from "../client/src/songs/clipSource.js";
 import { readFileSync } from "node:fs";
 import { LOCK_BREAK, LOCK_START, lockAxis, startAxis } from "../client/src/safeLock.js";
 import { SNAP_PX, guidesFor, snap } from "../client/src/snapGuides.js";
-import { driveLinkFor } from "../client/src/reviewMath.js";
+import { composePasses, driveLinkFor, whyProblem } from "../client/src/reviewMath.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -478,6 +478,12 @@ check("snap guides: edges catch thirds, center lines win over thirds, and X and 
   assert(both.x === 249 && both.xGuide.id === "xc", `a third 3px off loses to the center 5px off: ${JSON.stringify(both)}`);
   const xy = snap({ x: 304, y: 203 }, { halfW: 50, halfH: 20 }, g, SNAP_PX, {});
   assert(xy.x === 300 && xy.xGuide.id === "xc" && xy.y === 200 && xy.yGuide.id === "y1", `each axis on its own: ${JSON.stringify(xy)}`);
+});
+check("Why it matches is the 4th check: no reason or a few words is incomplete, and a pass needs all four (1.25.0, Arjang #1100)", () => {
+  assert(whyProblem(null) && whyProblem({ text: "  " }) && whyProblem({ text: "It matches the vibe perfectly." }), "empty, or a few words, is incomplete");
+  assert(whyProblem({ text: "Her open hands in the window light carry the quote's letting go, and the song's slow build lands it." }) === null, "a real reason passes");
+  assert(composePasses({ QUOTE_IN_STOCK: true, SONG_IN_POOL: true, STEPS_VERIFIED: true, WHY_WRITTEN: true }), "all four pass");
+  assert(!composePasses({ STEPS_VERIFIED: true, WHY_WRITTEN: false }) && !composePasses({ STEPS_VERIFIED: true }) && !composePasses(null), "missing one is incomplete");
 });
 check("the Drive row links to that exact file in a new tab, and a photo with no Drive id has no link (1.24.0, Arjang #1106)", () => {
   assert(driveLinkFor({ source: "drive", driveId: "1AbC_d-9" }) === "https://drive.google.com/file/d/1AbC_d-9/view", driveLinkFor({ source: "drive", driveId: "1AbC_d-9" }));

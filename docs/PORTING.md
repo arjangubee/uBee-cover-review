@@ -12,6 +12,36 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.25.0: Why it matches is part of the compose check
+
+Arjang #1100, amended by #1104; Quill #1102 and #1108.
+
+1. **One card.** The separate "Why it matches" section is gone. Its words sit at the bottom of the Compose check card,
+   beneath the checks, with its tags and audience.
+2. **The 4th check.** `WHY_WRITTEN`, "Why it matches": a why of at least 6 words passes; none, or fewer, is incomplete
+   (`whyProblem` in client/src/reviewMath.js, which the server uses too). A cover passes only with all four
+   (`composePasses`): otherwise the card reads INCOMPLETE, and every circle that fails shows a red X. A new why
+   rechecks a checked cover at once.
+3. **Pass first.** The queue lists the covers that pass first, then the rest, each in review order, so nothing reaches
+   the front incomplete. The deck still checks the cover she's on and the next one ahead of time.
+4. **Never composed without a why.** `/api/items/enqueue` refuses a batch where an item brings its own quote or song
+   with no why (400, naming the item). A bare photo still comes in, and waits behind until its why is written.
+5. **Rechecked once.** The check's version is 2, so every saved check is rechecked once by the existing recheck pass
+   and gains the 4th check.
+
+| Where | Change |
+| --- | --- |
+| client/src/reviewMath.js | `whyProblem`, `composePasses` |
+| client/src/CoverDetails.jsx, App.jsx, styles.css | the 4th row, red X circles, INCOMPLETE, the why at the bottom of the card; `WhyMatches` removed |
+| server/full.js | `WHY_WRITTEN` in `verifyItem`, version 2, the why rechecks, the enqueue rule |
+| server/index.js | the queue lists passing covers first |
+
+### Data steps (her space, never the repo)
+
+No new fields. Before her covers read the new check: audit every queued cover for a missing or short why, have her
+Muse write a real one for each (the photo's details, the quote's idea and the song's specifics, per the rationale bar),
+and report how many were found and written. Then run the recheck pass and re-verify every count.
+
 ## 1.24.0: snap guides, landscape to the edges, the Drive link and the logo refresh
 
 Four items in one build, approved by Quill: #1083 (#1085), #1087 (#1090), #1106 (#1108) and #1121 (#1125).

@@ -9,6 +9,7 @@ import { downloadedSongs, matchSongClip } from "./songs.js";
 import { musicOf } from "./music.js";
 import { basisOf, offlineRationale, rationaleProblems, rationalePrompt, sameBasis } from "./rationale.js";
 import { overlayOf, quoteShown } from "../client/src/quoteOverlay.js";
+import { whyProblem } from "../client/src/reviewMath.js";
 import { FONTS, HEX, PALETTE, bakeLock, fontOk, rememberCustomColor } from "./brand.js";
 
 export { FONTS, PALETTE }; // they live in brand.js since 1.20.0
@@ -165,7 +166,7 @@ function loadSongPool() {
 // quote field only ever held stock quotes; here a quote-off cover can hold caption-like text that was never a quote.
 // 1.13.9 (Quill #706, #707 and #719): each check is stamped with the rule it was made under. A saved check with no stamp
 // was made before 1.13.9, when every post started with its quote off; the one-time recheck brings it up to date.
-export const BEACONS_VERSION = 1;
+export const BEACONS_VERSION = 2; // 2 (1.25.0): Why it matches is the 4th check
 // The quote lock (1.13.9, Quill #725): until she connects quotes or keeps one from the quiz, the page draws no quote on any
 // cover, so the server reads none as shown either. Unlocked, global hide, then each post's own choice (quoteOverlay.js).
 function quotesUnlocked() {
@@ -197,7 +198,8 @@ export function songInPool(item) {
 export function verifyItem(item) {
   const quoteOk = quoteDrawn(item) ? quoteInStock(item.quote) : null;
   const songOk = songInPool(item);
-  const beacons = { QUOTE_IN_STOCK: quoteOk, SONG_IN_POOL: songOk, STEPS_VERIFIED: quoteOk !== false && songOk && Boolean(item.imageUrl) };
+  const beacons = { QUOTE_IN_STOCK: quoteOk, SONG_IN_POOL: songOk, STEPS_VERIFIED: quoteOk !== false && songOk && Boolean(item.imageUrl),
+    WHY_WRITTEN: !whyProblem(item.why) }; // 1.25.0: the logic of the match, in words
   item.beacons = beacons;
   item.composeAttestedAt = beacons.STEPS_VERIFIED ? Date.now() : null;
   item.beaconsVersion = BEACONS_VERSION;
@@ -637,6 +639,7 @@ export function registerFull(app, upload) {
     const why = cleanWhy(req.body);
     if (!why) return res.status(400).json({ error: "Say why it matches, in a sentence or two." });
     item.why = why;
+    if (item.beacons) recheckSaved(item); // its check reads the new reason at once (1.25.0)
     store.saveDb();
     res.json({ item });
   });
@@ -688,6 +691,9 @@ export function registerFull(app, upload) {
     if (importState.lastBatchAt && Date.now() - importState.lastBatchAt < IMPORT_WINDOW_MS && sameBatchDriveIds(entries)) {
       return res.json({ ok: true, inFlight: true, started: false, created: [], ...getImportStatus() });
     }
+    // A composed match (it brings its own quote or song) comes with its why, so none enters the queue incomplete (1.25.0).
+    const bare = entries.findIndex((e) => e && (e.quote || e.song) && whyProblem(cleanWhy(e.why)));
+    if (bare >= 0) return res.status(400).json({ error: `Item ${bare + 1} has a quote or song but no why: say why it matches, in a sentence or two.` });
     const quotes = loadQuotes();
     const seenDriveIds = new Set(store.db.items.map((i) => i.driveId).filter(Boolean));
     const created = [];

@@ -147,7 +147,8 @@ app.post("/api/dump/sort", (_req, res) => {
 // ---------- Review queue ----------
 app.get("/api/items", (req, res) => {
   const status = req.query.status || "queue";
-  res.json({ items: store.db.items.filter((i) => i.status === status) });
+  // The queue reads in review order (1.20.1): a Drive batch sits at the front, in the order it was sent.
+  res.json({ items: status === "queue" ? store.queueInOrder() : store.db.items.filter((i) => i.status === status) });
 });
 app.post("/api/items/upload", upload.array("photos", 200), (req, res) => {
   const quotes = loadQuotes();

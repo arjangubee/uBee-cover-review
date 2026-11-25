@@ -118,6 +118,12 @@ function moveItem(id, afterId) {
   const at = afterId == null ? -1 : items.findIndex((i) => i.id === afterId);
   if (at >= 0) items.splice(at + 1, 0, it);
   else { const first = items.findIndex((i) => i.status === "queue"); items.splice(first < 0 ? items.length : first, 0, it); }
+  // The queue reads in review order (1.20.1), so the cover takes its place there too: the same review time as the cover
+  // it follows, so it sits right after it, or a time before every queued cover at the front.
+  const after = at >= 0 ? items[at] : null;
+  if (after && typeof after.reviewOrderAt === "number") it.reviewOrderAt = after.reviewOrderAt;
+  else if (after) delete it.reviewOrderAt;
+  else it.reviewOrderAt = store.frontTimes(1)[0];
   return true;
 }
 

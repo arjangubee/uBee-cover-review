@@ -252,7 +252,8 @@ export function quotesStatus() {
 // A new revision is its own cover: a deep copy (so slides and image edits never change both), with no
 // Pollen booking and no compose check carried over from the cover it came from. v1.4. The remix menu (1.17.0) builds on it.
 export function revisionOf(src) {
-  const { id, status, decidedAt, pollen, pollenRender, beacons, composeAttestedAt, beaconsVersion, ...rest } = structuredClone(src);
+  // A cover's place in the queue isn't part of it (1.20.1): a revision gets its own.
+  const { id, status, decidedAt, pollen, pollenRender, beacons, composeAttestedAt, beaconsVersion, reviewOrderAt, ...rest } = structuredClone(src);
   return rest;
 }
 
@@ -664,6 +665,10 @@ export function registerFull(app, upload) {
       item.captionSource = "placeholder"; // the offline draft (1.9)
       created.push(item);
     }
+    // New covers go to the front of the queue, in the order sent, and the rest wait behind them in their own order (1.20.1,
+    // Quill #970: the original's frontQueueTimes). A quarantined photo isn't in the queue, so it gets no review time.
+    const fresh = created.filter((i) => i.status === "queue");
+    store.frontTimes(fresh.length).forEach((t, n) => { fresh[n].reviewOrderAt = t; });
     importState.lastBatchAt = Date.now();
     importState.lastBatchSize = created.length;
     importState.lastBatchDriveIds = entries.map((e) => e.driveId).filter(Boolean).sort();

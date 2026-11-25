@@ -47,7 +47,7 @@ You can skip every connector and just review photos. The app says what is connec
 
 | Bucket | What lands there |
 | --- | --- |
-| Images | Photos, queued for review |
+| Images | Photos, queued for review. A new batch goes to the front of the queue (1.20.1) |
 | Videos | Clips and B-roll |
 | Quotes | Quote and hook lists. Yours replaces the default pack |
 | Music | Songs and audio for edits |

@@ -12,6 +12,34 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.20.1: a Drive enqueue lands at the front of the queue
+
+Arjang in room #965: new covers go to the front of the queue, and everything else gets pushed back. The original does
+this already (Quill #970): its enqueueBatch and enqueueFromDrive call frontQueueTimes, and listCovers reads the queue in
+review order. The portable edition had dropped it, so a Drive enqueue landed at the back.
+
+1. **Review times.** A cover may carry `reviewOrderAt`, a number (milliseconds), the original's field. A missing one
+   means none. The queue reads covers with a review time first, earliest first, then every other cover in the order it
+   read in before. So a queue with no review times reads exactly as it did.
+2. **Front of the queue.** `POST /api/items/enqueue` gives the covers it makes review times before every cover queued
+   now, rising in the order sent: with n new covers and the earliest review time in the queue t (or the time now when
+   the queue has none), cover k of n (counting from 1) gets t - (n - k + 1). So the batch sits at the front in the
+   order sent, the next batch goes in front of it, and nothing else moves. A quarantined photo goes to Passed as before
+   and gets none. A Drive id already in the queue still makes nothing.
+3. **Remix placement keeps working.** A remix's new cover that waits right after another cover takes that cover's review
+   time (or none, when that cover has none); one sent to the front takes a time before every queued cover. A revision
+   (Reject and revise, a remix) never copies its source's review time. Uploads from the page get none, so they still
+   land behind the rest.
+
+In a ported space: add `reviewOrderAt` with no default, and read the queue ordered by it, earliest first, with covers
+that have none after them in the order the space reads them today (for example its current sort). Then give each
+enqueue's new covers their times as in point 2, in the same call that makes them. Existing rows need no change.
+
+| Route | Change |
+|---|---|
+| GET /api/items?status=queue | Covers with a review time first, earliest first, then the rest as before |
+| POST /api/items/enqueue | New covers get review times before every queued cover, in the order sent |
+
 ## 1.20.0: the text editor round of the Big Edit
 
 Arjang's Big Edit list (Nov 23, room #877), items 1 to 9, 11, 17 and 19, as Quill batched them in #883. The reach of

@@ -170,6 +170,27 @@ try {
     });
   });
 
+  // 1.20.1: the queue reads in review order, and a Drive batch sits at the front. A remix still lands where she put it.
+  await check("v1.20.1 with a Drive batch at the front, a remix still goes right after the cover she's on, or to the very front", async () => {
+    await withCopy(4185, async (api) => {
+      const a = await cover(api, "a.png", { quote: QUOTES[0] });
+      const sent = await api.post("/api/items/enqueue", { items: [
+        { imageUrl: "https://example.com/d1.jpg", driveId: "remix-d1", title: "d1", quote: QUOTES[1] },
+        { imageUrl: "https://example.com/d2.jpg", driveId: "remix-d2", title: "d2", quote: QUOTES[2] }] });
+      const [d1, d2] = sent.created;
+      const order = async () => (await api.get("/api/items")).items.map((i) => i.id).join();
+      assert(await order() === [d1.id, d2.id, a.id].join(), `the batch is first: ${await order()}`);
+      const { remix } = await api.post(`/api/items/${d1.id}/remix`, { quote: { on: true } });
+      const done = await finished(api, remix.id);
+      await api.post(`/api/remixes/${done.id}/ack`, { after: d1.id });
+      assert(await order() === [d1.id, done.itemId, d2.id, a.id].join(), `right after the cover she's on: ${await order()}`);
+      const { remix: r2 } = await api.post(`/api/items/${a.id}/remix`, { quote: { on: true } });
+      const d3 = await finished(api, r2.id);
+      await api.post(`/api/remixes/${d3.id}/ack`, { after: null });
+      assert((await order()).startsWith(`${d3.itemId},`), `to the front, ahead of the batch: ${await order()}`);
+    });
+  });
+
   await check("v1.17 the new cover drops what was about the old quote or song, and a new quote shows even where the old one was off", async () => {
     await withCopy(4185, async (api) => {
       const c = await cover(api, "a.png", { quote: QUOTES[0], song: "Night Owls - Slow Night" });

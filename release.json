@@ -1,9 +1,7 @@
 {
-  "version": "1.20.0",
-  "date": "2026-11-23",
+  "version": "1.20.1",
+  "date": "2026-11-24",
   "whatsNew": [
-    "One font and one color for your whole queue, your own colors first, and your own fonts in the font menu",
-    "Light works, plus Line spacing, Justify width, text on carousel photos, and hold a text box to drag it",
-    "The zoom lets go back to normal, and the previews in All covers show their text"
+    "New photos from Drive go to the front of your queue, newest batch first, and the rest wait behind them"
   ]
 }

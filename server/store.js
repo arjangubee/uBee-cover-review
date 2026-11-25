@@ -157,4 +157,18 @@ export const store = {
     return item;
   },
   getItem(id) { return this.db.items.find((i) => i.id === Number(id)) || null; },
+  /** The queue in review order (1.20.1, the original's reviewOrderAt): covers with a review time first, earliest first,
+   *  then every other cover in stored order, as before. */
+  queueInOrder() {
+    const queue = this.db.items.filter((i) => i.status === "queue");
+    const timed = queue.filter((i) => typeof i.reviewOrderAt === "number").sort((a, b) => a.reviewOrderAt - b.reviewOrderAt);
+    return [...timed, ...queue.filter((i) => typeof i.reviewOrderAt !== "number")];
+  },
+  /** Review times for n covers going to the front of the queue, in order: each before every cover queued now (the
+   *  original's frontQueueTimes). */
+  frontTimes(n) {
+    const times = this.db.items.filter((i) => i.status === "queue" && typeof i.reviewOrderAt === "number").map((i) => i.reviewOrderAt);
+    const earliest = times.length ? Math.min(...times) : Date.now();
+    return Array.from({ length: n }, (_, i) => earliest - (n - i));
+  },
 };

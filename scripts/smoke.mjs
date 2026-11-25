@@ -1467,6 +1467,33 @@ try {
     const setup = await (await fetch(`${base}/api/setup/status`)).json();
     assert(setup.import && typeof setup.import.importState === "string", "setup status should carry import state");
   });
+  // 1.20.1 (Arjang #965, Quill #970): a Drive enqueue puts its new covers at the front of the queue, in the order sent, the
+  // way the original's frontQueueTimes does. Everything already queued moves back behind them, in its own order.
+  await check("v1.20.1 a Drive enqueue lands at the front of the queue, in the order sent", async () => {
+    const queueIds = async () => (await (await fetch(`${base}/api/items?status=queue`)).json()).items.map((i) => i.id);
+    const before = await queueIds();
+    assert(before.length >= 2, `needs a queue to push back, got ${before.length}`);
+    const sent = await postJson(`/api/items/enqueue`, { items: [
+      { imageUrl: "https://example.com/front-1.jpg", driveId: "smoke-front-1", title: "front 1" },
+      { imageUrl: "https://example.com/front-2.jpg", driveId: "smoke-front-2", title: "front 2" },
+      { imageUrl: "https://example.com/front-bad.jpg", driveId: "smoke-front-bad", imageQualityStatus: "quarantined" },
+      { imageUrl: "https://example.com/front-3.jpg", driveId: "smoke-front-3", title: "front 3" }] });
+    const ids = sent.created.filter((i) => i.status === "queue").map((i) => i.id);
+    assert(ids.length === 3, `three new covers, got ${ids.length}`);
+    const after = await queueIds();
+    assert(after.slice(0, 3).join(",") === ids.join(","), `the front should be ${ids} in order, got ${after.slice(0, 5)}`);
+    assert(after.slice(3).join(",") === before.join(","), "the rest keep their order behind them");
+    // The order is data a ported space can keep in a column: review times, earliest first (the original's reviewOrderAt).
+    const times = sent.created.filter((i) => i.status === "queue").map((i) => i.reviewOrderAt);
+    assert(times.every((t, n) => typeof t === "number" && (n === 0 || t > times[n - 1])), `review times rise in the order sent: ${times}`);
+    assert(sent.created.find((i) => i.status !== "queue").reviewOrderAt == null, "a quarantined photo gets no review time");
+    const next = await postJson(`/api/items/enqueue`, { items: [{ imageUrl: "https://example.com/front-4.jpg", driveId: "smoke-front-4", title: "front 4" }] });
+    const again = await queueIds();
+    assert(again[0] === next.created[0].id && again.slice(1, 4).join(",") === ids.join(","), `a later batch goes first: ${again.slice(0, 5)}`);
+    const dup = await postJson(`/api/items/enqueue`, { items: [{ imageUrl: "https://example.com/front-2.jpg", driveId: "smoke-front-2" }] });
+    assert(dup.created.length === 0, "a Drive id already in the queue makes nothing");
+    assert((await queueIds()).join(",") === again.join(","), "and the queue order doesn't move");
+  });
   // The Chats simulator (1.14, Arjang #570 and #575, Quill #581 and #584): practice replies to DMs and comments, her Muse
   // drafts and sends. One POST route per action under /api/dm/, the same names and answers as a Muse space's dm_ actions.
   const dm = (name, body) => postJson(`/api/dm/${name}`, body || {});

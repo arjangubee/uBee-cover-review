@@ -177,3 +177,26 @@ Since 1.22.0 (the simulator's Chats):
    can't be edited in place (Instagram may not allow editing a comment reply), don't delete it and don't send the new
    text as a fresh message. Report every one with `confirmedit`: `{ "id": ..., "ok": true }`, or `{ "id": ..., "ok":
    false, "detail": "the reason, in plain words" }`.
+
+Since 1.23.0 (Refresh is a live sync):
+1. Check `syncwanted` along with `draftswanted`, every minute or so while she's in Chats. Reading it is what turns the
+   live sync on: until then, Refresh only re-reads the page.
+2. When `wanted` is true, pull what changed on Instagram since `since` (null before the first pull), inbox and comments:
+   - Inbox: go through her conversations in every folder, newest activity first, and stop at the first one older than
+     `since`. Read each one that moved (its newest 50 messages) and bring it in with `importitem`: kind "dm", its
+     `thread_id`, sender, their newest message as incoming_text (empty if there's none), `thread_messages`, and the
+     facts above.
+   - Comments: go through her posts newest first and read each post's comments newer than `since`. Bring each one in
+     with `importitem`: kind "comment", its `comment_id`, sender, the comment as incoming_text, and its post:
+     `media_id`, `media_preview_url` (the picture, or a video's thumbnail), `media_permalink`, and the caption as
+     `context_text`. The post's id and picture put the comment in that post's square.
+   - On the first pull, the chats from the all-time sync are already here: read only the conversations whose last
+     activity differs from the chat's `last_activity_at`. The comment box is empty, so read every post's comments.
+3. Bringing one in twice is safe: `importitem` matches a DM by `thread_id` and a comment by `comment_id`. Retry a read
+   that fails once, then skip it and count it.
+4. Report once, when the pull is done, with `confirmsync`: `{ "ok": true, "asked_at": ..., "imported": n, "updated": n,
+   "skipped": n, "detail": "what was skipped and why, in plain words" }`. imported counts the ones `importitem` created,
+   updated the rest. If Instagram makes you stop (a rate limit), stop at once and report `{ "ok": false, "asked_at":
+   ..., "imported": n, "updated": n, "detail": "the reason, in plain words" }`. What came in stays, and her next Refresh
+   starts again from the same `since`.
+5. A pull only reads. Never send, edit or delete anything on Instagram during one.

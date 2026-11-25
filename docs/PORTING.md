@@ -12,6 +12,45 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.23.0: Refresh is a live sync
+
+Arjang in room #1048: the inbox and the comment box are a live sync, refreshing whenever Refresh is pressed, and it
+has to be reliable. Quill approved the build in #1051.
+
+1. **Refresh asks for a pull.** Refresh in Chats calls `requestsync`, then re-reads the page. Her Muse reads
+   `syncwanted` (whether a pull is asked, its `asked_at`, and `since`: the start of the last good pull, null before the
+   first), pulls what changed on Instagram, brings each chat and comment in with `importitem`, and reports with
+   `confirmsync`. The page reads `getsync` and shows the pull working, then when it last synced and what came in, or
+   why it stopped.
+2. **Never a copy.** `importitem` finds a DM again by its `thread_id` and a comment by its `comment_id`. A DM brought in
+   before thread ids were kept is matched once by its handle, only when exactly one chat fits, and keeps the id from
+   then on. A new one comes in the way `createitem` brings it. One that's here gets the facts, the thread, the handle and
+   the post. Her draft, kept edits, review, sends and edits never change, and while she hasn't touched it, it takes their
+   latest words.
+3. **One pull at a time.** A tap while a pull runs asks nothing new. A pull that hasn't reported in 10 minutes shows as
+   stuck (`COVER_REVIEW_DM_SYNC_STUCK_MS` changes the wait), and the next tap starts a new one. A report for a pull
+   that was replaced is refused, and what it imported stays.
+4. **Only what changed.** A good pull moves `since` to the moment it started, so nothing that arrived during it is
+   missed. A pull that stops partway (a rate limit) keeps what it brought in, the page says what that was, and `since`
+   stays where it was.
+5. **Back to Needs Reply.** Their new message after the newest one here puts the chat back in Needs Reply, a chat
+   brought in for its history too, unless the pull sends `needs_reply` itself. The next draft answers their newest
+   message.
+6. **Off until wired.** Until her Muse has read `syncwanted` once, Refresh only re-reads the page, so it never waits on
+   a pull no one runs.
+
+| Where | Change |
+| --- | --- |
+| server/dm.js | `importitem`, `requestsync`, `getsync`, `syncwanted`, `confirmsync`, Needs Reply on their new message, drafts answer their newest message |
+| client/src/dm/App.jsx | Refresh asks for a pull, and the line beside it shows where the pull stands |
+| client/src/dm/dmApi.js | `requestsync`, `getsync` |
+
+### Data steps (her space, never the repo)
+
+One new object with her data, `dmSync`, empty at first (no pull asked, none reported). No chat field changes. Before
+the first pull, count the DMs with no `thread_id`: each is matched by its handle once, and a handle two of them share
+can't be, so fill those two from Instagram first or the pull brings that chat in again.
+
 ## 1.22.0: Chats, the way the simulator has them
 
 Arjang's Big Edit list (Nov 23, room #877): item 20, "the exact app", with items 21, 22.1, 22.2, 23, 24 and 14.1 on

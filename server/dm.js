@@ -39,6 +39,8 @@ const FOLDERS = ["primary", "general", "requests", "spam"]; // where a chat sits
 const SECTIONS = ["main", "general"]; // her inbox here: General once she swipes a chat left (1.22.0)
 const EDIT_STATES = ["none", "editing", "edit_failed"];
 const LATEST_MS = 4102444800000; // 2100-01-01: the latest activity time taken, as in the simulator
+// 1.23.0: a pull from Instagram that hasn't reported back in this long is stuck, and Refresh starts a new one.
+const SYNC_STUCK_MS = Number(process.env.COVER_REVIEW_DM_SYNC_STUCK_MS) > 0 ? Number(process.env.COVER_REVIEW_DM_SYNC_STUCK_MS) : 10 * 60_000;
 
 class DmError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -245,6 +247,21 @@ function answerFor(r, revision) {
 
 // ---------- The draft prompt (the same text a space's model gets) ----------
 
+/** What the next draft answers: her stored incoming message, or, once her reply went out and they wrote after it, their
+ *  newest texts (1.23.0: a live inbox keeps going after her reply). */
+function answeringText(r) {
+  if (r.publishStatus !== "published" && r.publishStatus !== "publishing") return r.incomingText;
+  const thread = cleanThread(r.threadMessages).filter((m) => m.kind !== "reaction");
+  const last = thread.at(-1);
+  const sentAt = typeof r.publishedAt === "number" ? r.publishedAt : null;
+  if (!last || last.from !== "them" || (sentAt !== null && (!last.at || Date.parse(last.at) <= sentAt))) return r.incomingText;
+  const words = [];
+  for (let i = thread.length - 1; i >= 0 && thread[i].from === "them"; i -= 1) {
+    if (thread[i].kind === "text" && thread[i].text) words.unshift(thread[i].text);
+  }
+  return words.length ? words.join("\n") : r.incomingText;
+}
+
 function draftPrompt(r, mode, variant, direction = null) {
   const openings = [...rows()].sort((a, b) => b.id - a.id).slice(0, 12)
     .map((x) => x.draftText).filter((t) => t && t.trim() !== "").slice(0, 3)
@@ -272,7 +289,7 @@ function draftPrompt(r, mode, variant, direction = null) {
     history ? `Thread so far, oldest first:\n${history}` : "",
     r.storyReplyNotCaptured
       ? "Their message: (They replied to your story, and the words of that reply weren't captured. Don't invent what they said.)"
-      : `Their message: ${r.incomingText}`,
+      : `Their message: ${answeringText(r)}`,
     openings.length ? `Do not start your reply the same way as these recent drafts: ${openings.join(" / ")}` : "",
     note,
     direction ? `Her direction for this draft, follow it: ${direction}` : "",
@@ -283,6 +300,57 @@ function draftPrompt(r, mode, variant, direction = null) {
     : "";
   const system = mode === "dm" ? `${rules.voice}\n${style}\n${rules.offers}${voiceNotes}` : `${rules.voice}\n${style}${voiceNotes}`;
   return { system, prompt };
+}
+
+/** A sync from her Muse onto a chat that's here (updatethread, and importitem since 1.23.0): the facts, the thread and
+ *  the activity time. Her draft, edits, review and sends are never touched. A thread that isn't sent stays as it was. */
+function syncInto(r, a) {
+  const facts = factsFrom(a);
+  const thread = a.thread_messages !== undefined ? threadFrom(a.thread_messages) : undefined;
+  if (thread) {
+    // Their new message after the last one here needs her reply, even on a chat brought in for its history (Quill #1051).
+    const before = newestMs(cleanThread(r.threadMessages));
+    const last = thread.filter((m) => m.kind !== "reaction").at(-1);
+    if (facts.needsReply === undefined && last && last.from === "them" && last.at && (before === null || Date.parse(last.at) > before)) {
+      r.needsReply = true;
+    }
+    r.threadMessages = thread;
+    if (r.storyReplyNotCaptured || String(r.incomingText ?? "").trim().toLowerCase() === STORY_PLACEHOLDER) {
+      const story = storyCapture(r.threadMessages, r.incomingText);
+      r.incomingText = story.incomingText;
+      r.storyReplyNotCaptured = story.notCaptured;
+    }
+    const newest = newestMs(thread);
+    if (facts.lastActivityAt === undefined && newest !== null) r.lastActivityAt = newest;
+  }
+  // Instagram moving a chat into or out of General moves it here too. While its folder stays the same, her own move holds.
+  const folderMoved = facts.folder !== undefined && facts.folder !== (r.folder ?? null);
+  Object.assign(r, facts);
+  if (folderMoved && facts.folder === "general") Object.assign(r, { section: "general", generalAt: null });
+  else if (folderMoved && r.section === "general") Object.assign(r, { section: "main", generalAt: null });
+  // A chat she moved to General comes back once their newest message is newer than her move (the simulator's rule).
+  const last = cleanThread(r.threadMessages).at(-1);
+  if (r.section === "general" && r.generalAt && last && last.from === "them" && last.at && Date.parse(last.at) > r.generalAt) {
+    Object.assign(r, { section: "main", generalAt: null });
+  }
+}
+
+// 1.23.0: where the pull from Instagram stands, kept with her data.
+function syncState() {
+  if (!store.db.dmSync || typeof store.db.dmSync !== "object") store.db.dmSync = {};
+  return store.db.dmSync;
+}
+/** A copy has a pull once her Muse has read syncwanted, or a pull has reported. Until then Refresh only re-reads. */
+const syncWired = (s) => Boolean(s.museSeenAt || s.lastSyncedAt || s.lastErrorAt);
+function syncStatus() {
+  const s = syncState();
+  const asking = typeof s.askedAt === "number";
+  const failed = !asking && Boolean(s.lastError) && (s.lastErrorAt ?? 0) > (s.lastSyncedAt ?? 0);
+  const state = asking ? (Date.now() - s.askedAt > SYNC_STUCK_MS ? "stuck" : "syncing") : failed ? "failed" : syncWired(s) ? "idle" : "off";
+  return {
+    state, asked_at: iso(s.askedAt), last_synced_at: iso(s.lastSyncedAt), last_result: s.lastResult ?? null,
+    note: s.note ?? null, last_error: failed ? s.lastError : null, failed_result: failed ? (s.failedResult ?? null) : null,
+  };
 }
 
 // ---------- The actions ----------
@@ -624,30 +692,91 @@ const actions = {
   // time wins over the newest message's.
   updatethread(a) {
     const r = find(itemId(a.id));
-    const facts = factsFrom(a);
-    const thread = a.thread_messages !== undefined ? threadFrom(a.thread_messages) : undefined;
-    if (thread) {
-      r.threadMessages = thread;
-      if (r.storyReplyNotCaptured || String(r.incomingText ?? "").trim().toLowerCase() === STORY_PLACEHOLDER) {
-        const story = storyCapture(r.threadMessages, r.incomingText);
-        r.incomingText = story.incomingText;
-        r.storyReplyNotCaptured = story.notCaptured;
-      }
-      const newest = newestMs(thread);
-      if (facts.lastActivityAt === undefined && newest !== null) r.lastActivityAt = newest;
-    }
-    // Instagram moving a chat into or out of General moves it here too. While its folder stays the same, her own move holds.
-    const folderMoved = facts.folder !== undefined && facts.folder !== (r.folder ?? null);
-    Object.assign(r, facts);
-    if (folderMoved && facts.folder === "general") Object.assign(r, { section: "general", generalAt: null });
-    else if (folderMoved && r.section === "general") Object.assign(r, { section: "main", generalAt: null });
-    // A chat she moved to General comes back once their newest message is newer than her move (the simulator's rule).
-    const last = cleanThread(r.threadMessages).at(-1);
-    if (r.section === "general" && r.generalAt && last && last.from === "them" && last.at && Date.parse(last.at) > r.generalAt) {
-      Object.assign(r, { section: "main", generalAt: null });
-    }
+    syncInto(r, a);
     return { ok: true, item: toItem(r) };
   },
+
+  // 1.23.0 (Arjang in room #1048: Refresh is a live sync, and it has to be reliable). A pull from Instagram brings each
+  // chat and comment in through here. A DM is found again by its thread id and a comment by its comment id, so a pull
+  // never makes a copy, however often it runs. A new one comes in the way createitem brings it. One that's here gets the
+  // facts, the thread, the handle and the post. Its draft, her kept edits, her review, a send and an edit are hers and
+  // never change; while she hasn't touched it, it also takes their latest words.
+  importitem(a) {
+    const kind = oneOf(a.kind, KINDS, "kind");
+    const source = oneOf(a.source, ["live"], "source", "live");
+    const key = kind === "dm" ? text(a.thread_id, "thread_id", { min: 1, max: 120 }) : text(a.comment_id, "comment_id", { min: 1, max: 120 });
+    let found = rows().find((r) => r.kind === kind && (kind === "dm" ? r.threadId : r.commentId) === key);
+    // A DM brought in before thread ids were kept is matched once by its handle (only when exactly one fits), then keeps the id.
+    const handle = (v) => String(v ?? "").trim().replace(/^@/, "").toLowerCase();
+    if (!found && kind === "dm" && handle(a.sender)) {
+      const fits = rows().filter((r) => r.kind === "dm" && !r.threadId && handle(r.sender) === handle(a.sender));
+      if (fits.length === 1) [found] = fits;
+      if (found) found.threadId = key;
+    }
+    if (!found) return { id: actions.createitem({ ...a, kind, source }).id, created: true };
+    const sender = optText(a.sender, "sender", 80);
+    const context = optText(a.context_text, "context", 4000);
+    const mediaId = optText(a.media_id, "media_id", 120);
+    const incoming = optText(a.incoming_text, "Their message", 4000);
+    syncInto(found, a);
+    if (sender) found.sender = sender;
+    if (context !== undefined) found.contextText = context || null;
+    if (mediaId) found.mediaId = mediaId;
+    const untouched = found.draftText == null && !found.draftWanted && found.verdict === "pending" && found.publishStatus === "unpublished"
+      && !Array.isArray(found.workLines) && found.source === "live";
+    if (incoming && untouched && !isNonMessageText(incoming)) {
+      const story = storyCapture(cleanThread(found.threadMessages), incoming);
+      found.incomingText = story.incomingText;
+      found.storyReplyNotCaptured = story.notCaptured;
+    }
+    return { id: found.id, created: false };
+  },
+
+  // 1.23.0: Refresh asks for a pull from Instagram, one at a time. A tap while one runs asks nothing new; a pull that
+  // hasn't reported back in time is stuck, and the next tap starts a new one.
+  requestsync() {
+    const s = syncState();
+    if (!syncWired(s)) return syncStatus();
+    if (!(typeof s.askedAt === "number" && Date.now() - s.askedAt <= SYNC_STUCK_MS)) s.askedAt = Date.now();
+    return syncStatus();
+  },
+  /** Where the pull stands, for the page. */
+  getsync() {
+    return syncStatus();
+  },
+  /** For her Muse: whether a pull is asked, and since when to look (the start of the last good pull, so nothing that
+   *  arrived during it is missed; an import that meets a chat again changes nothing it shouldn't). */
+  syncwanted() {
+    const s = syncState();
+    // Reading this is how a copy learns its Muse can pull. It's kept, at most once an hour, so a restart keeps it.
+    if (!s.museSeenAt || Date.now() - s.museSeenAt > 3_600_000) {
+      s.museSeenAt = Date.now();
+      store.saveDb();
+    }
+    return { wanted: typeof s.askedAt === "number", asked_at: iso(s.askedAt), since: iso(s.cursor) };
+  },
+  /** Her Muse's report: ok with what changed (and a note, such as threads it couldn't read), or why it didn't finish. */
+  confirmsync(a) {
+    const s = syncState();
+    if (typeof a.ok !== "boolean") throw new DmError("ok must be true or false.");
+    const detail = text(a.detail, "detail", { max: 1000 });
+    const count = (v, name) => {
+      if (v === undefined || v === null) return 0;
+      if (!Number.isInteger(v) || v < 0) throw new DmError(`${name} must be a whole number, 0 or more.`);
+      return v;
+    };
+    const result = { imported: count(a.imported, "imported"), updated: count(a.updated, "updated"), skipped: count(a.skipped, "skipped") };
+    if (typeof s.askedAt !== "number") throw new DmError("There's no pull in flight to report on.", 409);
+    if (a.asked_at !== undefined && a.asked_at !== null && a.asked_at !== iso(s.askedAt)) {
+      throw new DmError("That pull was replaced by a newer one. What it imported is in; report the newer one when it's done.", 409);
+    }
+    const now = Date.now();
+    if (a.ok) Object.assign(s, { cursor: s.askedAt, lastSyncedAt: now, lastResult: result, note: detail || null });
+    else Object.assign(s, { lastError: detail || "The pull from Instagram didn't go through.", lastErrorAt: now, failedResult: result });
+    s.askedAt = null;
+    return { ok: true };
+  },
+
   /** Edits her Muse should apply now (1.22.0): each with the sent line as it is on Instagram and the line she wants. */
   editswanted() {
     const waiting = rows().filter((r) => r.editStatus === "editing" && r.editText != null && Number.isInteger(r.editLineIndex)).sort((x, y) => x.id - y.id);
@@ -671,7 +800,8 @@ const actions = {
   },
 };
 
-const READS = new Set(["listitems", "exporttraining", "getvoiceprofile", "getaccount", "getvoicesource", "draftswanted", "publishwanted", "editswanted"]);
+const READS = new Set(["listitems", "exporttraining", "getvoiceprofile", "getaccount", "getvoicesource", "draftswanted", "publishwanted", "editswanted",
+  "getsync", "syncwanted"]);
 const SETTINGS = new Set(["savevoiceprofile", "resetvoiceprofile", "savevoicesource"]);
 
 export function registerDm(app) {

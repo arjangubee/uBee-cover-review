@@ -1,9 +1,9 @@
 {
-  "version": "1.22.0",
+  "version": "1.23.0",
   "date": "2026-11-25",
   "whatsNew": [
-    "Chats open on Needs Reply: every chat waiting for your answer, labeled Primary, General or Requests",
-    "Replied lists the chats you answered, and Comments shows a square for each post with every comment under it",
-    "Your edits to a reply are kept, and a text that already went out can be edited"
+    "Refresh in Chats is a live sync: it pulls new messages and comments from Instagram",
+    "The line beside Refresh shows the sync working, when it last synced and what came in, or why it stopped",
+    "A chat comes back to Needs Reply when they write again, and a sync never touches your drafts or edits"
   ]
 }

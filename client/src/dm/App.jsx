@@ -793,13 +793,33 @@ export function App() {
   const [nowTick, setNowTick] = useState(() => Date.now());
   const queryClient = useQueryClient();
 
+  // 1.23.0 (Arjang in room #1048): Refresh pulls fresh from Instagram, inbox and comments. Her Muse does the pull and
+  // reports back. The page shows it working, then when it last synced and what changed, or why it didn't finish.
+  // A copy with no pull set up ("off") refreshes from what's here, as before.
+  const syncQuery = useQuery({
+    queryKey: ["sync"],
+    queryFn: () => api.dm_getsync({}),
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) => (query.state.data?.state === "syncing" ? 3_000 : false),
+    refetchIntervalInBackground: false,
+  });
+  const sync = syncQuery.data ?? null;
+  const syncing = sync?.state === "syncing";
+  // When a pull finishes, the chats it brought in show at once.
+  const wasSyncing = useRef(false);
+  useEffect(() => {
+    if (wasSyncing.current && !syncing) queryClient.invalidateQueries({ queryKey: ["items"] });
+    wasSyncing.current = syncing;
+  }, [syncing, queryClient]);
+
   const itemsQuery = useQuery({
     queryKey: ["items", "all"],
     queryFn: () => api.dm_listitems({ filter: "all" }),
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    // Every 30 seconds, and every 5 while a draft, a send or an edit is waiting on Muse.
+    // Every 30 seconds, and every 5 while a pull, a draft, a send or an edit is waiting on Muse.
     refetchInterval: (query) =>
+      syncing ||
       query.state.data?.items.some(
         (i) => i.draft_wanted || i.publish_status === "publishing" || i.edit_status === "editing",
       )
@@ -820,6 +840,12 @@ export function App() {
   }, [justRefreshed]);
 
   const handleRefresh = async () => {
+    // A pull is asked first. A tap while one runs asks nothing new, and a stuck one is started again.
+    try {
+      queryClient.setQueryData(["sync"], await api.dm_requestsync({}));
+    } catch {
+      // The pull couldn't be asked for. The chats still refresh from what's here.
+    }
     await queryClient.invalidateQueries({ queryKey: ["items"] });
     const result = await itemsQuery.refetch();
     setNowTick(Date.now());
@@ -828,8 +854,29 @@ export function App() {
     }
   };
 
+  const syncedAgo = (iso) => {
+    const t = shortTime(iso);
+    return t === "now" ? "just now" : /^\d+[mhd]$/.test(t) ? `${t} ago` : `on ${t}`;
+  };
+  const syncTrouble = sync?.state === "stuck" || sync?.state === "failed";
   const updatedLabel = (() => {
+    if (syncing) return "Syncing with Instagram…";
+    if (sync?.state === "stuck") return "The Instagram sync hasn't answered in 10 minutes. Refresh to start it again";
+    if (sync?.state === "failed") {
+      // A pull that stopped partway says what still came in (Quill #1051: partial results reported, never silent).
+      const why = String(sync.last_error).replace(/[.!?\s]+$/, "");
+      const f = sync.failed_result;
+      const lead = f && (f.imported || f.updated)
+        ? `The last Instagram sync stopped after ${f.imported} new, ${f.updated} updated`
+        : "The last Instagram sync didn't finish";
+      return `${lead}: ${why.length > 160 ? `${why.slice(0, 159).trimEnd()}…` : why}. Refresh to try again`;
+    }
     if (itemsQuery.isFetching && !itemsQuery.isPending) return "Refreshing…";
+    if (sync?.last_synced_at) {
+      const r = sync.last_result;
+      const what = r ? ` · ${r.imported} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} skipped` : ""}` : "";
+      return `Synced with Instagram ${syncedAgo(sync.last_synced_at)}${what}`;
+    }
     if (justRefreshed) return "Refreshed ✓ · you're up to date";
     if (!itemsQuery.dataUpdatedAt) return "Not loaded yet";
     const secs = Math.max(
@@ -938,11 +985,12 @@ export function App() {
           </button>
           <span
             aria-live="polite"
-            className="min-w-0 truncate text-sm"
+            className={syncTrouble ? "min-w-0 text-sm leading-snug" : "line-clamp-2 min-w-0 text-sm leading-snug"}
             style={{
-              color: justRefreshed ? "var(--sage)" : "var(--dim)",
-              fontWeight: justRefreshed ? 600 : 400,
+              color: syncTrouble ? "var(--danger)" : justRefreshed ? "var(--sage)" : "var(--dim)",
+              fontWeight: justRefreshed || syncTrouble ? 600 : 400,
             }}
+            title={sync?.note ?? undefined}
           >
             {updatedLabel}
           </span>

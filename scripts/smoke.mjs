@@ -174,7 +174,7 @@ globalThis.fetch = async (url, opts = {}) => {
 };
 owners.set(new URL(base).origin, "smoke_owner");
 const server = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(PORT), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: DATA,
-  COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_POLLEN_SYNC_MS: "3600000",
+  COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_POLLEN_SYNC_MS: "3600000", COVER_REVIEW_DM_SYNC_STUCK_MS: "2500",
   COVER_REVIEW_SYMPHONY_URL: `${symBase}/functions/v1/symphony` }, stdio: "pipe" });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -1941,6 +1941,115 @@ try {
     assert((await dmItem(id)).section === "main", "and moving it out brings it back to the inbox");
     const req = (await dm("createitem", { kind: "dm", sender: "req.folder", incoming_text: "hello", folder: "requests" })).id;
     assert((await dmItem(req)).section === "main", "a request isn't General");
+  });
+  // ---------- 1.23.0: Refresh pulls from Instagram (Arjang in room #1048: "a LIVE SYNC ... It should be RELIABLE") ----------
+  await check("v1.23 an import finds a chat by its thread id and a comment by its comment id, so a pull never makes a copy", async () => {
+    const t1 = new Date(Date.now() - 3_600_000).toISOString();
+    const made = await dm("importitem", { kind: "dm", sender: "live.one", incoming_text: "are you around?", thread_id: "live-t1", folder: "primary",
+      thread_messages: [{ from: "them", kind: "text", text: "are you around?", at: t1 }] });
+    assert(made.created === true && Number.isInteger(made.id), `created: ${JSON.stringify(made)}`);
+    const again = await dm("importitem", { kind: "dm", sender: "live.one", incoming_text: "are you around?", thread_id: "live-t1", folder: "primary",
+      thread_messages: [{ from: "them", kind: "text", text: "are you around?", at: t1 }] });
+    assert(again.created === false && again.id === made.id, `the same chat: ${JSON.stringify(again)}`);
+    assert((await dm("listitems")).items.filter((i) => i.sender === "live.one").length === 1, "one row, however often it's pulled");
+    const t2 = new Date(Date.now() - 1_800_000).toISOString();
+    await dm("importitem", { kind: "dm", sender: "live.one", incoming_text: "are you around?\nfor a call", thread_id: "live-t1",
+      thread_messages: [{ from: "them", kind: "text", text: "are you around?", at: t1 }, { from: "them", kind: "text", text: "for a call", at: t2 }] });
+    const fresh = await dmItem(made.id);
+    assert(fresh.incoming_text === "are you around?\nfor a call" && fresh.last_activity_at === t2, `a chat she hasn't touched takes their latest words: ${JSON.stringify(fresh).slice(0, 300)}`);
+    const c = await dm("importitem", { kind: "comment", sender: "live.fan", incoming_text: "obsessed", comment_id: "live-c1", media_id: "live-m1",
+      media_preview_url: "https://example.com/live.jpg", following: true });
+    const c2 = await dm("importitem", { kind: "comment", sender: "live.fan", incoming_text: "obsessed", comment_id: "live-c1", media_id: "live-m1",
+      media_preview_url: "https://example.com/live2.jpg", following: true });
+    assert(c.created === true && c2.created === false && c2.id === c.id && (await dmItem(c.id)).media_preview_url === "https://example.com/live2.jpg",
+      "a comment is the same comment, and its fresh preview lands");
+    await dmFails("importitem", { kind: "dm", sender: "x", incoming_text: "hi" }, 400, "thread_id");
+    await dmFails("importitem", { kind: "comment", sender: "x", incoming_text: "hi" }, 400, "comment_id");
+    await dmFails("importitem", { kind: "dm", sender: "x", incoming_text: "hi", thread_id: "h-1", source: "holdout", actual_reply: "x" }, 400, "source");
+  });
+  await check("v1.23 a pull never touches her drafts, kept edits, reviews or sends, and their new message after her reply is what the next draft answers", async () => {
+    const id = (await dm("listitems")).items.find((i) => i.sender === "live.one").id;
+    await dm("generatedraft", { id });
+    await dm("savedraft", { id, draft_text: "Yesss for a bit" });
+    await dm("savework", { id, lines: [{ text: "Yesss for a little bit", approved: true }] });
+    await dm("publishitem", { id, revision_text: "Yesss for a little bit" });
+    await dm("confirmpublish", { id, ok: true });
+    const before = await dmItem(id);
+    const t1 = before.thread_messages[0].at, mine = new Date(Date.now() - 60_000).toISOString(), theirs = new Date(Date.now() + 60_000).toISOString();
+    const pulled = await dm("importitem", { kind: "dm", sender: "live.one", incoming_text: "are you around?", thread_id: "live-t1", ig_read: true,
+      thread_messages: [{ from: "them", kind: "text", text: "are you around?", at: t1 }, { from: "me", kind: "text", text: "Yesss for a little bit", at: mine },
+        { from: "them", kind: "text", text: "can I call you later?", at: theirs }] });
+    const after = await dmItem(id);
+    for (const k of ["draft_text", "revision_text", "verdict", "publish_status", "published_text", "published_at", "incoming_text", "label"]) {
+      assert(JSON.stringify(after[k]) === JSON.stringify(before[k]), `${k} changed: ${JSON.stringify(before[k])} -> ${JSON.stringify(after[k])}`);
+    }
+    assert(pulled.created === false && after.ig_read === true && after.thread_messages.length === 3, `the facts and the thread move: ${JSON.stringify(after).slice(0, 300)}`);
+    await dm("generatedraft", { id, variant: "again" });
+    const w = (await dm("draftswanted")).items.find((i) => i.id === id);
+    assert(w.prompt.includes("Their message: can I call you later?"), `the next draft answers their new message: ${w.prompt}`);
+    await dm("savedraft", { id, draft_text: "Ooooh yes after six" });
+  });
+  await check("v1.23 a chat brought in for its history comes back to Needs Reply when they write again", async () => {
+    const t0 = Date.now() - 3600_000;
+    const at = (m) => new Date(t0 + m * 60_000).toISOString();
+    const two = [{ kind: "text", from: "them", text: "hi", at: at(0) }, { kind: "text", from: "me", text: "Hello!!", at: at(1) }];
+    const three = [...two, { kind: "text", from: "them", text: "you there?", at: at(2) }];
+    const { id } = await dm("importitem", { kind: "dm", thread_id: "t-hist-1230", sender: "hist.person", incoming_text: "", needs_reply: false, thread_messages: two });
+    const get = async () => (await dm("listitems")).items.find((i) => i.id === id);
+    assert((await get()).needs_reply === false, "history only at first");
+    await dm("importitem", { kind: "dm", thread_id: "t-hist-1230", incoming_text: "you there?", thread_messages: three });
+    assert((await get()).needs_reply === true, "their new message makes it need a reply");
+    await dm("importitem", { kind: "dm", thread_id: "t-hist-1230", needs_reply: false, thread_messages: three });
+    assert((await get()).needs_reply === false, "a fact her Muse sends still wins");
+  });
+  await check("v1.23 a DM brought in before thread ids were kept is matched by its handle once, never copied", async () => {
+    const { id } = await dm("createitem", { kind: "dm", sender: "@old.friend", incoming_text: "long time" });
+    const r = await dm("importitem", { kind: "dm", thread_id: "t-old-1230", sender: "old.friend", incoming_text: "long time" });
+    assert(r.id === id && r.created === false, `the chat she has is the one the pull finds: ${JSON.stringify(r)}`);
+    const again = await dm("importitem", { kind: "dm", thread_id: "t-old-1230", sender: "old.friend", incoming_text: "long time" });
+    assert(again.id === id, "and its thread id finds it from then on");
+    assert((await dm("listitems")).items.filter((i) => i.sender.replace(/^@/, "") === "old.friend").length === 1, "one chat, no copy");
+  });
+  await check("v1.23 Refresh asks for one pull at a time, her Muse reads what's asked and since when, and its report says what changed", async () => {
+    let s = await dm("getsync");
+    assert(s.state === "off" && s.last_synced_at === null && s.asked_at === null, `no pull is set up until her Muse reads syncwanted: ${JSON.stringify(s)}`);
+    assert((await dm("requestsync")).state === "off" && (await dm("getsync")).asked_at === null, "Refresh asks nothing of a copy with no pull");
+    assert((await dm("syncwanted")).wanted === false, "nothing asked");
+    s = await dm("getsync");
+    assert(s.state === "idle" && s.last_synced_at === null && s.asked_at === null, `her Muse is there now: ${JSON.stringify(s)}`);
+    await dmFails("confirmsync", { ok: true }, 409, "no pull");
+    const asked = await dm("requestsync");
+    assert(asked.state === "syncing" && typeof asked.asked_at === "string", `asked: ${JSON.stringify(asked)}`);
+    const twice = await dm("requestsync");
+    assert(twice.asked_at === asked.asked_at, "a second tap while it runs asks nothing new");
+    const want = await dm("syncwanted");
+    assert(want.wanted === true && want.asked_at === asked.asked_at && want.since === null, `her Muse reads it: ${JSON.stringify(want)}`);
+    await dmFails("confirmsync", { ok: true, imported: -1 }, 400, "imported");
+    await dm("confirmsync", { ok: true, imported: 3, updated: 5, skipped: 1, detail: "1 thread couldn't be read" });
+    s = await dm("getsync");
+    assert(s.state === "idle" && typeof s.last_synced_at === "string" && s.asked_at === null && s.last_error === null, `done: ${JSON.stringify(s)}`);
+    assert(JSON.stringify(s.last_result) === JSON.stringify({ imported: 3, updated: 5, skipped: 1 }) && s.note === "1 thread couldn't be read", `what changed: ${JSON.stringify(s)}`);
+    await dm("requestsync");
+    assert((await dm("syncwanted")).since === asked.asked_at, "the next pull asks only for what changed since the last good one started");
+    await dm("confirmsync", { ok: false, detail: "Instagram said wait a minute", imported: 120, updated: 4 });
+    s = await dm("getsync");
+    assert(s.state === "failed" && s.last_error === "Instagram said wait a minute" && s.last_synced_at !== null, `a failed pull says why: ${JSON.stringify(s)}`);
+    assert(JSON.stringify(s.failed_result) === JSON.stringify({ imported: 120, updated: 4, skipped: 0 }), `a pull that stopped partway says what it brought in: ${JSON.stringify(s)}`);
+    assert(JSON.stringify(s.last_result) === JSON.stringify({ imported: 3, updated: 5, skipped: 1 }), "the last good pull's counts stay as they were");
+    await dm("requestsync");
+    assert((await dm("syncwanted")).since === asked.asked_at, "a failed pull leaves the cursor where the last good one put it");
+    await dm("confirmsync", { ok: true, imported: 0, updated: 0 });
+  });
+  await check("v1.23 a pull that hasn't reported back in time shows as stuck, and Refresh starts a new one", async () => {
+    const first = await dm("requestsync");
+    await new Promise((r) => setTimeout(r, 2700));
+    const s = await dm("getsync");
+    assert(s.state === "stuck" && s.asked_at === first.asked_at, `stuck: ${JSON.stringify(s)}`);
+    const next = await dm("requestsync");
+    assert(next.state === "syncing" && next.asked_at !== first.asked_at, `a new pull: ${JSON.stringify(next)}`);
+    await dmFails("confirmsync", { ok: true, asked_at: first.asked_at }, 409, "newer");
+    await dm("confirmsync", { ok: true, asked_at: next.asked_at, imported: 0, updated: 2 });
+    assert((await dm("getsync")).state === "idle", "the new one reports");
   });
   await check("v1.14 every class the Chats screen uses has a rule in its stylesheet (after changing classes: node scripts/dm-css.mjs)", async () => {
     const dir = new URL("../client/src/dm/", import.meta.url).pathname;

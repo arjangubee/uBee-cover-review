@@ -144,6 +144,7 @@ Since 1.14.0 a switch above the review screen opens Chats, where she practices r
 
 - The inbox looks like Instagram's, and since 1.22.0 it follows the reply practice simulator. A DM opens as a chat with the thread so far.
 - It opens on Needs Reply: every chat still waiting for her answer, read or not, each labeled where it sits on Instagram (Primary, General, Requests or Spam). Replied lists the ones she answered, and with both off the inbox splits the way Instagram's does.
+- Refresh is a live sync (1.23.0): her Muse pulls what changed on Instagram, inbox and comments, and the line beside Refresh says when it last synced and what came in, or why it stopped.
 - Comments shows a square for each post. Tapping one shows the post and every comment under it, grouped: people she follows, people who follow her, everyone else.
 - Draft (Reply on a comment) asks her Muse for a reply in her voice. It shows up as draft bubbles: she taps the ones she likes to approve them, edits or types her own, and taps Send. Her edits are kept. Refresh on a comment takes her direction for the next draft.
 - Send hands only the texts she approved to her Muse, which sends them word for word and reports back. The drafts she didn't approve stay for later, and a text that went out can be edited through her Muse. Nothing sends without her tap.

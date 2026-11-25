@@ -60,6 +60,15 @@ export const STORY_PLACEHOLDER = "replied to your story";
  * text, that text is the incoming message. With no text and the placeholder as the incoming message, it's flagged as
  * not captured, and nothing is invented.
  */
+// 1.22.0 (the simulator's rule): text that is never a message from them. A reaction's placeholder, the line an import
+// wrote when a thread's newest event had no words of its own (a call, a video), and an import's own notes. A chat with
+// such text carries no incoming message, so none is kept or shown.
+export function isNonMessageText(text) {
+  const t = String(text ?? "").trim().toLowerCase();
+  return t === "reacted to your message" || t === "reacted to a message" || t === "liked a message" || t === "sent a message"
+    || /^no messages from them\b/.test(t) || /^no incoming message\b/.test(t);
+}
+
 export function storyCapture(thread, incomingText) {
   const list = Array.isArray(thread) ? thread : [];
   let last = null;

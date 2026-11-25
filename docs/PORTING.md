@@ -12,6 +12,72 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.22.0: Chats, the way the simulator has them
+
+Arjang's Big Edit list (Nov 23, room #877): item 20, "the exact app", with items 21, 22.1, 22.2, 23, 24 and 14.1 on
+top, in the order Quill handed them over in #959 (room #1030). The Chats screen's code now follows the reply practice
+simulator (its code is room file 83). None of her data came with it: no profiles, photos, handles or messages.
+
+1. **Chats follow the simulator (item 20).** client/src/dm/App.jsx is the simulator's Chats screen. The inbox keeps
+   read states apart (a green Read chip while their latest message is read and still has no reply, grey text only for
+   chats read on Instagram), shows Following, and moves a chat to General with a swipe left. A thread shows calls and
+   missed calls, reactions under the message they sit on, shared posts and stories with their pictures (a post with no
+   picture shows through Instagram's embed), and the Seen receipt. A send takes only the texts she approved: the rest
+   stay in the chat as drafts and can go later. A text that already went out can be edited. What this app had and the
+   simulator doesn't stays: her Muse writes the drafts (a draft can be waiting), labels are saved with her account,
+   Ready to Publish names her account, and people show as monograms.
+2. **The facts her Muse syncs.** `createitem` takes, and `updatethread` refreshes, where a chat sits on Instagram
+   (`folder`: primary, general, requests or spam), whether she follows them (`following`), whether they follow her
+   (`follows_her`), Instagram's own read mark (`ig_read`), whether it needs a reply at all (`needs_reply`: a chat brought
+   in for its history doesn't), Instagram's last-activity time (`last_activity_timestamp_ms`) and, for a comment, its
+   post (`media_id`, `media_preview_url`, `media_permalink`). A fact a sync doesn't send stays as it was, and a chat with
+   none reads as before. `updatethread` with no `thread_messages` keeps the thread. A chat with history can come in with
+   no message from them.
+3. **Threads read the way the simulator keeps them.** Oldest first, whatever order they came in. A text with no words is
+   kept as a generic message, a call label makes the message a call, a reaction keeps only its emoji, and a message can
+   carry its `media_url` and `caption`. A reaction's placeholder or an import's note is never kept as their message.
+4. **Needs Reply first (items 21, 22.1 and 22.2).** The Sort menu is gone. Needs Reply, Replied and Hide following share
+   one row evenly and work the same way, one of the first two at a time. Chats opens on Needs Reply: every chat whose
+   latest message is theirs with no answer from her, read or not, in one list, each labeled where it sits on Instagram.
+   Replied lists the ones she answered. With both off, the inbox is split the way Instagram splits it: Primary,
+   General, Requests and Spam. A chat Instagram keeps in General starts in her General and stays when they write again.
+   A chat she moved there herself comes back when they do, and an open chat stays open when her reply moves it out of
+   Needs Reply.
+5. **Comments by post (items 23 and 14.1).** Comments shows a square for each post. Tapping one flies the post in with
+   a back button: its preview (its video plays through Instagram's embed), then every comment under it, replied ones
+   too, under separators: people she follows, people who follow her, everyone else. Reply asks her Muse for a draft at
+   once, and tapping the draft edits it. Refresh opens a box for direction, and with the box empty her Muse redrafts on
+   its own. Send goes through her Muse the way a DM does, and a sent line can be edited.
+6. **Her edits are kept (item 24).** The lines she's working on in a chat, and her reply to a comment, are saved with it
+   as she changes them (`savework`), so an edit is there when she comes back. A new draft or a send replaces them. A
+   line that already went out is edited through her Muse: `editpublished` asks, her Muse reads `editswanted`, applies it
+   on Instagram and reports with `confirmedit`. Until then the line shows what's on Instagram, and a failed edit says so.
+
+For her Muse: `draftswanted` carries `direction` when she gave one (it's also in the prompt), `publishitem` takes
+`remaining_text` (the texts she isn't sending yet), a chat that went out can send more (they join what went out), and
+the pending count leaves out chats that need no reply.
+
+In a ported space: bring server/dm.js and server/dmRules.js over whole, and client/src/dm whole (App.jsx, dmApi.js,
+dm.css, dm-tw.css). Add the new fields with defaults that read as before, and a migration for her rows.
+
+| Where | Change |
+| --- | --- |
+| server/dm.js | the facts, `savework`, `setchatsection`, `markreadinbuild`, `editpublished` / `editswanted` / `confirmedit`, later sends, `direction`, the simulator's thread rules |
+| server/dmRules.js | `isNonMessageText`: a reaction's placeholder or an import's note is never their message |
+| client/src/dm/App.jsx | the simulator's Chats screen, with Needs Reply, Replied, Comments by post and kept edits |
+| client/src/dm/dmApi.js | `editpublished`, `markreadinbuild`, `setchatsection`, `savework` |
+| client/src/dm/dm.css | the post's fly-in, and tap targets at least 32px tall |
+| scripts/dm-css.mjs | a rule nested in another (Tailwind's `&::placeholder`, `&:disabled`) is scoped once |
+
+### Data steps (her space, never the repo)
+
+New fields on each chat, each with a default that reads as before: `folder` (null), `following` (false), `follows_her`
+(null), `ig_read` (false), `needs_reply` (true), `last_activity_at` (null: read from the newest message),
+`media_preview_url` and `media_permalink` (null), `section` ("main"), `general_at`, `build_read_at` (null),
+`edit_status` ("none"), `edit_text`, `edit_line_index`, `edit_error`, `edited_at`, `edited_line_index` (null),
+`leftover_text` (null), `publish_append` (false) and `work_lines` (null). Then the all-time sync (#14, #22, #959) fills
+the facts for every chat, spam included.
+
 ## 1.21.1: emoji endings stay
 
 The voice chat found it in #934, and Quill ruled the fix in #942: the ending cap (1.14, point 10) held emoji

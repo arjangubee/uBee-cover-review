@@ -16,8 +16,14 @@
 //
 // Her data stays in this copy: the items live in data/db.json and her voice in data/settings.json. Nothing here ships
 // with anyone's voice, offers, people or messages; her Muse fills them in (savevoicesource, createitem).
+//
+// 1.22.0 (room #1030): Chats follow the reply practice simulator (Arjang #20, its code in room file 83). Each chat
+// carries the facts her Muse syncs from Instagram: where it sits there, who follows whom, Instagram's read mark, whether
+// it needs a reply at all, when it last moved, and for a comment its post. It also keeps her own inbox split (General),
+// her read mark here, the texts a send left behind, and edits to a line that already went out. Her Muse applies an
+// edit the way it sends: it reads editswanted and reports back with confirmedit.
 import { store } from "./store.js";
-import { STORY_PLACEHOLDER, capEndings, storyCapture, voiceVersion } from "./dmRules.js";
+import { STORY_PLACEHOLDER, capEndings, isNonMessageText, storyCapture, voiceVersion } from "./dmRules.js";
 
 const KINDS = ["dm", "comment"];
 const SOURCES = ["live", "holdout", "paste"];
@@ -25,10 +31,14 @@ const VERDICTS = ["approved", "edited", "needs_work"];
 const FILTERS = ["all", "pending", "reviewed", "dm", "comment", "ready", "published"];
 const MODES = ["listening", "deterrence", "dm"];
 const VARIANTS = ["fresh", "again", "sharper"];
-const THREAD_KINDS = ["text", "share_post", "share_reel", "share_story", "reaction", "voice", "generic", "admin"];
+const THREAD_KINDS = ["text", "share_post", "share_reel", "share_story", "reaction", "voice", "video", "call", "call_missed", "generic", "admin"];
 const REPLY_TO = ["story", "note", "montage"];
 const RULE_KEYS = ["voice", "listening", "deterrence", "dm", "offers"];
 const LABELS = ["Flag", "Booked", "Lead", "Ordered", "Paid", "Shipped"]; // a chat's label (1.18.0), saved with her account
+const FOLDERS = ["primary", "general", "requests", "spam"]; // where a chat sits on Instagram (1.22.0)
+const SECTIONS = ["main", "general"]; // her inbox here: General once she swipes a chat left (1.22.0)
+const EDIT_STATES = ["none", "editing", "edit_failed"];
+const LATEST_MS = 4102444800000; // 2100-01-01: the latest activity time taken, as in the simulator
 
 class DmError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -52,6 +62,19 @@ function oneOf(v, list, name, def) {
     throw new DmError(`${name} is missing.`);
   }
   if (!list.includes(v)) throw new DmError(`${name} must be one of: ${list.join(", ")}.`);
+  return v;
+}
+/** A true or false fact, or undefined when it isn't given. */
+function fact(v, name) {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "boolean") throw new DmError(`${name} must be true or false.`);
+  return v;
+}
+const optOneOf = (v, list, name) => (v === undefined || v === null ? undefined : oneOf(v, list, name));
+/** Instagram's own last-activity time for a chat, in milliseconds (its last_activity_timestamp_ms), or undefined. */
+function activityMs(v) {
+  if (v === undefined || v === null) return undefined;
+  if (!Number.isInteger(v) || v < 1 || v > LATEST_MS) throw new DmError("last_activity_timestamp_ms must be a time in milliseconds since 1970.");
   return v;
 }
 function itemId(v) {
@@ -94,24 +117,66 @@ function voiceSections() {
   return voiceSource().startingProfile;
 }
 
-/** One thread message as kept, oldest first. A text with no text isn't a message; other kinds keep their place. */
+// 1.22.0: a thread reads the way the simulator keeps it. A call has no text of its own on Instagram: its label is its
+// only text, so a label makes the message a call, and a missed call has its own kind.
+function callKindOf(words) {
+  if (typeof words !== "string") return null;
+  const t = words.trim();
+  if (t === "" || t.length > 80) return null;
+  if (/^missed (audio|video) call$/i.test(t)) return "call_missed";
+  if (/^you missed an? (audio|video) call$/i.test(t)) return "call_missed";
+  if (/^[a-z0-9._]+ missed an? (audio|video) call$/i.test(t)) return "call_missed";
+  if (/^(audio|video) call( ended)?$/i.test(t)) return "call";
+  if (/^you started an? (audio|video) call$/i.test(t)) return "call";
+  if (/^[a-z0-9._]+ started an? (audio|video) call$/i.test(t)) return "call";
+  if (/^(audio|video) call started$/i.test(t)) return "call";
+  return null;
+}
+const EMOJI = /\p{Extended_Pictographic}(?:\u{FE0F})?(?:\u{200D}\p{Extended_Pictographic}(?:\u{FE0F})?)*/u;
+/** A reaction keeps only its emoji, read from the reaction log's own text. "Liked a message" is the heart. */
+function reactionEmoji(words) {
+  if (!words) return null;
+  const found = EMOJI.exec(words);
+  if (found) return found[0];
+  return /liked/i.test(words) ? "\u{2764}\u{FE0F}" : null;
+}
+
+/** A thread as kept, oldest first (1.22.0, the simulator's rules). A text with no words is some other message whose kind
+ * got lost (a video, a share), so it's kept as generic and shows as its type, never as a blank bubble. A call label
+ * makes it a call, and a reaction keeps only its emoji. A message with no time keeps its place. */
 function cleanThread(list) {
   if (!Array.isArray(list)) return [];
+  const filled = (v) => (typeof v === "string" && v.trim() !== "" ? v : null);
   const out = [];
   for (const m of list) {
     if (!m || typeof m !== "object" || (m.from !== "them" && m.from !== "me")) continue;
-    const kind = THREAD_KINDS.includes(m.kind) ? m.kind : "text";
-    const t = typeof m.text === "string" && m.text.trim() !== "" ? m.text : null;
-    if (kind === "text" && t === null) continue;
+    const words = filled(m.text);
+    const named = THREAD_KINDS.includes(m.kind) ? m.kind : "text";
+    const base = named === "text" && words === null ? "generic" : named;
+    const call = callKindOf(words);
+    const kind = call && ["text", "generic", "call", "call_missed"].includes(base) ? call : base;
     out.push({
-      from: m.from, kind, text: t,
-      url: typeof m.url === "string" && m.url.trim() !== "" ? m.url : null,
-      reply_to: REPLY_TO.includes(m.reply_to) ? m.reply_to : null,
-      at: typeof m.at === "string" && m.at.trim() !== "" ? m.at : null,
+      from: m.from, kind, text: kind === "reaction" ? reactionEmoji(words) : words,
+      url: filled(m.url), media_url: filled(m.media_url), caption: filled(m.caption),
+      reply_to: REPLY_TO.includes(m.reply_to) ? m.reply_to : null, at: filled(m.at),
     });
   }
-  return out;
+  const ms = (m) => (m.at ? Date.parse(m.at) : NaN);
+  return out.sort((a, b) => (Number.isNaN(ms(a)) || Number.isNaN(ms(b)) ? 0 : ms(a) - ms(b)));
 }
+/** The newest message time in a thread, in milliseconds, or null when no message carries one. */
+function newestMs(thread) {
+  let best = null;
+  for (const m of thread) {
+    const t = m.at ? Date.parse(m.at) : NaN;
+    if (!Number.isNaN(t) && (best === null || t > best)) best = t;
+  }
+  return best;
+}
+/** When a chat last moved: the time kept with it (Instagram's own, or her last send), else its newest message. */
+const lastActivityMs = (r) => (typeof r.lastActivityAt === "number" ? r.lastActivityAt : newestMs(cleanThread(r.threadMessages)));
+/** The lines of a reply that went out, one Instagram message each. */
+const sentLines = (r) => String(r.publishedText ?? "").split("\n").filter((l) => l.trim() !== "");
 
 const iso = (ms) => (ms ? new Date(ms).toISOString() : null);
 /** The version of the voice drafts are written under now (1.14.0, Rose #770). */
@@ -119,8 +184,9 @@ const currentVoice = () => voiceVersion(voiceSections());
 /** An item as the page sees it. The sealed reply stays out until it's revealed. A draft written under another version of
  * her voice is stale; a story reply whose words weren't captured says so (1.14.0, Quill #725). */
 function toItem(r, voice = currentVoice()) {
+  const editStatus = EDIT_STATES.includes(r.editStatus) ? r.editStatus : "none";
   return {
-    id: r.id, kind: r.kind, sender: r.sender, incoming_text: r.incomingText, context_text: r.contextText ?? null,
+    id: r.id, kind: r.kind, sender: r.sender, incoming_text: isNonMessageText(r.incomingText) ? "" : r.incomingText, context_text: r.contextText ?? null,
     source: r.source, has_actual: Boolean(r.actualReply && r.actualReply.trim() !== ""),
     actual_reply: r.revealed ? (r.actualReply ?? null) : null,
     draft_text: r.draftText ?? null, draft_mode: r.draftMode ?? null, draft_wanted: Boolean(r.draftWanted),
@@ -130,15 +196,45 @@ function toItem(r, voice = currentVoice()) {
     thread_messages: cleanThread(r.threadMessages), created_at: iso(r.createdAt), reviewed_at: iso(r.reviewedAt),
     draft_voice_version: r.draftVoiceVersion ?? null, voice_stale: r.draftText != null && r.draftVoiceVersion !== voice,
     story_reply_not_captured: Boolean(r.storyReplyNotCaptured), label: LABELS.includes(r.label) ? r.label : null,
+    // 1.22.0: a fact her Muse hasn't synced reads as the simulator's default.
+    folder: FOLDERS.includes(r.folder) ? r.folder : null, following: r.following === true,
+    follows_her: typeof r.followsHer === "boolean" ? r.followsHer : null, ig_read: r.igRead === true, needs_reply: r.needsReply !== false,
+    section: r.section === "general" ? "general" : "main", build_read_at: iso(r.buildReadAt),
+    edit_status: editStatus, edit_error: r.editError ?? null, edited_at: iso(r.editedAt),
+    edited_line_index: Number.isInteger(r.editedLineIndex) ? r.editedLineIndex : null,
+    pending_edit_line: editStatus !== "none" && Number.isInteger(r.editLineIndex) ? r.editLineIndex : null,
+    leftover_text: r.leftoverText ?? null, media_id: r.mediaId ?? null, media_preview_url: r.mediaPreviewUrl ?? null,
+    media_permalink: r.mediaPermalink ?? null, last_activity_at: iso(lastActivityMs(r)),
+    work_lines: Array.isArray(r.workLines) ? r.workLines.map((l) => ({ text: l.text, approved: l.approved })) : null,
   };
 }
 
-/** Thread messages as sent by her Muse, checked: at most 50, each an object with short text, url and time. */
+/** The facts her Muse syncs with a chat (1.22.0), checked. Only the ones given are in the answer. */
+function factsFrom(a) {
+  const out = {};
+  const folder = optOneOf(a.folder, FOLDERS, "folder");
+  if (folder !== undefined) out.folder = folder;
+  for (const [key, field] of [["following", "following"], ["follows_her", "followsHer"], ["ig_read", "igRead"], ["needs_reply", "needsReply"]]) {
+    const v = fact(a[key], key);
+    if (v !== undefined) out[field] = v;
+  }
+  const activity = activityMs(a.last_activity_timestamp_ms);
+  if (activity !== undefined) out.lastActivityAt = activity;
+  const preview = optText(a.media_preview_url, "media_preview_url", 2000);
+  if (preview !== undefined) out.mediaPreviewUrl = preview || null;
+  const permalink = optText(a.media_permalink, "media_permalink", 2000);
+  if (permalink !== undefined) out.mediaPermalink = permalink || null;
+  return out;
+}
+
+/** Thread messages as sent by her Muse, checked: at most 50, each an object with short text, links and time. */
 function threadFrom(list) {
   if (!Array.isArray(list) || list.length > 50) throw new DmError("thread_messages must be a list of at most 50.");
   return cleanThread(list.map((m, i) => {
     if (!m || typeof m !== "object") throw new DmError(`Thread message ${i + 1} must be an object.`);
-    return { ...m, text: optText(m.text, `Thread message ${i + 1}'s text`, 2000), url: optText(m.url, `Thread message ${i + 1}'s url`, 500), at: optText(m.at, `Thread message ${i + 1}'s time`, 40) };
+    const n = `Thread message ${i + 1}'s`;
+    return { ...m, text: optText(m.text, `${n} text`, 2000), url: optText(m.url, `${n} url`, 2000), media_url: optText(m.media_url, `${n} media_url`, 2000),
+      caption: optText(m.caption, `${n} caption`, 2000), at: optText(m.at, `${n} time`, 40) };
   }));
 }
 
@@ -149,15 +245,18 @@ function answerFor(r, revision) {
 
 // ---------- The draft prompt (the same text a space's model gets) ----------
 
-function draftPrompt(r, mode, variant) {
+function draftPrompt(r, mode, variant, direction = null) {
   const openings = [...rows()].sort((a, b) => b.id - a.id).slice(0, 12)
     .map((x) => x.draftText).filter((t) => t && t.trim() !== "").slice(0, 3)
     .map((t) => t.trim().split(/\s+/).slice(0, 2).join(" "));
   const labels = { share_post: "shared a post", share_reel: "shared a reel", share_story: "shared a story", reaction: "reacted to a message",
-    voice: "sent a voice message", generic: "sent a message", admin: "sent an admin message" };
+    voice: "sent a voice message", video: "sent a video", call: "had a call", call_missed: "missed a call", generic: "sent a message",
+    admin: "sent an admin message" };
   const history = cleanThread(r.threadMessages).slice(-10).map((m) => {
     const who = m.from === "me" ? "the creator" : "Them";
-    return m.kind === "text" ? `${who}: ${m.text}` : `${who}: [${labels[m.kind]}]`;
+    if (m.kind === "text") return `${who}: ${m.text}`;
+    const extra = [m.caption ? `caption: "${m.caption}"` : "", m.text ? `"${m.text}"` : "", m.reply_to ? `in reply to a ${m.reply_to}` : ""].filter(Boolean).join(", ");
+    return extra ? `${who}: [${labels[m.kind]}, ${extra}]` : `${who}: [${labels[m.kind]}]`;
   }).join("\n");
   const { rules } = voiceSource();
   const style = mode === "dm" ? rules.dm : mode === "deterrence" ? `${rules.listening}\n${rules.deterrence}` : rules.listening;
@@ -176,6 +275,7 @@ function draftPrompt(r, mode, variant) {
       : `Their message: ${r.incomingText}`,
     openings.length ? `Do not start your reply the same way as these recent drafts: ${openings.join(" / ")}` : "",
     note,
+    direction ? `Her direction for this draft, follow it: ${direction}` : "",
   ].filter((l) => l !== "").join("\n");
   const notes = voiceSections();
   const voiceNotes = notes.length
@@ -187,6 +287,8 @@ function draftPrompt(r, mode, variant) {
 
 // ---------- The actions ----------
 
+/** Waiting for her answer: not reviewed yet, on a chat that needs a reply at all (1.22.0, the simulator's count). */
+const isPending = (r) => r.verdict === "pending" && r.needsReply !== false;
 const isReady = (r) => r.verdict !== "pending" && r.source !== "holdout" && (r.publishStatus === "unpublished" || r.publishStatus === "publish_failed");
 
 const actions = {
@@ -195,7 +297,7 @@ const actions = {
     const all = [...rows()].sort((x, y) => x.id - y.id);
     const stats = {
       total: all.length,
-      pending: all.filter((r) => r.verdict === "pending").length,
+      pending: all.filter(isPending).length,
       reviewed: all.filter((r) => r.verdict !== "pending").length,
       approved: all.filter((r) => r.verdict === "approved").length,
       edited: all.filter((r) => r.verdict === "edited").length,
@@ -204,7 +306,7 @@ const actions = {
       published: all.filter((r) => r.publishStatus === "published").length,
     };
     const keep = {
-      all: () => true, pending: (r) => r.verdict === "pending", reviewed: (r) => r.verdict !== "pending",
+      all: () => true, pending: isPending, reviewed: (r) => r.verdict !== "pending",
       dm: (r) => r.kind === "dm", comment: (r) => r.kind === "comment", ready: isReady, published: (r) => r.publishStatus === "published",
     }[filter];
     const voice = currentVoice();
@@ -214,18 +316,30 @@ const actions = {
   createitem(a) {
     const kind = oneOf(a.kind, KINDS, "kind");
     const source = oneOf(a.source, SOURCES, "source", "live");
+    const thread = a.thread_messages !== undefined && a.thread_messages !== null ? threadFrom(a.thread_messages) : [];
+    // A chat with history can come in with no message from them (1.22.0, the grab-all sync): she wrote last, or they
+    // only reacted. A reaction or an import's note is never kept as their message.
+    const incoming = text(a.incoming_text, "Their message", { min: thread.length ? 0 : 1, max: 4000 });
     const row = {
-      id: 0, kind, sender: text(a.sender, "sender", { max: 80 }), incomingText: text(a.incoming_text, "Their message", { min: 1, max: 4000 }),
+      id: 0, kind, sender: text(a.sender, "sender", { max: 80 }), incomingText: isNonMessageText(incoming) ? "" : incoming,
       contextText: optText(a.context_text, "context", 4000) || null, source,
       actualReply: null, draftText: null, draftMode: null, draftWanted: null, revisionText: null, feedback: null,
       verdict: "pending", publishStatus: "unpublished", publishedText: null, publishError: null, publishedAt: null,
       mediaId: optText(a.media_id, "media_id", 120) || null, commentId: optText(a.comment_id, "comment_id", 120) || null,
-      threadId: optText(a.thread_id, "thread_id", 120) || null, threadMessages: [], revealed: false,
+      threadId: optText(a.thread_id, "thread_id", 120) || null, threadMessages: thread, revealed: false,
       createdAt: Date.now(), reviewedAt: null,
+      // 1.22.0: the facts her Muse syncs. One it doesn't send reads as the simulator's default.
+      folder: null, following: false, followsHer: null, igRead: false, needsReply: true, lastActivityAt: newestMs(thread),
+      mediaPreviewUrl: null, mediaPermalink: null, section: "main", generalAt: null, buildReadAt: null,
+      editStatus: "none", editText: null, editLineIndex: null, editError: null, editedAt: null, editedLineIndex: null,
+      leftoverText: null, publishAppend: false, workLines: null,
+      ...factsFrom(a),
     };
+    // A chat Instagram keeps in General starts in her General. It has no move time, so it stays there when they write
+    // again, the way Instagram keeps it.
+    if (row.folder === "general") row.section = "general";
     const actual = optText(a.actual_reply, "actual_reply", 4000);
     if (source === "holdout" && actual) row.actualReply = actual;
-    if (a.thread_messages !== undefined && a.thread_messages !== null) row.threadMessages = threadFrom(a.thread_messages);
     // A story reply keeps its own words; with none captured, it's flagged and nothing is invented (Rose #770).
     const story = storyCapture(row.threadMessages, row.incomingText);
     row.incomingText = story.incomingText;
@@ -241,8 +355,10 @@ const actions = {
     const r = find(itemId(a.id));
     const asked = oneOf(a.mode, MODES, "mode", "listening");
     const variant = oneOf(a.variant, VARIANTS, "variant", "fresh");
+    // 1.22.0 (Big Edit #23): Refresh can carry her direction for the new draft. An empty box asks for a fresh one.
+    const direction = text(a.direction, "direction", { max: 300 }) || null;
     const mode = r.kind === "dm" ? "dm" : asked;
-    r.draftWanted = { mode, variant, at: Date.now() };
+    r.draftWanted = { mode, variant, at: Date.now(), direction };
     return { draft_text: r.draftText ?? "", draft_mode: mode, wanted: true };
   },
 
@@ -254,7 +370,7 @@ const actions = {
     const r = find(itemId(a.id));
     const voice = currentVoice();
     const stale = r.draftText != null && r.draftVoiceVersion !== voice;
-    const pending = r.verdict === "pending" && r.publishStatus === "unpublished";
+    const pending = r.verdict === "pending" && r.publishStatus === "unpublished" && r.needsReply !== false;
     if (pending && stale && !r.draftWanted) r.draftWanted = { mode: r.kind === "dm" ? "dm" : "listening", variant: "fresh", at: Date.now() };
     return { item: toItem(r, voice), regenerated: false, wanted: Boolean(r.draftWanted) };
   },
@@ -281,8 +397,12 @@ const actions = {
     const revision = text(a.revision_text, "Your revision", { max: 4000 });
     const feedback = text(a.feedback, "Feedback", { max: 2000 });
     const asked = oneOf(a.verdict, VERDICTS, "verdict", "approved");
+    // 1.22.0: the texts she isn't sending this time stay with the chat as drafts.
+    const remaining = a.remaining_text === undefined || a.remaining_text === null ? undefined : text(a.remaining_text, "remaining_text", { max: 4000 });
     if (r.source === "holdout") throw new DmError("This is a blind holdout: you already replied to it on Instagram, so there is nothing to publish.", 409);
-    if (r.publishStatus === "published") throw new DmError("This one is already published.", 409);
+    // 1.22.0 (the simulator's later send): a reply that went out can send more, such as the texts an earlier send left.
+    const later = r.publishStatus === "published";
+    if (later && r.editStatus === "editing") throw new DmError("An edit is on its way for this one. Let it land before sending more.", 409);
     if (r.publishStatus === "publishing") throw new DmError("A publish is already on its way for this one. Give it a moment, then check its status here.", 409);
     const answer = answerFor(r, revision);
     if (!answer) throw new DmError(r.draftText
@@ -294,6 +414,9 @@ const actions = {
     r.reviewedAt = Date.now();
     r.publishStatus = "publishing";
     r.publishError = null;
+    r.publishAppend = later;
+    if (remaining !== undefined) r.leftoverText = remaining || null;
+    r.workLines = null; // the send splits her lines into what went and what's left
     r.handedAt = Date.now();
     return { ok: true, status: "publishing", text: answer };
   },
@@ -303,9 +426,53 @@ const actions = {
     const r = find(itemId(a.id));
     if (typeof a.ok !== "boolean") throw new DmError("ok must be true or false.");
     const detail = text(a.detail, "detail", { max: 1000 });
-    if (a.ok) Object.assign(r, { publishStatus: "published", publishedText: r.revisionText ?? r.draftText ?? null, publishedAt: Date.now(), publishError: null });
-    else Object.assign(r, { publishStatus: "publish_failed", publishError: detail || "Publishing did not go through." });
+    if (a.ok) {
+      // 1.22.0: a later send joins what already went out, in order, and her sent reply moves the chat in the inbox.
+      const answer = r.revisionText ?? r.draftText ?? null;
+      const sent = r.publishAppend && r.publishedText && answer ? `${r.publishedText}\n${answer}` : answer;
+      const now = Date.now();
+      Object.assign(r, { publishStatus: "published", publishedText: sent, revisionText: sent, publishedAt: now, lastActivityAt: now, publishError: null });
+    } else {
+      // A failed later send leaves the earlier one sent: only a failed first send is publish_failed.
+      Object.assign(r, { publishStatus: r.publishAppend ? "published" : "publish_failed", publishError: detail || "Publishing did not go through." });
+    }
+    r.publishAppend = false;
     r.handedAt = null;
+    return { ok: true };
+  },
+
+  // 1.22.0 (Big Edit #24, the simulator's Edit on a sent text): she changes one line that already went out. The line
+  // shows as sent until her Muse reports the edit landed on Instagram; only that report changes the sent text.
+  editpublished(a) {
+    const r = find(itemId(a.id));
+    const index = a.line_index;
+    if (!Number.isInteger(index) || index < 0 || index > 50) throw new DmError("line_index must be a whole number from 0 to 50.");
+    const next = text(a.text, "text", { min: 1, max: 2000 });
+    if (r.source === "holdout") throw new DmError("This is a blind holdout: it was never sent from here, so there is nothing here to edit on Instagram.", 409);
+    if (r.publishStatus !== "published" || !r.publishedText) throw new DmError("Only a reply that has gone out can be edited.", 409);
+    if (r.editStatus === "editing") throw new DmError("An edit is already on its way for this one. Give it a moment, then check its status here.", 409);
+    const old = sentLines(r)[index];
+    if (old === undefined) throw new DmError("That sent text is no longer there to edit.", 409);
+    if (next === old) throw new DmError("That is the same text, so there is nothing to change.");
+    Object.assign(r, { editStatus: "editing", editText: next, editLineIndex: index, editError: null });
+    return { ok: true, status: "editing" };
+  },
+
+  // Her Muse reports how the edit went: ok swaps the line into what went out, else the sent text stays as it is.
+  confirmedit(a) {
+    const r = find(itemId(a.id));
+    if (typeof a.ok !== "boolean") throw new DmError("ok must be true or false.");
+    const detail = text(a.detail, "detail", { max: 1000 });
+    if (r.editStatus !== "editing" || r.editText == null || !Number.isInteger(r.editLineIndex) || !r.publishedText) throw new DmError("There is no edit in flight for this one.", 409);
+    if (a.ok) {
+      const lines = sentLines(r);
+      if (lines[r.editLineIndex] === undefined) throw new DmError("That sent text is no longer there to edit.", 409);
+      lines[r.editLineIndex] = r.editText;
+      const sent = lines.join("\n");
+      Object.assign(r, { publishedText: sent, revisionText: sent, editedAt: Date.now(), editedLineIndex: r.editLineIndex, editStatus: "none", editText: null, editLineIndex: null, editError: null });
+    } else {
+      Object.assign(r, { editStatus: "edit_failed", editError: detail || "The edit did not go through." });
+    }
     return { ok: true };
   },
 
@@ -315,6 +482,38 @@ const actions = {
     if (!r.revisionText || r.verdict === "pending") throw new DmError("Save your revision first. The actual reply stays sealed until your own answer is locked in.", 409);
     r.revealed = true;
     return { actual_reply: r.actualReply };
+  },
+
+  // 1.22.0 (the simulator's swipe left): a chat moves between her inbox and General. A chat in General comes back on its
+  // own when a newer message from them syncs in.
+  setchatsection(a) {
+    const r = find(itemId(a.id));
+    const section = oneOf(a.section, SECTIONS, "section");
+    Object.assign(r, { section, generalAt: section === "general" ? Date.now() : null });
+    return { ok: true };
+  },
+  // 1.22.0 (Big Edit #24): the lines she's working on in a chat are kept with it, so an edit stays when she leaves and
+  // comes back. A new draft from her Muse or a send replaces them. null clears them; an empty list means she removed all.
+  savework(a) {
+    const r = find(itemId(a.id));
+    if (a.lines === null) {
+      r.workLines = null;
+      return { ok: true };
+    }
+    if (!Array.isArray(a.lines) || a.lines.length > 50) throw new DmError("lines must be a list of at most 50.");
+    r.workLines = a.lines.map((l, i) => {
+      if (!l || typeof l !== "object") throw new DmError(`Line ${i + 1} must be an object.`);
+      const t = text(l.text, `Line ${i + 1}'s text`, { min: 1, max: 2000 });
+      if (typeof l.approved !== "boolean") throw new DmError(`Line ${i + 1}'s approved must be true or false.`);
+      return { text: t, approved: l.approved };
+    });
+    return { ok: true };
+  },
+  // 1.22.0: she opened the chat here. This is the app's own read mark, never Instagram's (ig_read comes with the sync).
+  markreadinbuild(a) {
+    const r = find(itemId(a.id));
+    if (!r.buildReadAt) r.buildReadAt = Date.now();
+    return { ok: true };
   },
 
   // A chat's label (1.18.0, Arjang in room #840): saved with her account, so every device shows it. null or "" clears it.
@@ -402,7 +601,10 @@ const actions = {
   /** Items waiting for a draft, oldest ask first, each with the text a model would get. Never a sealed reply. */
   draftswanted() {
     const waiting = rows().filter((r) => r.draftWanted).sort((x, y) => x.draftWanted.at - y.draftWanted.at || x.id - y.id);
-    return { items: waiting.map((r) => ({ id: r.id, kind: r.kind, mode: r.draftWanted.mode, variant: r.draftWanted.variant, asked_at: iso(r.draftWanted.at), ...draftPrompt(r, r.draftWanted.mode, r.draftWanted.variant) })) };
+    return { items: waiting.map((r) => {
+      const { mode, variant, at, direction = null } = r.draftWanted;
+      return { id: r.id, kind: r.kind, mode, variant, direction, asked_at: iso(at), ...draftPrompt(r, mode, variant, direction) };
+    }) };
   },
   /** Her Muse's draft for an item. It replaces any earlier draft, and the item stops waiting. */
   // 1.14.0 (Rose #770): the draft's endings are held to the !! rule in her voice, and it's stamped with that voice's version.
@@ -413,20 +615,49 @@ const actions = {
     const capped = capEndings(raw, sections).trim();
     const draft = capped || raw;
     const mode = r.kind === "dm" ? "dm" : oneOf(a.mode, MODES, "mode", r.draftWanted?.mode || "listening");
-    Object.assign(r, { draftText: draft, draftMode: mode, draftWanted: null, draftVoiceVersion: voiceVersion(sections) });
+    Object.assign(r, { draftText: draft, draftMode: mode, draftWanted: null, draftVoiceVersion: voiceVersion(sections), workLines: null });
     return { draft_text: draft, draft_mode: mode };
   },
   /** A later import of a thread (Rose #770). Its messages replace the old ones. A story reply whose words weren't captured
    * before gets them now, if this import carries them; otherwise the message she's practicing on stays as it was. */
+  // 1.22.0: a sync can bring the facts alone (a thread it doesn't send stays as it was), and Instagram's own activity
+  // time wins over the newest message's.
   updatethread(a) {
     const r = find(itemId(a.id));
-    r.threadMessages = threadFrom(a.thread_messages);
-    if (r.storyReplyNotCaptured || String(r.incomingText ?? "").trim().toLowerCase() === STORY_PLACEHOLDER) {
-      const story = storyCapture(r.threadMessages, r.incomingText);
-      r.incomingText = story.incomingText;
-      r.storyReplyNotCaptured = story.notCaptured;
+    const facts = factsFrom(a);
+    const thread = a.thread_messages !== undefined ? threadFrom(a.thread_messages) : undefined;
+    if (thread) {
+      r.threadMessages = thread;
+      if (r.storyReplyNotCaptured || String(r.incomingText ?? "").trim().toLowerCase() === STORY_PLACEHOLDER) {
+        const story = storyCapture(r.threadMessages, r.incomingText);
+        r.incomingText = story.incomingText;
+        r.storyReplyNotCaptured = story.notCaptured;
+      }
+      const newest = newestMs(thread);
+      if (facts.lastActivityAt === undefined && newest !== null) r.lastActivityAt = newest;
+    }
+    // Instagram moving a chat into or out of General moves it here too. While its folder stays the same, her own move holds.
+    const folderMoved = facts.folder !== undefined && facts.folder !== (r.folder ?? null);
+    Object.assign(r, facts);
+    if (folderMoved && facts.folder === "general") Object.assign(r, { section: "general", generalAt: null });
+    else if (folderMoved && r.section === "general") Object.assign(r, { section: "main", generalAt: null });
+    // A chat she moved to General comes back once their newest message is newer than her move (the simulator's rule).
+    const last = cleanThread(r.threadMessages).at(-1);
+    if (r.section === "general" && r.generalAt && last && last.from === "them" && last.at && Date.parse(last.at) > r.generalAt) {
+      Object.assign(r, { section: "main", generalAt: null });
     }
     return { ok: true, item: toItem(r) };
+  },
+  /** Edits her Muse should apply now (1.22.0): each with the sent line as it is on Instagram and the line she wants. */
+  editswanted() {
+    const waiting = rows().filter((r) => r.editStatus === "editing" && r.editText != null && Number.isInteger(r.editLineIndex)).sort((x, y) => x.id - y.id);
+    return {
+      items: waiting.map((r) => ({
+        id: r.id, kind: r.kind, sender: r.sender, incoming_text: r.incomingText, context_text: r.contextText ?? null,
+        line_index: r.editLineIndex, old_text: sentLines(r)[r.editLineIndex] ?? null, new_text: r.editText,
+        media_id: r.mediaId ?? null, comment_id: r.commentId ?? null, thread_id: r.threadId ?? null,
+      })),
+    };
   },
   /** Approved texts her Muse should send now, the order she tapped Send. */
   publishwanted() {
@@ -440,7 +671,7 @@ const actions = {
   },
 };
 
-const READS = new Set(["listitems", "exporttraining", "getvoiceprofile", "getaccount", "getvoicesource", "draftswanted", "publishwanted"]);
+const READS = new Set(["listitems", "exporttraining", "getvoiceprofile", "getaccount", "getvoicesource", "draftswanted", "publishwanted", "editswanted"]);
 const SETTINGS = new Set(["savevoiceprofile", "resetvoiceprofile", "savevoicesource"]);
 
 export function registerDm(app) {

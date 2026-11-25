@@ -10,7 +10,7 @@ import { musicOf } from "./music.js";
 import { basisOf, offlineRationale, rationaleProblems, rationalePrompt, sameBasis } from "./rationale.js";
 import { overlayOf, quoteShown } from "../client/src/quoteOverlay.js";
 import { whyProblem } from "../client/src/reviewMath.js";
-import { FONTS, HEX, PALETTE, bakeLock, fontOk, rememberCustomColor } from "./brand.js";
+import { FONTS, HEX, PALETTE, fontOk, rememberCustomColor } from "./brand.js";
 
 export { FONTS, PALETTE }; // they live in brand.js since 1.20.0
 
@@ -23,7 +23,7 @@ export { FONTS, PALETTE }; // they live in brand.js since 1.20.0
 export function styleDefaults() {
   return {
     textColor: "#FFFFFF", textFont: "tiktok", textAlign: "center",
-    fontSize: 58, fontWeight: 400, opacity: 100, // v1.8: new text starts in TikTok Sans Regular
+    fontSize: 58, fontWeight: 700, opacity: 100, // 1.26.0 (Arjang #1094): new text starts in TikTok Sans Bold
     horizontalPosition: 50, verticalPosition: 50, lineCount: 0,
     textWidth: 84, textHeight: 100, widthScale: 30, heightScale: 30, extraTexts: [],
     barColor: "#000000", textNegative: false,
@@ -387,18 +387,35 @@ export function registerFull(app, upload) {
   // The palette, her colors, the text lock and her fonts are answered by brand.js since 1.20.0.
 
   // Style editor: updatecoverstyle + updatebarcolor in the original.
+  // Each cover's own color (1.26.0, Arjang #1092, Quill #1140): the page's pick from the photo, for a queued cover whose
+  // color she never picked herself. Its text on its own photo takes it; text on a carousel photo keeps its own.
+  app.post("/api/items/:id/auto-color", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const hex = String(req.body?.textColor || "").toUpperCase();
+    if (!HEX.test(hex)) return res.status(400).json({ error: "Send the color as #RRGGBB." });
+    if (item.textColorSet || item.status !== "queue") return res.json({ ok: true, skipped: true, item });
+    item.textColor = hex;
+    item.extraTexts = (Array.isArray(item.extraTexts) ? item.extraTexts : []).map((x) => (Number.isInteger(x.slide) ? x : { ...x, textColor: hex }));
+    item.colorAuto = true;
+    store.saveDb();
+    res.json({ ok: true, item });
+  });
+
   app.post("/api/items/:id/style", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
     const b = req.body || {};
     // The 11 palette colors come first; since v1.4 any #RRGGBB works and joins her custom colors.
     if (typeof b.textColor === "string" && HEX.test(b.textColor)) {
       item.textColor = b.textColor.toUpperCase();
+      item.textColorSet = true; // her own pick on this cover: the color pass never changes it (1.26.0)
       rememberCustomColor(item.textColor);
     }
+    const boxColors = JSON.stringify((item.extraTexts || []).map((x) => x.textColor));
     if (b.textFont && fontOk(b.textFont)) item.textFont = b.textFont;
     if (ALIGNS.includes(b.textAlign)) item.textAlign = b.textAlign;
     setNumbers(item, b);
     if (b.extraTexts !== undefined) item.extraTexts = cleanTextBoxes(b.extraTexts, item.extraTexts, (item.slides || []).length);
+    if (JSON.stringify((item.extraTexts || []).map((x) => x.textColor)) !== boxColors) item.textColorSet = true;
     if (["#FFFFFF", "#000000"].includes(b.barColor)) item.barColor = b.barColor;
     if (b.textNegative != null) item.textNegative = Boolean(b.textNegative);
     store.saveDb();
@@ -452,7 +469,6 @@ export function registerFull(app, upload) {
   // Reject and revise: sends the cover back as a fresh queue revision with a note.
   app.post("/api/items/:id/reject-revise", (req, res) => {
     const src = mustItem(req, res); if (!src) return;
-    if (src.status === "queue") bakeLock(src); // it keeps the queue's font and color (1.20.0)
     src.status = "rejected"; src.decidedAt = Date.now(); store.saveDb();
     const copy = store.addItem({ ...revisionOf(src), status: "queue", parentId: src.id, revision: (src.revision || 1) + 1, note: String(req.body?.note || src.note || "") });
     res.json({ item: copy });

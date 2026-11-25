@@ -1,9 +1,9 @@
 {
-  "version": "1.25.0",
+  "version": "1.26.0",
   "date": "2026-11-25",
   "whatsNew": [
-    "Why it matches is now part of the Compose check, at the bottom of the card",
-    "A cover passes only with all four checks; otherwise it reads INCOMPLETE with a red X",
-    "Covers that pass come first in the queue"
+    "Each cover keeps its own color: changing one no longer changes them all",
+    "Covers get their own color from their photo, and Random picks a fresh color from the wheel",
+    "The color wheel is the first picker, your 5 newest colors sit in the row, and new text starts in TikTok Sans Bold"
   ]
 }

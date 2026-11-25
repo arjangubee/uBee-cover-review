@@ -34,34 +34,12 @@ export const customFonts = () => (Array.isArray(store.settings.customFonts) ? st
 /** True for a font the app can draw: one of the six, or one of hers. */
 export const fontOk = (id) => FONTS.includes(id) || customFonts().some((f) => f.id === id);
 
-/** The lock as she set it: a font and a color, each null until she picks one on a queued cover. */
-function lockAsSet() {
-  const s = store.settings.textLock || {};
-  return { textFont: fontOk(s.textFont) ? s.textFont : null, textColor: HEX.test(String(s.textColor || "")) ? String(s.textColor) : null };
-}
-/**
- * The queue's text lock (item 1): one font and one color every queued cover's text draws with, in every text box. Each
- * is the last one she picked on any queued cover; the color is her default color until she picks one. Null for either
- * means each cover draws its own, as before 1.20.0.
- */
-export function textLock() {
-  const s = lockAsSet();
-  return { textFont: s.textFont, textColor: s.textColor || brandDefault() };
-}
-/** A cover leaving the queue keeps the look it had there: the lock is written into it and into its text boxes. */
-export function bakeLock(item) {
-  const { textFont, textColor } = textLock();
-  if (!textFont && !textColor) return;
-  const put = (b) => ({ ...b, ...(textFont ? { textFont } : {}), ...(textColor ? { textColor } : {}) });
-  Object.assign(item, put({}));
-  item.extraTexts = (Array.isArray(item.extraTexts) ? item.extraTexts : []).map(put);
-}
-
-/** A custom color she used goes to the front of her custom colors, newest first, at most 24. Not the 11 or her own. */
+/** A custom color she used goes to the front of her custom colors, newest first, at most 5 (1.26.0, Arjang #1092). Not
+ *  the 11 or her own. */
 export function rememberCustomColor(hex) {
   if (PALETTE.some((c) => c.hex.toUpperCase() === hex) || brandColors().some((c) => c.hex === hex)) return;
   const list = (store.settings.customColors || []).filter((c) => c !== hex);
-  store.settings.customColors = [hex, ...list].slice(0, 24);
+  store.settings.customColors = [hex, ...list].slice(0, 5);
   store.saveSettings();
 }
 
@@ -72,7 +50,7 @@ export function palettePayload() {
     fonts: [...FONTS, ...customFonts().map((f) => f.id)],
     customColors: store.settings.customColors || [],
     brandColors: brandColors(),
-    lock: lockAsSet(),
+    lock: { textFont: null, textColor: null }, // 1.26.0: no queue lock
     customFonts: customFonts().map((f) => ({ id: f.id, label: f.label,
       faces: f.faces.map((x) => ({ weight: x.weight, url: `/api/fonts/${encodeURIComponent(x.file)}` })) })),
   };
@@ -85,6 +63,13 @@ const slug = (label) => label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(
 const fontUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
 export function registerBrand(app) {
+  // 1.26.0: the queue lock's setting is retired, so it's taken out of her settings once.
+  if (store.settings && "textLock" in store.settings) { delete store.settings.textLock; store.saveSettings(); }
+  // Her custom colors are the 5 newest (1.26.0).
+  if (Array.isArray(store.settings?.customColors) && store.settings.customColors.length > 5) {
+    store.settings.customColors = store.settings.customColors.slice(0, 5);
+    store.saveSettings();
+  }
   app.get("/api/palette", (_req, res) => res.json(palettePayload()));
 
   // Remove one of her custom colors (1.9.1, Arjang's yes to #282). Covers that use it keep it; only the shortcut goes.
@@ -109,26 +94,6 @@ export function registerBrand(app) {
     }
     if (colors.filter((c) => c.default).length > 1) return res.status(400).json({ error: "Only one color can be the default." });
     store.settings.brandColors = colors;
-    store.saveSettings();
-    res.json(palettePayload());
-  });
-
-  // The queue's text lock (item 1): the page sends the font or the color she picked on a queued cover, or null to take
-  // one back (undo does that). Only the fields sent change.
-  app.post("/api/text-lock", (req, res) => {
-    const b = req.body || {};
-    const next = { ...lockAsSet() };
-    if ("textFont" in b) {
-      if (b.textFont !== null && !fontOk(b.textFont)) return res.status(400).json({ error: "That font isn't one of the fonts." });
-      next.textFont = b.textFont;
-    }
-    if ("textColor" in b) {
-      const hex = b.textColor === null ? null : String(b.textColor).toUpperCase();
-      if (hex !== null && !HEX.test(hex)) return res.status(400).json({ error: "Send the color as #RRGGBB." });
-      next.textColor = hex;
-      if (hex) rememberCustomColor(hex);
-    }
-    store.settings.textLock = next;
     store.saveSettings();
     res.json(palettePayload());
   });

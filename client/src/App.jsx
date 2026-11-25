@@ -5,6 +5,7 @@ import CoverEditor from "./CoverEditor.jsx";
 import EditorSheet from "./EditorSheet.jsx";
 import ZoomView from "./ZoomView.jsx";
 import { imageUrlFor, loadImage } from "./CoverCanvas.jsx";
+import { photoTone, pickHouseColor, seeded } from "./houseColor.js";
 import CoverStage from "./CoverStage.jsx";
 import { CoverHeader, ModeSwitch, SongRow } from "./CoverTop.jsx";
 import Icon from "./icons.jsx";
@@ -312,6 +313,35 @@ export default function App() {
   const [colorLock, setColorLock] = useState(true);
 
   const patchItem = (item) => setItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
+
+  // Each queued cover's own color (1.26.0, Arjang #1092, Quill #1140): picked once from its photo by the house palette,
+  // one cover at a time while she's idle, and never over a color she picked herself (the server keeps hers). The cover
+  // open in the editor waits for the next run.
+  const editingId = useRef(null);
+  editingId.current = draft?.id ?? null;
+  const coloring = useRef(false);
+  const colorTried = useRef(new Set());
+  useEffect(() => {
+    if (coloring.current) return;
+    const todo = items.filter((i) => i.status === "queue" && i.imageUrl && !i.textColorSet && !i.colorAuto && !colorTried.current.has(i.id));
+    if (!todo.length) return;
+    coloring.current = true;
+    (async () => {
+      for (const it of todo) {
+        await whenIdle();
+        if (editingId.current === it.id) continue;
+        colorTried.current.add(it.id);
+        const tone = await photoTone(imageUrlFor(it), it);
+        if (!tone) continue;
+        try {
+          const r = await post(`/api/items/${it.id}/auto-color`, { textColor: pickHouseColor(tone, seeded(it.id)) });
+          const c = r?.item;
+          if (c) setItems((prev) => prev.map((i) => (i.id === c.id ? { ...i, textColor: c.textColor, extraTexts: c.extraTexts, colorAuto: c.colorAuto, textColorSet: c.textColorSet } : i)));
+        } catch { /* it's tried again next time the app opens */ }
+      }
+      coloring.current = false;
+    })();
+  }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
   const bumpHistory = () => setHistoryTick((t) => t + 1);
 
   // Every change goes through here, so undo and redo can play it back the same way.
@@ -319,6 +349,7 @@ export default function App() {
     let item = null;
     if (ch.lock) applyPalette(await post("/api/text-lock", ch.lock)); // the queue's font and color (1.20.0)
     if (ch.style) item = (await post(`/api/items/${itemId}/style`, ch.style)).item;
+    if (ch.style?.textColor) applyPalette(await api("/api/palette")); // a new color shows in her recent colors (1.26.0)
     if (ch.edit) item = (await post(`/api/items/${itemId}/edit`, ch.edit)).item;
     if (ch.imageEdit) item = (await post(`/api/items/${itemId}/image-edit`, ch.imageEdit)).item;
     if (ch.rate) item = (await post(`/api/items/${itemId}/rate`, ch.rate)).item;
@@ -540,12 +571,11 @@ export default function App() {
     const box = effectiveStyle(drawn);
     const measure = canvasMeasureAt(box) || ((px) => (t) => t.length * px * 0.5);
     const patch = randomizeLayout({ ...box, quote: current.quote || "" }, img.naturalWidth / img.naturalHeight, measure);
-    // Her colors first, then the 11 (1.20.0); on a queued cover a new color is the whole queue's, like any color she picks.
+    // Her colors first, then the 11 (1.20.0). The color is this cover's own (1.26.0).
     const colors = [...palette.brandColors, ...palette.palette.filter((c) => !palette.brandColors.some((b) => b.hex.toUpperCase() === c.hex.toUpperCase()))];
     const others = colorLock ? [] : colors.filter((c) => c.hex.toUpperCase() !== String(box.textColor || "").toUpperCase());
     if (others.length) patch.textColor = others[Math.floor(Math.random() * others.length)].hex;
     const before = { style: pickStyle(drawn, Object.keys(patch)) }, after = { style: patch };
-    if (patch.textColor && current.status === "queue") { before.lock = { textColor: palette.lock.textColor ?? null }; after.lock = { textColor: patch.textColor }; }
     await record("Randomize", current.id, before, after);
   });
   // Takes one of her custom colors off her list (1.9.1). Covers that use it keep it.
@@ -679,12 +709,8 @@ export default function App() {
   }
   const setDraftItem = (patch) => setDraft((d) => ({ ...d, ...patch }));
   const setBox = (patch) => setDraft((d) => {
-    let next = activeBox === -1 ? { ...d, ...patch } : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === activeBox ? { ...b, ...patch } : b)) };
-    // On a queued cover, the font and the color are the queue's (1.20.0, Big Edit item 1): every text box shows the pick
-    // at once, and the lock saves with this change, so undo takes both back together.
-    const shared = d.status === "queue" ? Object.fromEntries(LOOK_KEYS.filter((k) => k in patch).map((k) => [k, patch[k]])) : {};
-    if (Object.keys(shared).length) next = { ...next, ...shared, extraTexts: next.extraTexts.map((b) => ({ ...b, ...shared })), lockRaw: { ...next.lockRaw, ...shared } };
-    return next;
+    // 1.26.0 (Arjang #1092): a font or color changes this text on this cover only. There's no queue lock any more.
+    return activeBox === -1 ? { ...d, ...patch } : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === activeBox ? { ...b, ...patch } : b)) };
   });
   const setImageEdit = (patch) => setDraft((d) => ({ ...d, imageEdit: { ...(d.imageEdit || {}), ...patch } }));
   const moveBox = (box, h, v) => setDraft((d) => (box === -1 ? { ...d, horizontalPosition: h, verticalPosition: v }

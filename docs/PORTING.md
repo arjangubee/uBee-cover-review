@@ -12,6 +12,43 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.26.0: each cover's own color
+
+Arjang #1092, #1094 and #1138; Quill #1098, #1140 and #1163 (the color half of color + shuffle).
+
+1. **No queue lock.** A font or color change is this text on this cover only. The 1.20.0 queue lock is gone: the
+   `textLock` setting is removed from her settings once at start, `/api/text-lock` is gone, and nothing bakes a lock into
+   a cover when it leaves the queue. `lookOf` returns no queue look, so every cover draws with its own.
+2. **Each cover's own color.** A queued cover whose color she never picked gets one from the 11-color house palette
+   against its own photo (client/src/houseColor.js `pickHouseColor`): luminance contrast first, hue contrast second,
+   about 70% yellow, cream or white, the rest across the palette, steady per cover. The page picks it one cover at a
+   time while she's idle and saves it with `POST /api/items/<id>/auto-color`, which never changes a color she picked
+   (`textColorSet`, set by any color save through `/style`). It reaches every queued cover, including the ones colored
+   under the lock, and every new one.
+3. **The color row.** The far-left picker opens an in-app color wheel (hue around the ring, white toward the middle,
+   brightness on a slider) on every device. Random picks a truly random hue from the wheel, lit to read on the photo
+   behind the text (`randomWheelColor`). Her 5 newest custom colors sit in the row after the palette, newest first
+   (the list keeps 5), and the two 50% colors are the last two in the row, with no row of their own.
+4. **TikTok Sans Bold.** New covers and new text boxes start in TikTok Sans at 700.
+
+| Where | Change |
+| --- | --- |
+| client/src/houseColor.js | new: the house pick, the wheel's random, the photo's tone, HSV helpers |
+| client/src/App.jsx | no queue-wide spread on a pick, the idle color pass, her recent colors refresh after a color save |
+| client/src/CoverEditor.jsx, styles.css | the wheel, Random from the wheel, recent colors and the 50% colors in the row, no lock note |
+| client/src/renderCover.js | `lookOf` gives no queue look |
+| server/brand.js | no lock; custom colors keep 5; the `textLock` setting removed once |
+| server/full.js, index.js, store.js | `auto-color`, `textColorSet`, no bake on decide or remix, Bold for new text |
+
+### Data steps (her space, never the repo)
+
+- Delete the `textLock` settings row: settings 12 to 11. Re-verify every count.
+- Her own colors (Quill #1098): file 106's three red-X swatches are her own colors 1 to 3 in her settings (the light blue,
+  light pink and ivory before White). Read their exact hexes from her settings, report them, and take them out. Then
+  put Icy Aqua #B8FFFF and Cherry Blossom #FFB8CF first in her own colors, ahead of White.
+- Her custom colors keep the 5 newest.
+- New fields on covers, read as before when missing: `textColorSet` (false) and `colorAuto` (false).
+
 ## 1.25.0: Why it matches is part of the compose check
 
 Arjang #1100, amended by #1104; Quill #1102 and #1108.

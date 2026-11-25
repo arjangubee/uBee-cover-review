@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Icon from "./icons.jsx";
+import { hardRefresh } from "./release.js";
 import { displayTitle, parseSong, spotifyEmbedUrl } from "./reviewMath.js";
 import { clipNow, clipSource, isSilent, unlockAudio } from "./songs/clipSource.js";
 import { symphonyIdOf } from "./songs/songsData.js";
@@ -38,7 +39,10 @@ export function CoverHeader({ list, count, position, total, canUndo, canRedo, on
       {/* Undo and redo work with the editor open too (1.13.5), so they follow the stack, not the editor. */}
       <button type="button" className="iconBtn small" onClick={onUndo} disabled={!canUndo} aria-label="Undo"><Icon name="undo" size={22} /></button>
       <button type="button" className="iconBtn small" onClick={onRedo} disabled={!canRedo} aria-label="Redo"><Icon name="redo" size={22} /></button>
-      <img src="/brand/ubee-bee-chartreuse.png" alt="uBee" className="bee" />
+      {/* One tap loads the latest version (1.24.0, Arjang #1121). */}
+      <button type="button" className="beeBtn" onClick={hardRefresh} aria-label="Refresh to latest version">
+        <img src="/brand/ubee-bee-chartreuse.png" alt="" className="bee" />
+      </button>
     </header>
   );
 }

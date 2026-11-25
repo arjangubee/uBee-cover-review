@@ -3,7 +3,7 @@ import { imageUrlFor, loadImage } from "./CoverCanvas.jsx";
 import Icon from "./icons.jsx";
 import { plainCaption } from "./captionCall.js";
 import { badgeFor } from "./pollenView.js";
-import { parseSong, starsFor } from "./reviewMath.js";
+import { driveLinkFor, parseSong, starsFor } from "./reviewMath.js";
 
 // Everything under the cover: the icon row, Slides and Posts, Randomize layout, her note, the caption,
 // the Compose check, Why it matches, Image info and the star ratings.
@@ -236,7 +236,10 @@ export function RateQuality({ item, onRate, onSwap, onRestore, searchPhotos }) {
   const rows = [
     ["File", item.title],
     ["Size", natural ? `${natural.w} x ${natural.h}` : "..."],
-    ["From", item.source === "drive" ? `Drive${item.driveId ? ` (${item.driveId})` : ""}` : item.source || "Upload"],
+    // The Drive file opens in a new tab (1.24.0, Arjang #1106). No Drive id, no link.
+    ["From", driveLinkFor(item)
+      ? <a href={driveLinkFor(item)} target="_blank" rel="noopener noreferrer">{`Drive (${item.driveId})`}</a>
+      : item.source === "drive" ? "Drive" : item.source || "Upload"],
     ["Quality", item.imageQualityStatus === "quarantined" ? "Held back for quality" : "Passed"],
     ["Added", item.createdAt ? new Date(item.createdAt).toLocaleString() : ""],
     ["Version", `v${item.revision || 1}${item.parentId ? `, remixed from cover ${item.parentId}` : ""}`],

@@ -12,6 +12,42 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.24.0: snap guides, landscape to the edges, the Drive link and the logo refresh
+
+Four items in one build, approved by Quill: #1083 (#1085), #1087 (#1090), #1106 (#1108) and #1121 (#1125).
+
+1. **Snap guides (#1083).** While text is dragged (in the editor, or held and placed outside it), its left edge,
+   center and right edge catch the photo's vertical center line and thirds, and its top, middle and bottom the
+   horizontal ones, within 6 screen px. Center lines win over thirds, X and Y snap on their own, and past 6px it's free.
+   Only the line it sits on shows: 1px at 55%, magenta for center lines and white with a soft shadow for thirds,
+   fading in over 100ms and out over 150ms. A touch gets one light tick per snap. Guides clear when the drag ends, is
+   cancelled or the app goes to the background. "Snap to guides" in Setup and help, on by default and kept on the
+   device, turns it off; Alt/Option or a second finger lets the text go free for that drag. A snapped spot is saved to
+   a thousandth of a percent so it sits exactly on the line. `snap(position, bounds, guides, threshold)` in
+   client/src/snapGuides.js is the pure function the tests cover.
+   This differs from the original on purpose (Quill #1085): the original snapped the text's center to thirds only and
+   showed the whole grid. The owner's spec wins.
+2. **Landscape to the edges (#1087).** A landscape photo's safe zone is the whole photo now, so the fit, the safe-edge
+   locks and Randomize meet the photo's own edges. Text still stays on the photo. 9:16, 3:4, 4:5 and square are unchanged.
+3. **The Drive link (#1106).** In Rate Quality, "From: Drive (<file id>)" opens https://drive.google.com/file/d/<file
+   id>/view in a new tab. A photo with no Drive id stays plain text.
+4. **The logo refresh (#1121).** The uBee logo at the top right is a button, "Refresh to latest version": one tap
+   checks a service worker if there is one, fetches the page past the browser's cache, and reloads at a fresh address,
+   which the new page takes back off. No dialog. In this fork the logo never opened a menu, and the queue pill already
+   opens all covers in every mode, so no switching moved (Quill #1125's pill note doesn't apply here).
+
+| Where | Change |
+| --- | --- |
+| client/src/snapGuides.js | new: `guidesFor`, `snap`, the setting |
+| client/src/CoverStage.jsx | snapping in the drag, the guide overlay, cleanup |
+| client/src/InfoSheet.jsx | the "Snap to guides" switch under Editing |
+| client/src/renderCover.js | a landscape safe zone is the whole photo |
+| client/src/CoverDetails.jsx, reviewMath.js | the Drive link (`driveLinkFor`) |
+| client/src/CoverTop.jsx, release.js, main.jsx | the logo button and `hardRefresh` |
+| client/src/styles.css | the guide lines and the logo button |
+
+No server or data change. The new switch is one more row in Setup and help.
+
 ## 1.23.1: what's waiting under each post
 
 Arjang in room #1057 and #1062, approved by Quill in #1064. Under each post's square in Comments: how many of its

@@ -11,6 +11,8 @@ import { canUse, clipAddress, coverSongEdit, hotList, librarySorted, moveText, o
 import { clipNow, clipSource } from "../client/src/songs/clipSource.js";
 import { readFileSync } from "node:fs";
 import { LOCK_BREAK, LOCK_START, lockAxis, startAxis } from "../client/src/safeLock.js";
+import { SNAP_PX, guidesFor, snap } from "../client/src/snapGuides.js";
+import { driveLinkFor } from "../client/src/reviewMath.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -450,16 +452,36 @@ check("the safe zone is the original's for each shape of cover", () => {
   assert(near(safeZoneFor(1000, 1000), { left: 60, top: 60, right: 940, bottom: 940 }), "square keeps 6% all round");
   assert(near(safeZoneFor(1080, 1920), { left: 54, top: 300, right: 1026, bottom: 1500 }), JSON.stringify(safeZoneFor(1080, 1920)));
 });
-check("a landscape cover's safe zone follows the original's formula, in the photo's own frame", () => {
-  // Quill #283, safeBoundsForGeometry for any ratio above 1: the photo sits in the 4:5 frame, inset 5% across (6% from
-  // 1.7:1), and top and bottom by the larger of 2% of the frame and 6% of the photo's height (8% from 1.7:1).
+check("a landscape cover's safe zone is the whole photo, and every other shape keeps its inset (1.24.0, Arjang #1087)", () => {
+  // Quill #1090: landscape only, no inset, so the text keeps to the photo itself. 9:16, 3:4, 4:5 and square are unchanged.
   const near = (z, e) => ["left", "top", "right", "bottom"].every((k) => Math.abs(z[k] - e[k]) < 1e-6);
   const show = (w, h) => JSON.stringify(safeZoneFor(w, h));
-  assert(near(safeZoneFor(1440, 1080), { left: 72, top: 64.8, right: 1368, bottom: 1015.2 }), `4:3 ${show(1440, 1080)}`);
-  assert(near(safeZoneFor(1620, 1080), { left: 81, top: 64.8, right: 1539, bottom: 1015.2 }), `3:2 ${show(1620, 1080)}`);
-  assert(near(safeZoneFor(1920, 1080), { left: 115.2, top: 86.4, right: 1804.8, bottom: 993.6 }), `16:9 ${show(1920, 1080)}`);
-  assert(near(safeZoneFor(1100, 1000), { left: 55, top: 60, right: 1045, bottom: 940 }), `just above 1:1 is landscape ${show(1100, 1000)}`);
-  assert(near(safeZoneFor(4000, 1000), { left: 240, top: 100, right: 3760, bottom: 900 }), `a panorama keeps 2% of the frame ${show(4000, 1000)}`);
+  for (const [w, h] of [[1440, 1080], [1620, 1080], [1920, 1080], [1100, 1000], [4000, 1000]]) {
+    assert(near(safeZoneFor(w, h), { left: 0, top: 0, right: w, bottom: h }), `${w}x${h} ${show(w, h)}`);
+  }
+  assert(near(safeZoneFor(1080, 1350), { left: 54, top: 81, right: 1026, bottom: 1269 }), `4:5 keeps its inset ${show(1080, 1350)}`);
+  assert(near(safeZoneFor(1000, 1000), { left: 60, top: 60, right: 940, bottom: 940 }), "square keeps 6% all round");
+});
+check("snap guides: a dragged box's center catches the center line within 6px and lets go past it (1.24.0, Arjang #1083)", () => {
+  const g = guidesFor(600, 600), out = {};
+  assert(g.x[0].at === 300 && g.x[1].at === 200 && g.x[2].at === 400 && g.y[0].center && !g.y[1].center, JSON.stringify(g));
+  const r = snap({ x: 304, y: 100 }, { halfW: 50, halfH: 20 }, g, SNAP_PX, out);
+  assert(r === out && r.x === 300 && r.xGuide.id === "xc" && r.y === 100 && r.yGuide === null, `caught: ${JSON.stringify(r)}`);
+  const free = snap({ x: 307, y: 100 }, { halfW: 50, halfH: 20 }, g, SNAP_PX, {});
+  assert(free.x === 307 && free.xGuide === null, `7px away is free, so it never feels stuck: ${JSON.stringify(free)}`);
+});
+check("snap guides: edges catch thirds, center lines win over thirds, and X and Y snap on their own", () => {
+  const g = guidesFor(600, 600);
+  const edge = snap({ x: 233, y: 100 }, { halfW: 30, halfH: 20 }, g, SNAP_PX, {});
+  assert(edge.x === 230 && edge.xGuide.id === "x1", `the left edge sits on the first third: ${JSON.stringify(edge)}`);
+  const both = snap({ x: 254, y: 100 }, { halfW: 51, halfH: 20 }, g, SNAP_PX, {});
+  assert(both.x === 249 && both.xGuide.id === "xc", `a third 3px off loses to the center 5px off: ${JSON.stringify(both)}`);
+  const xy = snap({ x: 304, y: 203 }, { halfW: 50, halfH: 20 }, g, SNAP_PX, {});
+  assert(xy.x === 300 && xy.xGuide.id === "xc" && xy.y === 200 && xy.yGuide.id === "y1", `each axis on its own: ${JSON.stringify(xy)}`);
+});
+check("the Drive row links to that exact file in a new tab, and a photo with no Drive id has no link (1.24.0, Arjang #1106)", () => {
+  assert(driveLinkFor({ source: "drive", driveId: "1AbC_d-9" }) === "https://drive.google.com/file/d/1AbC_d-9/view", driveLinkFor({ source: "drive", driveId: "1AbC_d-9" }));
+  assert(driveLinkFor({ source: "drive" }) === null && driveLinkFor({ source: "upload", driveId: "x" }) === null, "no id, no link");
 });
 check("Randomize never touches color, font or weight, and every layout lands inside the safe zone", () => {
   const rand = seeded(11);

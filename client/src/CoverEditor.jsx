@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { imageUrlFor } from "./CoverCanvas.jsx";
+import { hexToHsv, hsvToHex, photoTone, randomWheelColor } from "./houseColor.js";
 import Icon from "./icons.jsx";
 import { CONTRAST_MODES, FONT_LABELS, HALF_PRESETS, STYLE_DEFAULTS, autoLineCount, canvasMeasureAt, colorPatch, estimatedLineCount, hasFace, presetOn } from "./renderCover.js";
 
@@ -52,7 +54,13 @@ export default function CoverEditor({
   // Her own colors come first, in her order, then the 11 (1.20.0, Big Edit item 2). A color in both shows once, as hers.
   const own = new Set(brandColors.map((c) => c.hex.toUpperCase()));
   const colors = [...brandColors, ...palette.filter((c) => !own.has(c.hex.toUpperCase()))];
-  const randomColor = () => pickColor(colors[Math.floor(Math.random() * colors.length)]?.hex || "#FFFFFF");
+  // Random (1.26.0, Arjang #1092): a truly random hue from the wheel, lit to read on this photo behind the text.
+  const randomColor = async () => {
+    const slideUrl = Number.isInteger(photo) ? (draft.slides || []).find((sl) => sl.at === photo)?.mediaUrl : null; // a carousel photo
+    const tone = (await photoTone(slideUrl || imageUrlFor(draft), box)) || { r: 128, g: 128, b: 128 };
+    pickColor(randomWheelColor(tone));
+  };
+  const [wheelOpen, setWheelOpen] = useState(false);
 
   return (
     <section className="editor" aria-label="Edit the text on this cover">
@@ -94,20 +102,22 @@ export default function CoverEditor({
 
       <span className="fieldLabel">Color</span>
       <div className="swatches" role="group" aria-label="Text color">
-        <label className="swatch tool rainbow" title="Any color">
-          <input type="color" value={/^#[0-9A-Fa-f]{6}$/.test(box.textColor) ? box.textColor : "#FFFFFF"} aria-label="Pick any color"
-            onChange={(e) => pickColor(e.target.value.toUpperCase())} />
+        {/* The far-left picker opens on the color wheel (1.26.0, Arjang #1092). */}
+        <button type="button" className={wheelOpen ? "swatch tool rainbow on" : "swatch tool rainbow"} aria-label="Pick any color on the wheel"
+          aria-expanded={wheelOpen} onClick={() => setWheelOpen((v) => !v)}>
           <span className="plusDot" aria-hidden="true"><Icon name="plus" size={12} /></span>
-        </label>
+        </button>
         <button type="button" className={pickMode ? "swatch tool on" : "swatch tool"} onClick={eyedropper} aria-pressed={pickMode} aria-label="Pick a color from the photo"><Icon name="eyedropper" size={20} /></button>
-        <button type="button" className="swatch tool rainbow" onClick={randomColor} aria-label="Random palette color"><Icon name="shuffle" size={18} /></button>
+        <button type="button" className="swatch tool rainbow" onClick={randomColor} aria-label="Random color from the wheel"><Icon name="shuffle" size={18} /></button>
         {colors.map((c) => (
           <button type="button" key={c.hex} className={box.textColor === c.hex ? "swatch on" : "swatch"} style={{ background: c.hex }}
             aria-label={c.name} aria-pressed={box.textColor === c.hex} onClick={() => pickColor(c.hex)} />
         ))}
-      </div>
-      {/* Their own row beside the 11 colors (Arjang #263, Quill #269): each sets the color and the opacity together. */}
-      <div className="swatches presets" role="group" aria-label="Colors at 50%">
+        {/* Her 5 newest colors from the wheel, then the two 50% colors last, in the same rows (1.26.0, Arjang #1092). */}
+        {customColors.slice(0, 5).map((hex) => (
+          <button type="button" key={`c${hex}`} className={box.textColor === hex ? "swatch on" : "swatch"} style={{ background: hex }}
+            aria-label={`Recent ${hex}`} aria-pressed={box.textColor === hex} onClick={() => pickColor(hex)} />
+        ))}
         {HALF_PRESETS.map((p) => {
           const on = presetOn(box, p);
           return (
@@ -119,8 +129,7 @@ export default function CoverEditor({
           );
         })}
       </div>
-      {/* One font and one color for the whole queue (1.20.0, Big Edit item 1, Arjang Nov 23). */}
-      {locked && <p className="hint lockHint">Font and color change on every cover in your queue.</p>}
+      {wheelOpen && <ColorWheel value={box.textColor} onPick={pickColor} onDone={() => setWheelOpen(false)} />}
       <details className="customColors">
         <summary><span>Custom colors</span><span className="countBadge">{customColors.length}</span></summary>
         {customColors.length ? (
@@ -216,6 +225,38 @@ function Slider({ label, value, min, max, unit = "", inline = false, onChange })
       <output htmlFor={id}>{v}{unit}</output>
       <input id={id} type="range" min={min} max={max} value={v} onChange={(e) => onChange(Number(e.target.value))}
         style={{ "--pct": `${Math.min(100, Math.max(0, ((v - min) / (max - min)) * 100))}%` }} />
+    </div>
+  );
+}
+
+/** The color wheel (1.26.0, Arjang #1092): hue around the ring, white toward the middle, brightness on the slider. The
+ *  text follows her finger; the color she lands on joins her recent colors when it saves. */
+function ColorWheel({ value, onPick, onDone }) {
+  const [hsv, setHsv] = useState(() => hexToHsv(value));
+  const wheel = useRef(null), held = useRef(false);
+  const hex = hsvToHex(hsv.h, hsv.s, hsv.v);
+  const move = (e) => {
+    const r = wheel.current.getBoundingClientRect(), x = e.clientX - (r.left + r.width / 2), y = e.clientY - (r.top + r.height / 2);
+    const next = { h: ((Math.atan2(x, -y) * 180) / Math.PI + 360) % 360, s: Math.min(1, Math.hypot(x, y) / (r.width / 2)), v: hsv.v || 1 };
+    setHsv(next);
+    onPick(hsvToHex(next.h, next.s, next.v));
+  };
+  const rad = (hsv.h * Math.PI) / 180;
+  return (
+    <div className="wheelPop" role="group" aria-label="Color wheel">
+      <div ref={wheel} className="wheel" style={{ "--dim": 1 - hsv.v }}
+        onPointerDown={(e) => { held.current = true; e.currentTarget.setPointerCapture?.(e.pointerId); move(e); }}
+        onPointerMove={(e) => { if (held.current) move(e); }}
+        onPointerUp={() => { held.current = false; }} onPointerCancel={() => { held.current = false; }}>
+        <span className="wheelDot" style={{ left: `${50 + Math.sin(rad) * hsv.s * 50}%`, top: `${50 - Math.cos(rad) * hsv.s * 50}%`, background: hex }} />
+      </div>
+      <div className="wheelSide">
+        <span className="wheelNow" style={{ background: hex }} aria-hidden="true" />
+        <input type="range" min="5" max="100" value={Math.round(hsv.v * 100)} aria-label="Brightness"
+          onChange={(e) => { const next = { ...hsv, v: Number(e.target.value) / 100 }; setHsv(next); onPick(hsvToHex(next.h, next.s, next.v)); }} />
+        <span className="wheelHex">{hex}</span>
+        <button type="button" className="linkBtn" onClick={onDone}>Done</button>
+      </div>
     </div>
   );
 }

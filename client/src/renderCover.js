@@ -49,10 +49,9 @@ export function registerFonts(list) {
  * The queue's look (1.20.0, Big Edit items 1 and 2): the font and the color she last picked on any queued cover, and
  * her default color until she picks one. Null for either means each cover draws its own, as before.
  */
-export function lookOf(palette) {
-  const lock = palette?.lock || {};
-  const fallback = (Array.isArray(palette?.brandColors) ? palette.brandColors : []).find((c) => c.default)?.hex || null;
-  return { textFont: lock.textFont || null, textColor: lock.textColor || fallback };
+export function lookOf() {
+  // 1.26.0 (Arjang #1092, Quill #1140): the queue lock is gone. Each cover draws with its own font and color.
+  return { textFont: null, textColor: null };
 }
 /** A queued cover as it draws: the queue's look on it and on every text box. A decided cover keeps its own. */
 export function withLook(item, look) {

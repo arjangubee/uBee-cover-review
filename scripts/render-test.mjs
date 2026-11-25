@@ -12,6 +12,7 @@ import { clipNow, clipSource } from "../client/src/songs/clipSource.js";
 import { readFileSync } from "node:fs";
 import { LOCK_BREAK, LOCK_START, lockAxis, startAxis } from "../client/src/safeLock.js";
 import { SNAP_PX, guidesFor, snap } from "../client/src/snapGuides.js";
+import { HOUSE, contrastOf, pickHouseColor, randomWheelColor, seeded as coverSeed } from "../client/src/houseColor.js";
 import { composePasses, driveLinkFor, whyProblem } from "../client/src/reviewMath.js";
 
 let failed = 0;
@@ -696,26 +697,25 @@ check("songs: the replay graph draws across the song inside its box, and chart m
 });
 
 // 1.20.0 (Big Edit items 1, 2, 4 and 8): the queue's look, her default color, her own fonts, and colors after a 50% preset.
-check("v1.20 the queue's look: her last font and color, else her default color; nothing set means each cover draws its own", () => {
-  const brand = [{ name: "Sea Glass", hex: "#9FE2BF" }, { name: "Peach", hex: "#FFCBA4", default: true }];
-  assert(JSON.stringify(lookOf({ lock: { textFont: null, textColor: null }, brandColors: brand })) === JSON.stringify({ textFont: null, textColor: "#FFCBA4" }), "her default color");
-  assert(JSON.stringify(lookOf({ lock: { textFont: "serif", textColor: "#FB0909" }, brandColors: brand })) === JSON.stringify({ textFont: "serif", textColor: "#FB0909" }), "what she picked wins");
-  assert(JSON.stringify(lookOf({ lock: { textFont: null, textColor: null }, brandColors: [] })) === JSON.stringify({ textFont: null, textColor: null }), "nothing set");
-  assert(JSON.stringify(lookOf(null)) === JSON.stringify({ textFont: null, textColor: null }), "no palette yet");
+check("v1.26 there's no queue look: each cover draws with its own font and color (Arjang #1092, Quill #1140)", () => {
+  const item = { id: 1, status: "queue", textColor: "#FFFFFF", textFont: "tiktok", extraTexts: [] };
+  assert(JSON.stringify(lookOf({ lock: { textFont: "serif", textColor: "#FB0909" }, brandColors: [{ hex: "#123456", default: true }] })) === JSON.stringify({ textFont: null, textColor: null }), "no lock, no default color over every cover");
+  assert(withLook(item, lookOf(null)) === item, "the cover as it is");
 });
-check("v1.20 a queued cover draws with the queue's look in every text box; a decided cover and an empty look leave it as it is", () => {
-  const item = { id: 1, status: "queue", textFont: "tiktok", textColor: "#FFFFFF", fontSize: 70, extraTexts: [{ quote: "two", textFont: "avenir", textColor: "#000000", fontSize: 40 }] };
-  const look = { textFont: "serif", textColor: "#FB0909" };
-  const q = withLook(item, look);
-  assert(q.textFont === "serif" && q.textColor === "#FB0909" && q.fontSize === 70, `the cover: ${JSON.stringify(q)}`);
-  assert(q.extraTexts[0].textFont === "serif" && q.extraTexts[0].textColor === "#FB0909" && q.extraTexts[0].quote === "two" && q.extraTexts[0].fontSize === 40, "and its text boxes");
-  assert(item.textColor === "#FFFFFF" && item.extraTexts[0].textColor === "#000000", "the cover itself is untouched");
-  const colorOnly = withLook(item, { textFont: null, textColor: "#9FE2BF" });
-  assert(colorOnly.textFont === "tiktok" && colorOnly.textColor === "#9FE2BF" && colorOnly.extraTexts[0].textFont === "avenir", "only what's set");
-  assert(withLook({ ...item, status: "approved" }, look).textColor === "#FFFFFF", "an approved cover keeps its own");
-  assert(withLook({ ...item, status: "rejected" }, look).textFont === "tiktok", "a passed cover keeps its own");
-  assert(withLook(item, { textFont: null, textColor: null }) === item, "nothing to apply: the same cover");
-  assert(withLook(null, look) === null, "no cover");
+check("v1.26 each cover's own color: the house palette against the photo, contrast first, mostly yellow, cream or white", () => {
+  const dark = { r: 30, g: 30, b: 40 }, light = { r: 235, g: 235, b: 225 };
+  const picks = Array.from({ length: 40 }, (_, i) => pickHouseColor(dark, coverSeed(i + 1)));
+  assert(picks.every((hex) => HOUSE.includes(hex) && contrastOf(hex, dark) >= 3), `readable house colors on a dark photo: ${picks.join(" ")}`);
+  const warm = picks.filter((hex) => ["#FBFA38", "#FAFFB4", "#FFFFFF"].includes(hex)).length;
+  assert(warm >= 20 && warm <= 36, `about 70% yellow, cream or white: ${warm}/40`);
+  assert(new Set(picks).size >= 3, "not one color for every cover");
+  assert(pickHouseColor(dark, coverSeed(7)) === pickHouseColor(dark, coverSeed(7)), "a cover keeps its pick");
+  assert(contrastOf(pickHouseColor(light, coverSeed(3)), light) >= 3, "a light photo gets a dark enough color");
+  for (let i = 0; i < 20; i++) {
+    const hex = randomWheelColor(i % 2 ? dark : light);
+    assert(/^#[0-9A-F]{6}$/.test(hex) && contrastOf(hex, i % 2 ? dark : light) >= 3, `a random wheel color that reads: ${hex}`);
+  }
+  assert(new Set(Array.from({ length: 12 }, () => randomWheelColor(dark))).size > 6, "random is truly random, not the palette");
 });
 check("v1.20 her own fonts are drawn by their own family and listed by their own name", () => {
   registerFonts([{ id: "custom-test-round", label: "Test Round", faces: [{ weight: 400, url: "/api/fonts/test-round-400.otf" }, { weight: 700, url: "/api/fonts/test-round-700.otf" }] }]);

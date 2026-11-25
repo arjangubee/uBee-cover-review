@@ -379,11 +379,11 @@ try {
     assert(shuffled.item.song === "Her - Lib Song" && shuffled.item.songSpotifyUrl === link, `${shuffled.item.song} ${shuffled.item.songSpotifyUrl}`);
     await postJson(`/api/connectors/spotify/sync-library`, { tracks: [] });
   });
-  await check("v1.8 new covers and new text boxes start in TikTok Sans Regular; saved covers keep their weight", async () => {
+  await check("v1.8 new covers and new text boxes start in TikTok Sans Bold since 1.26.0 (Arjang #1094); saved covers keep their weight", async () => {
     const item = await newItem("regular.png");
-    assert(item.textFont === "tiktok" && item.fontWeight === 400, `${item.textFont} ${item.fontWeight}`);
+    assert(item.textFont === "tiktok" && item.fontWeight === 700, `${item.textFont} ${item.fontWeight}`);
     const styled = await postJson(`/api/items/${item.id}/style`, { extraTexts: [{ quote: "mine" }] });
-    assert(styled.item.extraTexts[0].fontWeight === 400 && styled.item.extraTexts[0].textFont === "tiktok", JSON.stringify(styled.item.extraTexts[0]));
+    assert(styled.item.extraTexts[0].fontWeight === 700 && styled.item.extraTexts[0].textFont === "tiktok", JSON.stringify(styled.item.extraTexts[0]));
     const medium = await postJson(`/api/items/${item.id}/style`, { fontWeight: 500 });
     assert(medium.item.fontWeight === 500, "a saved weight stays");
   });
@@ -2259,63 +2259,31 @@ try {
     }
     assert((await palette()).brandColors.length === 4, "a refused list changes nothing");
   });
-  await check("v1.20 text lock: the queue's font and color answer with the palette, one field at a time; null clears; a bad font or color is refused", async () => {
-    let p = await postJson("/api/text-lock", { textColor: "#fb0909" });
-    assert(p.lock.textColor === "#FB0909" && p.lock.textFont === null, `color only: ${JSON.stringify(p.lock)}`);
-    p = await postJson("/api/text-lock", { textFont: "serif" });
-    assert(p.lock.textFont === "serif" && p.lock.textColor === "#FB0909", `font only, the color stays: ${JSON.stringify(p.lock)}`);
-    p = await postJson("/api/text-lock", { textColor: null });
-    assert(p.lock.textColor === null && p.lock.textFont === "serif", "null clears just that field");
-    for (const bad of [{ textFont: "comic-sans" }, { textColor: "red" }, { textColor: "#12345" }]) {
-      const r = await sendJson("/api/text-lock", bad);
-      assert(r.status === 400, `refused: ${JSON.stringify(bad)} answered ${r.status}`);
-    }
-    // A color she picks for the queue joins her custom colors, unless it's one of the 11 or one of her own.
-    await postJson("/api/text-lock", { textColor: "#123456" });
-    await postJson("/api/text-lock", { textColor: "#FFCBA4" });
-    await postJson("/api/text-lock", { textColor: "#FB0909" });
+  await check("v1.26 no queue lock: each cover keeps its own color and font, the lock is gone from her settings, and the old endpoint is gone", async () => {
+    const r = await sendJson("/api/text-lock", { textColor: "#FB0909" });
+    assert(r.status === 404, `the queue lock is retired: ${r.status}`);
+    const p = await palette();
+    assert(!p.lock || (p.lock.textColor === null && p.lock.textFont === null), `no lock in the palette: ${JSON.stringify(p.lock)}`);
+    const a = await newItem("own-a.png"), b = await newItem("own-b.png");
+    await postJson(`/api/items/${a.id}/style`, { textColor: "#FB0909" });
+    const list = (await (await fetch(`${base}/api/items`)).json()).items;
+    const A = list.find((i) => i.id === a.id), B = list.find((i) => i.id === b.id);
+    assert(A.textColor === "#FB0909" && A.textColorSet === true && B.textColor !== "#FB0909" && !B.textColorSet, "one cover's color stays on that cover");
+    assert(A.fontWeight === 700 && A.textFont === "tiktok", `new text starts in TikTok Sans Bold: ${A.textFont} ${A.fontWeight}`);
+  });
+  await check("v1.26 the color pass sets a cover's own color from its photo, never over one she picked, and custom colors keep the 5 newest", async () => {
+    const a = await newItem("auto-a.png"), b = await newItem("auto-b.png");
+    await postJson(`/api/items/${b.id}/style`, { textColor: "#123456" });
+    const ra = await postJson(`/api/items/${a.id}/auto-color`, { textColor: "#fbfa38" });
+    assert(ra.item.textColor === "#FBFA38" && ra.item.colorAuto === true && !ra.item.textColorSet, `picked: ${JSON.stringify(ra.item).slice(0, 200)}`);
+    const rb = await postJson(`/api/items/${b.id}/auto-color`, { textColor: "#FFFFFF" });
+    assert(rb.skipped === true && rb.item.textColor === "#123456", "a color she picked stays");
+    assert((await sendJson(`/api/items/${a.id}/auto-color`, { textColor: "yellow" })).status === 400, "a bad color is refused");
+    for (const hex of ["#111111", "#222222", "#333333", "#444444", "#555555", "#666666"]) await postJson(`/api/items/${b.id}/style`, { textColor: hex });
     const cc = (await palette()).customColors;
-    assert(cc.includes("#123456") && !cc.includes("#FFCBA4") && !cc.includes("#FB0909"), `custom colors: ${JSON.stringify(cc)}`);
-    await postJson("/api/text-lock", { textColor: null, textFont: null });
+    assert(JSON.stringify(cc) === JSON.stringify(["#666666", "#555555", "#444444", "#333333", "#222222"]), `the 5 newest, newest first: ${JSON.stringify(cc)}`);
   });
-  await check("v1.20 a cover that leaves the queue keeps the look it had: approve and reject write the queue's font and color into it and its text boxes", async () => {
-    const a = await newItem("lock-a.png"), b = await newItem("lock-b.png"), c = await newItem("lock-c.png");
-    const extra = [{ quote: "one more line", textColor: "#000000", textFont: "avenir" }];
-    for (const it of [a, b, c]) await postJson(`/api/items/${it.id}/style`, { textColor: "#FFFFFF", textFont: "tiktok", extraTexts: extra });
-    const onDisk = async (id) => {
-      for (const st of ["queue", "approved", "rejected"]) {
-        const hit = (await (await fetch(`${base}/api/items?status=${st}`)).json()).items.find((i) => i.id === id);
-        if (hit) return hit;
-      }
-      return null;
-    };
-    await postJson("/api/text-lock", { textColor: "#FB0909", textFont: "serif" });
-    const queued = await onDisk(a.id);
-    assert(queued.textColor === "#FFFFFF" && queued.textFont === "tiktok" && queued.extraTexts[0].textColor === "#000000", "a queued cover keeps its own on disk: the lock draws over it");
-    await postJson(`/api/items/${a.id}/decide`, { decision: "approved" });
-    await postJson(`/api/items/${b.id}/decide`, { decision: "rejected" });
-    for (const id of [a.id, b.id]) {
-      const it = await onDisk(id);
-      assert(it.textColor === "#FB0909" && it.textFont === "serif", `cover ${id} keeps the queue's look: ${it.textColor} ${it.textFont}`);
-      assert(it.extraTexts[0].textColor === "#FB0909" && it.extraTexts[0].textFont === "serif" && it.extraTexts[0].quote === "one more line", `and so do its text boxes: ${JSON.stringify(it.extraTexts[0])}`);
-    }
-    // Reject and revise rejects the cover the same way: the rejected one keeps the look it had in the queue.
-    await postJson("/api/text-lock", { textColor: "#9FE2BF" });
-    await postJson(`/api/items/${c.id}/reject-revise`, { note: "again" });
-    assert((await onDisk(c.id)).textColor === "#9FE2BF", "reject and revise keeps the look too");
-    // No color picked: her default color is the queue's color, so that's what a cover keeps.
-    await postJson("/api/text-lock", { textColor: null, textFont: null });
-    const d = await newItem("lock-d.png");
-    await postJson(`/api/items/${d.id}/decide`, { decision: "approved" });
-    assert((await onDisk(d.id)).textColor === "#FFCBA4", "with no color picked, her default color");
-    // With no colors of hers and nothing picked, a cover keeps its own, as before 1.20.0.
-    await postJson("/api/palette/brand", { colors: [] });
-    const e = await newItem("lock-e.png");
-    await postJson(`/api/items/${e.id}/style`, { textColor: "#D7E310" });
-    await postJson(`/api/items/${e.id}/decide`, { decision: "approved" });
-    assert((await onDisk(e.id)).textColor === "#D7E310" && (await onDisk(e.id)).textFont === "tiktok", "nothing locked: its own look");
-  });
-  await check("v1.20 her own fonts: a font file with a name and a weight joins the fonts, is served only signed in, and covers and the lock take it", async () => {
+  await check("v1.20 her own fonts: a font file with a name and a weight joins the fonts, is served only signed in, and covers take it", async () => {
     const FAKE_TTF = Buffer.concat([Buffer.from([0, 1, 0, 0]), Buffer.from("a stand-in font body for the smoke test")]);
     const sendFont = async (bytes, fields, name = "Test-Sans.ttf") => {
       const form = new FormData();
@@ -2337,8 +2305,6 @@ try {
     const it = await newItem("font.png");
     const styled = await postJson(`/api/items/${it.id}/style`, { textFont: "custom-test-sans", extraTexts: [{ quote: "hi", textFont: "custom-test-sans" }] });
     assert(styled.item.textFont === "custom-test-sans" && styled.item.extraTexts[0].textFont === "custom-test-sans", "a cover and its text boxes take her font");
-    assert((await postJson("/api/text-lock", { textFont: "custom-test-sans" })).lock.textFont === "custom-test-sans", "and so does the queue's lock");
-    await postJson("/api/text-lock", { textFont: null });
     for (const [bytes, fields, why] of [[Buffer.from("not a font at all"), { label: "Junk", weight: 400 }, "not a font file"],
       [FAKE_TTF, { label: "", weight: 400 }, "no name"], [FAKE_TTF, { label: "Odd", weight: 450 }, "weight off the 100 steps"]]) {
       const bad = await sendFont(bytes, fields);

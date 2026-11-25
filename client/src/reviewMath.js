@@ -108,3 +108,17 @@ export function zoomPan(z, dx, dy, w, h) {
 export function driveLinkFor(item) {
   return item?.source === "drive" && item.driveId ? `https://drive.google.com/file/d/${encodeURIComponent(item.driveId)}/view` : null;
 }
+
+/**
+ * Why it matches, the compose check's 4th check (1.25.0, Arjang #1100, Quill #1102): the logic of the match in her
+ * Muse's words. No reason, or a few words, is incomplete. Answers what's wrong, or null when it's written.
+ */
+export const WHY_WORDS_MIN = 6;
+export function whyProblem(why) {
+  const text = String(why?.text ?? "").trim();
+  if (!text) return "No reason written yet";
+  if (text.split(/\s+/).length < WHY_WORDS_MIN) return "Too short to say why: the photo, the quote and the song's link";
+  return null;
+}
+/** A cover passes its compose check only with all four: the steps (quote, song, image) and Why it matches. */
+export const composePasses = (beacons) => Boolean(beacons?.STEPS_VERIFIED && beacons?.WHY_WRITTEN);

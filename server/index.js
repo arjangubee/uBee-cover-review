@@ -9,6 +9,7 @@ import { buildVoiceProfile, generateCaption, loadQuotes, loadTrending, saveTrend
 import { registerDm } from "./dm.js";
 import { registerMusic } from "./music.js";
 import { getImportStatus, registerFull } from "./full.js";
+import { composePasses } from "../client/src/reviewMath.js";
 import { ctaFor } from "./captionCtas.js";
 import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
 import { registerRemix } from "./remix.js";
@@ -147,8 +148,12 @@ app.post("/api/dump/sort", (_req, res) => {
 // ---------- Review queue ----------
 app.get("/api/items", (req, res) => {
   const status = req.query.status || "queue";
-  // The queue reads in review order (1.20.1): a Drive batch sits at the front, in the order it was sent.
-  res.json({ items: status === "queue" ? store.queueInOrder() : store.db.items.filter((i) => i.status === status) });
+  if (status !== "queue") return res.json({ items: store.db.items.filter((i) => i.status === status) });
+  // The queue reads in review order (1.20.1): a Drive batch sits at the front, in the order it was sent. A cover leads
+  // only once its compose check passes (1.25.0, Arjang #1104): the rest wait behind, in their own order. The deck checks
+  // the cover she's on and the next one ahead of time (1.21.0), and a rule change rechecks saved checks (1.13.9).
+  const queue = store.queueInOrder();
+  res.json({ items: [...queue.filter((i) => composePasses(i.beacons)), ...queue.filter((i) => !composePasses(i.beacons))] });
 });
 app.post("/api/items/upload", upload.array("photos", 200), (req, res) => {
   const quotes = loadQuotes();

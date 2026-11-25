@@ -1,9 +1,9 @@
 {
-  "version": "1.24.0",
+  "version": "1.25.0",
   "date": "2026-11-25",
   "whatsNew": [
-    "Dragging text shows a guide when it lines up with the center or a third, and snaps to it",
-    "On a landscape photo the text can go all the way to the edges",
-    "Tap the uBee logo to load the latest version, and the Drive row opens the photo in Drive"
+    "Why it matches is now part of the Compose check, at the bottom of the card",
+    "A cover passes only with all four checks; otherwise it reads INCOMPLETE with a red X",
+    "Covers that pass come first in the queue"
   ]
 }

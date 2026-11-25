@@ -3,7 +3,7 @@ import { imageUrlFor, loadImage } from "./CoverCanvas.jsx";
 import Icon from "./icons.jsx";
 import { plainCaption } from "./captionCall.js";
 import { badgeFor } from "./pollenView.js";
-import { driveLinkFor, parseSong, starsFor } from "./reviewMath.js";
+import { composePasses, driveLinkFor, parseSong, starsFor, whyProblem } from "./reviewMath.js";
 
 // Everything under the cover: the icon row, Slides and Posts, Randomize layout, her note, the caption,
 // the Compose check, Why it matches, Image info and the star ratings.
@@ -164,6 +164,7 @@ const CHECKS = [
   ["QUOTE_IN_STOCK", "Quote in stock", "The quote is from your quote list, word for word."],
   ["SONG_IN_POOL", "Song in pool", "The song is in your library or the trending pool."],
   ["STEPS_VERIFIED", "Steps verified", "Image first, then the quote, then the song."],
+  ["WHY_WRITTEN", "Why it matches", "The logic of this match: the photo, the quote and the song."],
 ];
 
 // The compose check (1.21.0, Big Edit item 12) comes checked, and argues each decision like a caveman: one line for the
@@ -171,11 +172,14 @@ const CHECKS = [
 export function ComposeCheck({ item, lines, onRecheck, busy }) {
   const b = item.beacons;
   const why = { QUOTE_IN_STOCK: lines?.quote, SONG_IN_POOL: lines?.song };
-  const verdict = !b ? { word: "NOT CHECKED", tone: "idle" } : b.STEPS_VERIFIED ? { word: "PASS", tone: "pass" } : { word: "CHECK", tone: "fail" };
+  // 1.25.0 (Arjang #1100, #1104): Why it matches is the 4th check. All four pass, or the cover is INCOMPLETE, with a red X
+  // in each circle that fails. A check from before the 4th existed reads as checking again, never as blank.
+  const verdict = !b ? { word: "NOT CHECKED", tone: "idle" } : composePasses(b) ? { word: "PASS", tone: "pass" } : { word: "INCOMPLETE", tone: "fail" };
   const detail = {
     QUOTE_IN_STOCK: b?.QUOTE_IN_STOCK === null ? "The quote is off on this cover." : item.quote ? `"${item.quote}"` : "No quote yet",
     SONG_IN_POOL: item.song ? [parseSong(item.song).artist, parseSong(item.song).title].filter(Boolean).join(" · ") : "No song yet",
     STEPS_VERIFIED: item.composeAttestedAt ? `Composed ${new Date(item.composeAttestedAt).toLocaleDateString()}` : "Not verified yet",
+    WHY_WRITTEN: whyProblem(item.why) || (item.why.source ? `Source: ${item.why.source}` : "Written"),
   };
   return (
     <>
@@ -191,7 +195,7 @@ export function ComposeCheck({ item, lines, onRecheck, busy }) {
             const na = Boolean(b) && ok === null; // 1.5.2: the quote is off, so its stock check doesn't apply
             return (
               <li key={key} className={na ? "na" : ok ? "ok" : b ? "no" : "idle"}>
-                <span className="checkDot" aria-hidden="true">{ok ? <Icon name="check" size={18} /> : null}</span>
+                <span className="checkDot" aria-hidden="true">{ok ? <Icon name="check" size={18} /> : b && !na ? <Icon name="close" size={18} /> : null}</span>
                 <div>
                   <p className="checkName">{name} <span className="yes">{!b ? "" : na ? "NOT NEEDED" : ok ? "YES" : "NO"}</span></p>
                   <p className="checkWhat">{key} · {what}</p>
@@ -202,21 +206,17 @@ export function ComposeCheck({ item, lines, onRecheck, busy }) {
             );
           })}
         </ul>
+        {/* Why it matches lives here now (1.25.0): the blurb beneath the checks, the logic of this match. */}
+        {item.why?.text ? (
+          <div className="composeWhy">
+            <p>{item.why.text}</p>
+            {item.why.tags?.length > 0 && <div className="tags">{item.why.tags.map((t, i) => <span key={i} className="tag">{t}</span>)}</div>}
+            {item.why.audience && <p className="audience">{item.why.audience}</p>}
+          </div>
+        ) : null}
       </section>
       <button type="button" className="chipBtn" onClick={onRecheck} disabled={busy}>{b ? "Re-check" : "Check it"}</button>
     </>
-  );
-}
-
-export function WhyMatches({ why }) {
-  if (!why?.text) return null;
-  return (
-    <section className="why" aria-label="Why it matches">
-      <h3>Why it matches</h3>
-      <p>{why.source ? `Source: ${why.source}. ` : ""}{why.text}</p>
-      {why.tags?.length > 0 && <div className="tags">{why.tags.map((t, i) => <span key={i} className="tag">{t}</span>)}</div>}
-      {why.audience && <p className="audience">{why.audience}</p>}
-    </section>
   );
 }
 

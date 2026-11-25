@@ -29,22 +29,15 @@ export function bangRuleOf(sections) {
 }
 
 const BANG = /!!+$/u;
-const EMOJI = /[\p{Extended_Pictographic}️‍]+$/u;
-
-// A line's ending mark: "bang" for a run of two or more !, "emoji" for a run of emoji after some words. A single ! and
-// a line that's only emoji are words, not marks. With no rule, an emoji is only words too.
-function markOf(line, rule) {
-  const t = line.trimEnd();
-  if (BANG.test(t)) return "bang";
-  if (rule && EMOJI.test(t) && t.replace(EMOJI, "").trim() !== "") return "emoji";
-  return null;
-}
 
 /**
- * A draft's line endings held to the rule across the whole draft, never per line: with a rule, floor(lines x per /
- * outOf) marked lines keep their mark, and a draft of more than one line never keeps it on every line. The earliest
- * marked lines keep theirs. The rest lose the mark entirely (no period in its place); nothing else changes. With no
- * rule, every !! ending goes and emoji stay as they are.
+ * A draft's !! endings held to the rule across the whole draft, never per line: with a rule, floor(lines x per /
+ * outOf) lines ending in two or more ! keep them, and a draft of more than one line never keeps them on every line. The
+ * earliest keep theirs. The rest lose the run of ! entirely (no period in its place); nothing else changes. With no
+ * rule, every !! ending goes. A single ! is words, not an ending.
+ * An emoji ending is hers and never counts or goes (1.21.1, Quill #942): her comment replies end on emoji about 6 in 10
+ * and her DM texts about 1 in 5 (room #934), so holding emoji to the !! rule cut most of them, and a cut
+ * could stop inside a run at a skin tone.
  */
 export function capEndings(text, sections) {
   const rule = bangRuleOf(sections);
@@ -53,10 +46,9 @@ export function capEndings(text, sections) {
   let allowed = rule ? Math.floor((filled * rule.per) / rule.outOf) : 0;
   if (filled > 1) allowed = Math.min(allowed, filled - 1);
   return lines.map((line) => {
-    const mark = markOf(line, rule);
-    if (!mark) return line;
+    if (!BANG.test(line.trimEnd())) return line;
     if (allowed > 0) { allowed--; return line; }
-    return line.trimEnd().replace(mark === "bang" ? BANG : EMOJI, "").trimEnd();
+    return line.trimEnd().replace(BANG, "").trimEnd();
   }).join("\n");
 }
 

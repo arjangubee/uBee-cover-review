@@ -1,9 +1,7 @@
 {
-  "version": "1.21.0",
-  "date": "2026-11-23",
+  "version": "1.21.1",
+  "date": "2026-11-24",
   "whatsNew": [
-    "Remix changes the cover right away, and Download saves it in one tap",
-    "The compose check comes checked, with a short reason for the quote and the song",
-    "A big Schedule button with your channels as icons, and Rate Quality always open"
+    "Drafts in your voice keep their emoji endings, and only !! endings follow your voice's !! rule"
   ]
 }

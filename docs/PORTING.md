@@ -12,6 +12,17 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.23.1: what's waiting under each post
+
+Arjang in room #1057 and #1062, approved by Quill in #1064. Under each post's square in Comments: how many of its
+comments need a reply, and those comments taking turns, one every 3 seconds with a soft fade (none when she asks her
+phone for less motion). One waiting comment stays put. It uses the comments already here: no new data, no new calls.
+
+| Where | Change |
+| --- | --- |
+| client/src/dm/App.jsx | `WaitingBeneath` under each `PostSquare` |
+| client/src/dm/dm.css | the `dm-tick` fade |
+
 ## 1.23.0: Refresh is a live sync
 
 Arjang in room #1048: the inbox and the comment box are a live sync, refreshing whenever Refresh is pressed, and it

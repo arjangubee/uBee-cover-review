@@ -1,9 +1,9 @@
 {
-  "version": "1.23.0",
+  "version": "1.23.1",
   "date": "2026-11-25",
   "whatsNew": [
     "Refresh in Chats is a live sync: it pulls new messages and comments from Instagram",
-    "The line beside Refresh shows the sync working, when it last synced and what came in, or why it stopped",
+    "Under each post in Comments: how many comments need a reply, with those comments taking turns",
     "A chat comes back to Needs Reply when they write again, and a sync never touches your drafts or edits"
   ]
 }

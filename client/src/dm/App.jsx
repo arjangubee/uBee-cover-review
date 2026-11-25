@@ -1628,6 +1628,7 @@ function PracticeView({
               {posts.map((post) => (
                 <li key={post.key}>
                   <PostSquare post={post} onOpen={setOpenPost} />
+                  <WaitingBeneath post={post} />
                 </li>
               ))}
             </ul>
@@ -1791,6 +1792,31 @@ const COMMENT_GROUPS = [
   { id: "followers", label: "People who follow you", test: (c) => !c.following && c.follows_her === true },
   { id: "others", label: "Everyone else", test: (c) => !c.following && c.follows_her !== true },
 ];
+
+/** Under each post (Arjang #1057, #1062; Quill #1064): how many of its comments need a reply, and those comments taking
+ *  turns with a soft fade. One waiting comment stays put; two or more take turns. */
+function WaitingBeneath({ post }) {
+  const waiting = post.comments.filter(awaitingReply);
+  const n = waiting.length;
+  const [turn, setTurn] = useState(0);
+  useEffect(() => {
+    if (n < 2) return undefined;
+    const t = setInterval(() => setTurn((v) => v + 1), 3000);
+    return () => clearInterval(t);
+  }, [n]);
+  if (n === 0) return null;
+  const c = waiting[turn % n];
+  return (
+    <div className="pt-1">
+      <p className="text-[11px] font-semibold leading-tight" style={{ color: "var(--accent)" }}>
+        {n} {n === 1 ? "needs a reply" : "need replies"}
+      </p>
+      <p key={c.id} aria-hidden="true" className="dm-tick line-clamp-2 text-[11px] leading-tight">
+        <span className="font-semibold">{handleOf(c)}</span> <span style={{ color: "var(--dim)" }}>{c.incoming_text}</span>
+      </p>
+    </div>
+  );
+}
 
 function PostSquare({ post, onOpen }) {
   const [failed, setFailed] = useState(false);

@@ -12,6 +12,24 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.21.1: emoji endings stay
+
+The voice chat found it in #934, and Quill ruled the fix in #942: the ending cap (1.14, point 10) held emoji
+endings to the !! rule too. A one-line draft lost its emoji, most of her comment replies would have lost theirs (she
+ends about 6 in 10 on emoji there, and about 1 in 5 DM texts), and a cut could stop inside a run at a skin tone.
+
+1. **Only !! endings are capped.** `capEndings` (server/dmRules.js) holds the lines that end in two or more ! to the
+   rule her voice states, as before: floor(lines x N / M) keep them, the earliest first, never every line of a longer
+   draft, and the rest lose the run of ! with nothing in its place. With no rule, every !! ending goes.
+2. **Emoji endings are hers.** A line ending on emoji keeps it, with or without a rule, and doesn't use up what the
+   rule allows. With nothing cut, a skin tone can't split a run.
+
+In a ported space: bring server/dmRules.js over whole; it's pure functions. Drafts already saved don't change.
+
+| Where | Change |
+| --- | --- |
+| server/dmRules.js | `capEndings` caps only !! endings; the emoji ending class is gone |
+
 ## 1.21.0: the review screen round of the Big Edit
 
 Arjang's Big Edit list (Nov 23, room #877), items 10, 12, 12.1, 15, 16, 18 and 28, as Quill batched them in #883. Item

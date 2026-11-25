@@ -1690,10 +1690,24 @@ try {
     assert(capEndings("Thank you!!", rule) === "Thank you", "one line: floor(1 x 1 / 5) is 0");
     const ten = Array.from({ length: 10 }, (_, i) => `Line ${i + 1}!!`).join("\n");
     assert(capEndings(ten, rule) === ["Line 1!!", "Line 2!!", ...Array.from({ length: 8 }, (_, i) => `Line ${i + 3}`)].join("\n"), `ten lines keep two, the earliest: ${capEndings(ten, rule)}`);
-    assert(capEndings("Hi!\nSo good \u{1F602}\n\u{1F602}", rule) === "Hi!\nSo good\n\u{1F602}", "a single ! isn't a mark, an emoji ending is, a lone emoji is content");
+    assert(capEndings("Hi!\nSo good \u{1F602}\n\u{1F602}", rule) === "Hi!\nSo good \u{1F602}\n\u{1F602}", "a single ! isn't a mark, and emoji endings stay (1.21.1)");
     assert(capEndings("Yesss!!!\nAmazing \u{1F483}\u{1F483}", [{ title: "A", body: "No pet names" }]) === "Yesss\nAmazing \u{1F483}\u{1F483}", "no rule: every !! goes and an emoji stays");
     assert(capEndings("A!!\nB!!\nC!!", [{ title: "P", body: "1 in 1 end with !!" }]) === "A!!\nB!!\nC", "never on every line of a longer draft");
     assert(capEndings("Wow!!\n\nOkay!!", rule) === "Wow\n\nOkay", "empty lines stay and don't count");
+    // 1.21.1 (room #934, Quill #942): emoji endings are hers and never held to the !! rule. Her comment
+    // replies end on emoji about 6 in 10 and her DM texts about 1 in 5, and a skin tone is part of its emoji. The !! cap
+    // still holds every !! ending, and only !! endings use up what it allows.
+    for (const r of [rule, [{ title: "Punctuation and emoji", body: "~1 in 7 replies end with !!" }]]) {
+      const one = "Something tells me today was a big one \u{1F979}\u{1F979}\u{1F979}";
+      assert(capEndings(one, r) === one, `a one-line draft keeps its emoji: ${capEndings(one, r)}`);
+      const two = "@name thank youuuu \u{1F970}\u{1F64F}\u{1F3FD}\u{1F49E}";
+      assert(capEndings(two, r) === two, `a run with a skin tone stays whole: ${capEndings(two, r)}`);
+      assert(capEndings("Yayyyy!!!\nwould love to hear what you feel \u{1F64F}\u{1F3FD}\u{1F497}", r) === "Yayyyy\nwould love to hear what you feel \u{1F64F}\u{1F3FD}\u{1F497}",
+        `the !! goes by the rule, the emoji line stays whole: ${capEndings("Yayyyy!!!\nwould love to hear what you feel \u{1F64F}\u{1F3FD}\u{1F497}", r)}`);
+    }
+    const mixed = ["A!!", "B \u{1F483}", "C!!", "D \u{1F483}", "E!!", "F \u{1F483}", "G!!", "H \u{1F483}", "I!!", "J \u{1F483}"].join("\n");
+    assert(capEndings(mixed, rule) === ["A!!", "B \u{1F483}", "C!!", "D \u{1F483}", "E", "F \u{1F483}", "G", "H \u{1F483}", "I", "J \u{1F483}"].join("\n"),
+      `ten lines keep two !! endings, the earliest, and every emoji: ${capEndings(mixed, rule)}`);
     const story = (text) => [{ from: "them", kind: "share_story", reply_to: "story", text }];
     assert(JSON.stringify(storyCapture(story("So good"), "replied to your story")) === '{"incomingText":"So good","notCaptured":false}', "the reply's own words");
     assert(JSON.stringify(storyCapture(story(null), " Replied to your story ")) === '{"incomingText":" Replied to your story ","notCaptured":true}', "no words and the placeholder: not captured");

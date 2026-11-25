@@ -4,11 +4,10 @@ import { SafeAreaTopScrim } from "./SafeAreaTopScrim.jsx";
 import { api, FIELDS, sendsAs } from "./dmApi.js";
 import { currentSession } from "../session.js";
 
-// The Chats screen (1.14): a practice inbox in Instagram's style, ported from
-// the Reply Practice Simulator. Its calls are in dmApi.js: /api/dm/<name>
-// here, and the space's dm_ actions in a Muse space. With no model on the
-// server, a draft can be waiting for Muse (item.draft_wanted), and Send hands
-// the approved text to Muse to send.
+// The Chats screen: a practice inbox in Instagram's style. Since 1.22.0 it follows the reply practice simulator's code
+// (Arjang in the Big Edit, #20, its code in room file 83), with the creator's own data left out. Its calls are in
+// dmApi.js: /api/dm/<name> here, and the space's dm_ actions in a Muse space. With no model on the server, a draft can
+// be waiting for Muse (item.draft_wanted), and Send hands the approved text to Muse to send.
 
 async function copyToClipboard(text) {
   try {
@@ -52,11 +51,18 @@ function verdictLabel(verdict) {
   return "Waiting";
 }
 
-/** "OCT 27 AT 1:29 PM" : the IG date separator format. */
+/** "OCT 27 AT 1:29 PM", the IG date separator format. For a message
+ *  from a different year Instagram shows the year instead of the time
+ *  ("SEP 23, 2025"), so the separator does the same. */
 function igDateSeparator(iso) {
   const d = new Date(iso);
-  const month = d.toLocaleDateString("en-US", { month: "short" }).toUpperCase();
+  const month = d
+    .toLocaleDateString("en-US", { month: "short" })
+    .toUpperCase();
   const day = d.getDate();
+  if (d.getFullYear() !== new Date().getFullYear()) {
+    return `${month} ${day}, ${d.getFullYear()}`;
+  }
   const time = d
     .toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
     .toUpperCase();
@@ -87,6 +93,276 @@ function shortTime(iso) {
     month: "short",
     day: "numeric",
   });
+}
+
+/** "Seen 44m ago", IG's read receipt wording, from a real timestamp. */
+function seenLabel(iso) {
+  const rel = shortTime(iso);
+  if (rel === "now") return "Seen just now";
+  if (/^\d+[mhd]$/.test(rel)) return `Seen ${rel} ago`;
+  return `Seen ${rel}`;
+}
+
+/** The thread's newest stored message (the window is chronological). */
+function lastMessageOf(
+  item,
+) {
+  const msgs = item.thread_messages;
+  const last = msgs[msgs.length - 1];
+  return last ?? null;
+}
+
+/** Last real activity on the thread, as Instagram knows it: the stored
+ *  last_activity_at (the thread's last_activity_timestamp_ms captured at
+ *  import, or the newest stored message's time). Drives inbox order and
+ *  the row's time label. The item's arrival (created_at) is NOT activity:
+ *  taking the latest of the two made every freshly imported old thread
+ *  read as "now" and sort first. Arrival, and her publish time, are
+ *  only a fallback for items with no thread activity on file at all
+ *  (pasted practice items, comments without a stored window). */
+function lastActivityMs(item) {
+  for (const c of [item.last_activity_at, lastMessageOf(item)?.at]) {
+    if (!c) continue;
+    const t = Date.parse(c);
+    if (!Number.isNaN(t)) return t;
+  }
+  let best = 0;
+  for (const c of [item.published_at, item.created_at]) {
+    if (!c) continue;
+    const t = Date.parse(c);
+    if (!Number.isNaN(t) && t > best) best = t;
+  }
+  return best;
+}
+
+function lastActivityIso(item) {
+  const ms = lastActivityMs(item);
+  return ms > 0 ? new Date(ms).toISOString() : item.created_at;
+}
+
+function lastMessageFromMe(item) {
+  return lastMessageOf(item)?.from === "me";
+}
+
+/** The thread's latest message that counts for reply state: reactions
+ *  ride under the message they react to, so the latest non-reaction
+ *  message is the one that decides whether they are still waiting. */
+function latestMeaningfulMessage(item) {
+  const msgs = item.thread_messages;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m && m.kind !== "reaction") return m;
+  }
+  return null;
+}
+
+/** "Read, not replied": their latest message has been read, on
+ *  Instagram (ig_read) or here in the build (build_read_at), and it
+ *  still has no reply. The green Read chip means exactly this, and
+ *  this is also the sort filter of the same name. The moment the
+ *  latest message is replied to, her message is the latest one, or
+ *  her published reply postdates theirs, the state ends at once:
+ *  no chip, and the thread leaves the filter. A thread whose latest
+ *  message is from her is never in this state. */
+function isReadNotReplied(item) {
+  const read = item.ig_read || Boolean(item.build_read_at);
+  if (!read) return false;
+  const last = latestMeaningfulMessage(item);
+  if (last) {
+    if (last.from === "me") return false;
+    // Her published reply answers their message when it went out
+    // after that message arrived.
+    if (
+      item.publish_status === "published" &&
+      item.published_at &&
+      last.at &&
+      Date.parse(last.at) <= Date.parse(item.published_at)
+    ) {
+      return false;
+    }
+    return true;
+  }
+  // No stored window (a pasted item, a comment): the item itself is
+  // the unanswered message unless she already published a reply.
+  return item.needs_reply && item.publish_status !== "published";
+}
+
+/** A call message's display label: its own fragment text when it
+ *  carries one ("Audio call ended", "You missed an audio call"),
+ *  otherwise the plain kind label. A call preview never falls back to
+ *  "sent a message". */
+function callLabelOf(m) {
+  if (m.text && m.text.trim() !== "") return m.text.trim();
+  return m.kind === "call_missed" ? "Missed audio call" : "Audio call";
+}
+
+/** The emoji a stored reaction carries, or null when none is on file.
+ *  The server stores a reaction's text as its emoji already; the word
+ *  forms are mapped defensively so no payload can render a reaction as
+ *  generic text. A reaction naming no emoji shows nothing, never a
+ *  guessed emoji, never the words. */
+function reactionEmojiOf(m) {
+  if (m.kind !== "reaction" || !m.text) return null;
+  const t = m.text.trim();
+  if (t === "") return null;
+  if (/^liked a message$/i.test(t)) return "❤️";
+  if (/^reacted/i.test(t)) return null;
+  return t;
+}
+
+/** Text that is not a message from them and must never render as one:
+ *  import diagnostics ("no messages from them in the last 10") and
+ *  reaction placeholders ("reacted to your message"). */
+function isNonMessageText(text) {
+  const t = text.trim().toLowerCase();
+  return (
+    t === "reacted to your message" ||
+    t === "reacted to a message" ||
+    t === "liked a message" ||
+    // The generic placeholder an import wrote when a thread's latest
+    // event carried no text of its own (a call thread, a media
+    // message): not words from them, never a message.
+    t === "sent a message" ||
+    /^no messages from them\b/.test(t) ||
+    /^no incoming message\b/.test(t)
+  );
+}
+
+/**
+ * Pair reactions with the messages they sit on, the way Instagram
+ * shows them: the emoji attached under the message. The stored data
+ * carries no target message id, so pairing is chronological, a run of
+ * reactions pairs in order with the messages immediately before the
+ * run (first reaction on the first of those messages, second on the
+ * second). Reactions with no emoji on file, and reactions with no
+ * message before them, attach nowhere and render nothing.
+ * Returns window index -> emojis in order.
+ */
+function reactionAttachments(
+  window,
+) {
+  const map = new Map();
+  let i = 0;
+  while (i < window.length) {
+    if (window[i]?.kind !== "reaction") {
+      i++;
+      continue;
+    }
+    let j = i;
+    const run = [];
+    while (j < window.length && window[j]?.kind === "reaction") {
+      run.push(j);
+      j++;
+    }
+    const targets = [];
+    for (let k = i - 1; k >= 0 && targets.length < run.length; k--) {
+      if (window[k]?.kind !== "reaction") targets.unshift(k);
+    }
+    run.forEach((rIdx, n) => {
+      const target = targets[n];
+      if (target === undefined) return;
+      const msg = window[rIdx];
+      const emoji = msg ? reactionEmojiOf(msg) : null;
+      if (!emoji) return;
+      const arr = map.get(target) ?? [];
+      arr.push(emoji);
+      map.set(target, arr);
+    });
+    i = j;
+  }
+  return map;
+}
+
+/** The inbox preview line: the thread's real last message. A reaction
+ *  previews as its emoji alone (or, with no emoji on file, the preview
+ *  falls back to the message before it), never as generic text. */
+function lastMessagePreview(item) {
+  const msgs = item.thread_messages;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (!m) continue;
+    if (m.kind === "reaction") {
+      const emoji = reactionEmojiOf(m);
+      if (emoji) return m.from === "me" ? `You: ${emoji}` : emoji;
+      continue;
+    }
+    const body =
+      m.kind === "call" || m.kind === "call_missed"
+        ? callLabelOf(m)
+        : m.kind === "text"
+          ? m.text && m.text.trim() !== ""
+            ? m.text
+            : "Message"
+          : m.kind === "voice"
+            ? "Voice message"
+            : m.kind === "video"
+              ? "Video"
+              : m.kind === "share_post"
+                ? "Shared a post"
+                : m.kind === "share_reel"
+                  ? "Shared a reel"
+                  : m.kind === "share_story"
+                    ? "Shared a story"
+                    : "Message";
+    // A call label that already names the caller ("You started an
+    // audio call") stands on its own, no second "You:" in front.
+    if (
+      (m.kind === "call" || m.kind === "call_missed") &&
+      /^you\b/i.test(body)
+    ) {
+      return body;
+    }
+    return m.from === "me" ? `You: ${body}` : body;
+  }
+  return isNonMessageText(item.incoming_text) ? "" : item.incoming_text;
+}
+
+/** Waiting for her reply (Big Edit #21): their latest message has no answer from her yet, read or not. A chat that
+ *  needs no reply, a blind holdout (she answered it on Instagram) and a reply on its way never wait. A reply she sent
+ *  from here answers their message when it went out after it. */
+function awaitingReply(item) {
+  if (!item.needs_reply || item.source === "holdout" || item.publish_status === "publishing") return false;
+  const last = latestMeaningfulMessage(item);
+  const sent = item.publish_status === "published";
+  if (!last) return !sent;
+  if (last.from === "me") return false;
+  if (sent && item.published_at && (!last.at || Date.parse(last.at) <= Date.parse(item.published_at))) return false;
+  return true;
+}
+
+/** She replied (Big Edit #22.2): her answer is the latest word, sent from here or on Instagram. */
+function repliedTo(item) {
+  if (item.source === "holdout") return true;
+  if (item.publish_status === "published" || item.publish_status === "publishing") return !awaitingReply(item);
+  return latestMeaningfulMessage(item)?.from === "me";
+}
+
+// Where a chat sits on Instagram (Big Edit #22.2), from her Muse's sync. A chat whose folder isn't on file yet shows
+// General only when she moved it there herself.
+const FOLDER_LABELS = { primary: "Primary", general: "General", requests: "Requests", spam: "Spam" };
+function folderLabelOf(item) {
+  return FOLDER_LABELS[item.folder] ?? (item.section === "general" ? "General" : null);
+}
+
+/** The part of the front page a chat sits in, split the way Instagram splits it: Primary, General, Requests, Spam. */
+function inboxPartOf(item) {
+  if (item.section === "general") return "general";
+  if (item.folder === "requests" || item.folder === "spam") return item.folder;
+  return "main";
+}
+
+/**
+ * Instagram's own embed endpoint for a post/reel link, or null when the
+ * link is not a post/reel URL. The embed renders the real post inside an
+ * iframe, used when a share carries no image of its own, so the card
+ * shows the actual photo or video instead of a placeholder icon.
+ */
+function igEmbedUrl(url) {
+  if (!url) return null;
+  const match = /instagram\.com\/(p|reel|reels)\/([A-Za-z0-9_-]+)/.exec(url);
+  if (!match) return null;
+  const kind = match[1] === "p" ? "p" : "reel";
+  return `https://www.instagram.com/${kind}/${match[2]}/embed/`;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,12 +462,20 @@ function VerifiedBadge({ size = 14 }) {
         fill="#0095f6"
         d="M12 1.7l2.5 2 3.3-.3 1.1 3.1 3 1.4-1.2 3.1 1.2 3.1-3 1.4-1.1 3.1-3.3-.3-2.5 2-2.5-2-3.3.3-1.1-3.1-3-1.4L3.3 12 2.1 8.9l3-1.4 1.1-3.1 3.3.3z"
       />
-      <path fill="#fff" d="M10.9 15.9l-3-3 1.4-1.4 1.6 1.6 4-4L16.3 10.5z" />
+      <path
+        fill="#fff"
+        d="M10.9 15.9l-3-3 1.4-1.4 1.6 1.6 4-4L16.3 10.5z"
+      />
     </svg>
   );
 }
 
-function PathIcon({ size = 24, className, children, filled }) {
+function PathIcon({
+  size = 24,
+  className,
+  children,
+  filled,
+}) {
   return (
     <svg
       width={size}
@@ -217,10 +501,7 @@ const IconBack = (p) => (
 );
 const IconTag = (p) => (
   <PathIcon {...p}>
-    <path
-      d="M3.5 3.5H12L20.5 12a2 2 0 0 1 0 2.8l-5.7 5.7a2 2 0 0 1-2.8 0L3.5 12z"
-      fill="none"
-    />
+    <path d="M3.5 3.5H12L20.5 12a2 2 0 0 1 0 2.8l-5.7 5.7a2 2 0 0 1-2.8 0L3.5 12z" fill="none" />
     <circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none" />
   </PathIcon>
 );
@@ -269,6 +550,35 @@ const IconPerson = (p) => (
   <PathIcon {...p}>
     <circle cx="12" cy="8" r="4" />
     <path d="M4.5 20.5a7.5 7.5 0 0 1 15 0" fill="none" />
+  </PathIcon>
+);
+const IconPhone = (p) => (
+  <PathIcon {...p} filled>
+    <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
+  </PathIcon>
+);
+const IconPhoneMissed = (p) => (
+  <PathIcon {...p}>
+    <path d="M5 4h4l1.5 4.5L8 10a12 12 0 0 0 6 6l1.5-2.5L20 15v4a1.8 1.8 0 0 1-2 1.8C10 20 4 14 3.2 6A1.8 1.8 0 0 1 5 4z" fill="none" />
+    <path d="M16 4l5 5M21 4l-5 5" fill="none" />
+  </PathIcon>
+);
+const IconEyeOff = (p) => (
+  <PathIcon {...p}>
+    <path d="M3 12s3.5-6.5 9-6.5c1.5 0 2.9.5 4.1 1.2M21 12s-3.5 6.5-9 6.5c-1.5 0-2.9-.5-4.1-1.2" fill="none" />
+    <path d="M9.9 9.9a2.8 2.8 0 0 0 3.9 3.9M4 4l16 16" fill="none" />
+  </PathIcon>
+);
+const IconEye = (p) => (
+  <PathIcon {...p}>
+    <path d="M3 12s3.5-6.5 9-6.5S21 12 21 12s-3.5 6.5-9 6.5S3 12 3 12z" fill="none" />
+    <circle cx="12" cy="12" r="2.8" />
+  </PathIcon>
+);
+const IconFollowing = (p) => (
+  <PathIcon {...p}>
+    <circle cx="10" cy="8" r="3.5" />
+    <path d="M4 19.5a6 6 0 0 1 10.5-4M15.5 17.5l2 2 3.5-3.5" fill="none" />
   </PathIcon>
 );
 const IconBell = (p) => (
@@ -326,10 +636,7 @@ const IconCart = (p) => (
 const IconDollar = (p) => (
   <PathIcon {...p}>
     <circle cx="12" cy="12" r="9" />
-    <path
-      d="M12 6.5v11M15 9c-.6-1-1.7-1.4-3-1.4-1.7 0-3 1-3 2.3 0 3 6 1.7 6 4.5 0 1.3-1.3 2.3-3 2.3-1.3 0-2.4-.5-3-1.5"
-      fill="none"
-    />
+    <path d="M12 6.5v11M15 9c-.6-1-1.7-1.4-3-1.4-1.7 0-3 1-3 2.3 0 3 6 1.7 6 4.5 0 1.3-1.3 2.3-3 2.3-1.3 0-2.4-.5-3-1.5" fill="none" />
   </PathIcon>
 );
 const IconTruck = (p) => (
@@ -362,10 +669,7 @@ const IconPin = (p) => (
 );
 const IconTranslate = (p) => (
   <PathIcon {...p}>
-    <path
-      d="M4 6h9M8.5 4v2c0 3.5-2 6.5-4 8M6 9.5c1 2.5 3.2 5 6 6.5M13 20l4.5-9L22 20M14.8 17h5.4"
-      fill="none"
-    />
+    <path d="M4 6h9M8.5 4v2c0 3.5-2 6.5-4 8M6 9.5c1 2.5 3.2 5 6 6.5M13 20l4.5-9L22 20M14.8 17h5.4" fill="none" />
   </PathIcon>
 );
 const IconClockDots = (p) => (
@@ -400,18 +704,12 @@ const IconGrid = (p) => (
 const IconReels = (p) => (
   <PathIcon {...p}>
     <rect x="3.5" y="4" width="17" height="17" rx="4" />
-    <path
-      d="M3.5 9.5h17M8.5 4l3 5.5M14 4l3 5.5M10.5 13.5l4.5 2.7-4.5 2.7z"
-      fill="none"
-    />
+    <path d="M3.5 9.5h17M8.5 4l3 5.5M14 4l3 5.5M10.5 13.5l4.5 2.7-4.5 2.7z" fill="none" />
   </PathIcon>
 );
 const IconLink = (p) => (
   <PathIcon {...p}>
-    <path
-      d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.7-1.7"
-      fill="none"
-    />
+    <path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.7-1.7" fill="none" />
   </PathIcon>
 );
 const IconCheck = (p) => (
@@ -426,20 +724,14 @@ const IconSparkle = (p) => (
 );
 const IconEdit = (p) => (
   <PathIcon {...p}>
-    <path
-      d="M4.5 19.5L5.6 15 16.9 3.7a2.05 2.05 0 0 1 2.9 0l.5.5a2.05 2.05 0 0 1 0 2.9L9 18.4z"
-      fill="none"
-    />
+    <path d="M4.5 19.5L5.6 15 16.9 3.7a2.05 2.05 0 0 1 2.9 0l.5.5a2.05 2.05 0 0 1 0 2.9L9 18.4z" fill="none" />
     <path d="M14.5 6l3.5 3.5" fill="none" />
   </PathIcon>
 );
 const IconCopy = (p) => (
   <PathIcon {...p}>
     <rect x="9" y="9" width="11" height="11" rx="2.5" />
-    <path
-      d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"
-      fill="none"
-    />
+    <path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5" fill="none" />
   </PathIcon>
 );
 const IconSliders = (p) => (
@@ -459,8 +751,21 @@ const IconX = (p) => (
     <path d="M5 5l14 14M19 5L5 19" fill="none" />
   </PathIcon>
 );
+const IconComment = (p) => (
+  <PathIcon {...p}>
+    <path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.6-4.3A8.5 8.5 0 1 1 20.5 11.5z" fill="none" />
+  </PathIcon>
+);
+const IconRefresh = (p) => (
+  <PathIcon {...p}>
+    <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4v4.5H15" fill="none" />
+  </PathIcon>
+);
 
-function Badge({ children, tone }) {
+function Badge({
+  children,
+  tone,
+}) {
   const styles = {
     accent: { background: "var(--accent-soft)", color: "var(--accent)" },
     sage: { background: "var(--sage-soft)", color: "var(--sage)" },
@@ -493,10 +798,10 @@ export function App() {
     queryFn: () => api.dm_listitems({ filter: "all" }),
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    // Every 30 seconds, and every 5 while a draft or a send is waiting on Muse.
+    // Every 30 seconds, and every 5 while a draft, a send or an edit is waiting on Muse.
     refetchInterval: (query) =>
       query.state.data?.items.some(
-        (i) => i.draft_wanted || i.publish_status === "publishing",
+        (i) => i.draft_wanted || i.publish_status === "publishing" || i.edit_status === "editing",
       )
         ? 5_000
         : 30_000,
@@ -709,6 +1014,251 @@ export function App() {
 }
 
 // ---------------------------------------------------------------------------
+// FollowingBadge: a solid blue pill with a person-and-check icon, worn
+// right next to the name in the inbox row and the chat header, big and
+// bright enough to spot at a glance, not a quiet little chip.
+// ReadChip: the traffic-light-green "Read" mark. It means exactly one
+// thing, their latest message has been read (here or on Instagram) and
+// is still unreplied (isReadNotReplied). The moment it is replied to,
+// the chip is gone.
+// ---------------------------------------------------------------------------
+
+function FollowingBadge() {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold text-white"
+      style={{ background: "var(--accent)" }}
+      aria-label="You follow them"
+      title="You follow them"
+    >
+      <IconFollowing size={13} />
+      Following
+    </span>
+  );
+}
+
+function ReadChip() {
+  return (
+    <span
+      className="rounded-full px-2 py-px text-[11px] font-bold"
+      style={{
+        // Traffic-light green on purpose: the read-and-unreplied mark
+        // has to read at a glance against the dark inbox. The row's
+        // text still stays full colour, greying is only for threads
+        // read on Instagram itself.
+        background: "#00e676",
+        color: "#04150a",
+      }}
+    >
+      ● Read
+    </span>
+  );
+}
+
+// FolderTag: where a chat sits on Instagram, on each row of the all-mail views (Big Edit #22.2).
+function FolderTag({ item }) {
+  const label = folderLabelOf(item);
+  if (!label) return null;
+  return (
+    <span
+      className="rounded-full px-2 py-px text-[11px] font-semibold"
+      style={{ background: "var(--surface-alt)", color: "var(--text)" }}
+    >
+      {label}
+    </span>
+  );
+}
+
+// ToggleChip: one of the inbox's three toggles (Needs Reply, Replied, Hide following). They work the same way and share
+// the row evenly (Big Edit #22.2).
+function ToggleChip({ on, onClick, label, ariaLabel, icon }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-label={ariaLabel}
+      onClick={onClick}
+      className="flex min-w-0 items-center justify-center gap-1.5 rounded-full px-2 py-1.5 text-[13px] font-medium whitespace-nowrap"
+      style={
+        on
+          ? { background: "var(--accent)", color: "#fff", border: "1px solid var(--accent)" }
+          : { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)" }
+      }
+    >
+      {icon && <span className="hidden shrink-0 sm:inline-flex">{icon}</span>}
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// InboxRow: one chat in the inbox. Read states stay strictly apart,
+// unread (read nowhere) is bold with a blue dot; the green "Read" mark
+// shows only while their latest message is read and still unreplied,
+// and the text stays full colour; read on Instagram (ig_read, from the
+// thread's real state) is the only state that greys the text. Swiping
+// the row left moves the chat between the main inbox and General.
+// ---------------------------------------------------------------------------
+
+function InboxRow({
+  item,
+  isSelected,
+  onOpen,
+  onMove,
+  showFolder,
+}) {
+  const handle = handleOf(item);
+  const profile = profileOf(handle);
+  const [dx, setDx] = useState(0);
+  const drag = useRef(null);
+  const suppressClick = useRef(false);
+  const inGeneral = item.section === "general";
+  const igRead = item.ig_read;
+  const buildRead = Boolean(item.build_read_at);
+  const unread = !igRead && !buildRead;
+  const statusText =
+    item.publish_status === "published"
+      ? item.leftover_text
+        ? "Published ✓ · drafts left"
+        : "Published ✓"
+      : item.publish_status === "publishing"
+        ? "Publishing…"
+        : item.publish_status === "publish_failed"
+          ? "Publish failed"
+          : item.source !== "holdout" && latestMeaningfulMessage(item)?.from === "me"
+            ? "Replied"
+            : !item.needs_reply
+            ? "No reply needed"
+            : item.verdict === "pending"
+              ? item.draft_text
+                ? "Draft ready"
+                : item.draft_wanted
+                  ? "Muse is drafting"
+                  : "Waiting"
+              : verdictLabel(item.verdict);
+  return (
+    <li className="relative overflow-hidden">
+      <div
+        aria-hidden="true"
+        className="absolute inset-y-0 right-0 flex items-center px-5 text-sm font-semibold"
+        style={{
+          background: "var(--surface-alt)",
+          color: "var(--dim)",
+          opacity: dx < -10 ? 1 : 0,
+        }}
+      >
+        {inGeneral ? "Move to Inbox" : "Move to General"}
+      </div>
+      <div
+        style={{
+          transform: `translateX(${dx}px)`,
+          transition: drag.current
+            ? "none"
+            : "transform 180ms ease",
+          background: "var(--bg)",
+          touchAction: "pan-y",
+        }}
+        onPointerDown={(e) => {
+          drag.current = { startX: e.clientX, moved: false };
+        }}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          if (!d) return;
+          const next = Math.min(0, Math.max(-130, e.clientX - d.startX));
+          if (Math.abs(next) > 6) d.moved = true;
+          setDx(next);
+        }}
+        onPointerUp={() => {
+          const d = drag.current;
+          drag.current = null;
+          if (d?.moved) {
+            suppressClick.current = true;
+            if (dx <= -72) onMove(item, inGeneral ? "main" : "general");
+          }
+          setDx(0);
+        }}
+        onPointerCancel={() => {
+          drag.current = null;
+          setDx(0);
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            if (suppressClick.current) {
+              suppressClick.current = false;
+              return;
+            }
+            onOpen(item);
+          }}
+          aria-current={isSelected ? "true" : undefined}
+          aria-label={`${handle || "Unknown"}. Swipe left to move to ${inGeneral ? "the main inbox" : "General"}`}
+          className="flex w-full items-center gap-3 px-4 py-2.5 text-left active:bg-[var(--surface)]"
+          style={isSelected ? { background: "var(--surface)" } : undefined}
+        >
+          <Avatar handle={handle} size={52} ring={unread} />
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5">
+              <span
+                className="truncate text-base"
+                style={{ fontWeight: unread ? 700 : 500 }}
+              >
+                {handle || "Unknown"}
+              </span>
+              {profile.verified && <VerifiedBadge size={13} />}
+              {item.following && <FollowingBadge />}
+              <span className="ml-auto shrink-0 text-xs text-[var(--dim)]">
+                · {shortTime(lastActivityIso(item))}
+              </span>
+            </span>
+            <span
+              className="mt-0.5 block truncate text-sm"
+              style={{
+                // Greyed text is ONLY for threads read on Instagram
+                // itself. Read-in-the-build keeps full colour.
+                color: igRead ? "var(--dim)" : "var(--text)",
+                fontWeight: unread ? 600 : 400,
+              }}
+            >
+              {lastMessagePreview(item)}
+            </span>
+            <span className="mt-0.5 flex items-center gap-2 text-xs text-[var(--dim)]">
+              <span>
+                {item.kind === "dm" ? "DM" : "Comment"} · {statusText}
+              </span>
+              {showFolder && <FolderTag item={item} />}
+              {isReadNotReplied(item) && <ReadChip />}
+              {item.voice_stale &&
+                item.draft_text &&
+                (item.verdict !== "pending" ||
+                  item.publish_status === "published") && (
+                  <span
+                    className="rounded-full px-2 py-px text-[11px] font-semibold"
+                    style={{
+                      background: "var(--gold-soft)",
+                      color: "var(--gold)",
+                    }}
+                  >
+                    Voice changed
+                  </span>
+                )}
+              <SimLabel label={item.label} />
+            </span>
+          </span>
+          {unread && (
+            <span
+              aria-hidden="true"
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ background: "var(--accent)" }}
+            />
+          )}
+        </button>
+      </div>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Practice: IG-style inbox of chats (DMs open the chat view; comments open
 // the review card below the list, as before)
 // ---------------------------------------------------------------------------
@@ -723,14 +1273,70 @@ function PracticeView({
   onRefresh,
   isRefreshing,
 }) {
-  const [kindFilter, setKindFilter] = useState("all");
+  const [kindFilter, setKindFilter] = useState(
+    "all",
+  );
   const [search, setSearch] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
+  // Big Edit #21 and #22.2: Chats opens on Needs Reply, every chat still waiting for her answer, read or not. Needs
+  // Reply and Replied each show one all-mail list, every chat labeled where it sits on Instagram. With both off it's the
+  // front page, split the way Instagram splits it. They work like Hide following, one at a time.
+  const [needsReplyOn, setNeedsReplyOn] = useState(true);
+  const [repliedOn, setRepliedOn] = useState(false);
+  const [openPost, setOpenPost] = useState(null);
+  const toggleNeedsReply = () => {
+    setNeedsReplyOn((v) => !v);
+    setRepliedOn(false);
+  };
+  const toggleReplied = () => {
+    setRepliedOn((v) => !v);
+    setNeedsReplyOn(false);
+  };
+  // Hide-following: people she follows stay in the inbox by default;
+  // the eye-with-a-slash toggle hides every one of their rows. The
+  // choice is kept in this browser, so it holds while she uses the app
+  // (and across visits).
+  const [hideFollowing, setHideFollowing] = useState(() => {
+    try {
+      return window.localStorage.getItem(HIDE_FOLLOWING_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        HIDE_FOLLOWING_KEY,
+        hideFollowing ? "1" : "0",
+      );
+    } catch {
+      // Storage unavailable: the toggle still works for this session.
+    }
+  }, [hideFollowing]);
+  const queryClient = useQueryClient();
 
-  const filtered = useMemo(
+  const markReadMutation = useMutation({
+    mutationFn: async (id) => await api.dm_markreadinbuild({ id }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["items"] }),
+  });
+  const sectionMutation = useMutation({
+    mutationFn: async (args) => await api.dm_setchatsection(args),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["items"] }),
+  });
+
+  const handleOpen = (item) => {
+    onSelect(item.id);
+    if (!item.build_read_at) markReadMutation.mutate(item.id);
+    if (item.kind === "dm") setChatOpen(true);
+  };
+  const handleMove = (item, section) =>
+    sectionMutation.mutate({ id: item.id, section });
+
+  const baseFiltered = useMemo(
     () =>
       items.filter((i) => {
         if (kindFilter !== "all" && i.kind !== kindFilter) return false;
+        if (hideFollowing && i.following) return false;
         const q = search.trim().toLowerCase();
         if (!q) return true;
         return (
@@ -738,17 +1344,44 @@ function PracticeView({
           i.incoming_text.toLowerCase().includes(q)
         );
       }),
-    [items, kindFilter, search],
+    [items, kindFilter, search, hideFollowing],
   );
 
+  const mailView = needsReplyOn || repliedOn;
+  const lists = useMemo(() => {
+    const sorted = [...baseFiltered].sort((a, b) => lastActivityMs(b) - lastActivityMs(a));
+    if (mailView) {
+      return { main: sorted.filter(needsReplyOn ? awaitingReply : repliedTo), general: [], requests: [], spam: [] };
+    }
+    const part = (name) => sorted.filter((i) => inboxPartOf(i) === name);
+    return { main: part("main"), general: part("general"), requests: part("requests"), spam: part("spam") };
+  }, [baseFiltered, mailView, needsReplyOn]);
+  const mainList = lists.main;
+  const generalList = lists.general;
+  // Comments by post (Big Edit #23): every comment under a post, whatever the toggles, so none is hidden.
+  const posts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return postsOf(
+      items.filter(
+        (i) => i.kind === "comment" && (!q || handleOf(i).toLowerCase().includes(q) || i.incoming_text.toLowerCase().includes(q) || (i.context_text ?? "").toLowerCase().includes(q)),
+      ),
+    );
+  }, [items, search]);
+  const shownPost = openPost ? (postsOf(items.filter((i) => i.kind === "comment")).find((p) => p.key === openPost) ?? null) : null;
+
+  const allVisible = [...mainList, ...generalList, ...lists.requests, ...lists.spam];
+  // The open chat stays open when it leaves the list she's on: her reply moves it out of Needs Reply.
   const selected =
-    filtered.find((i) => i.id === selectedId) ??
-    filtered.find((i) => i.verdict === "pending") ??
-    filtered[0];
+    items.find((i) => i.id === selectedId) ??
+    mainList.find((i) => i.verdict === "pending" && i.needs_reply) ??
+    mainList[0] ??
+    allVisible[0];
 
   const nextPending = selected
-    ? (filtered.find((i) => i.verdict === "pending" && i.id !== selected.id) ??
-      null)
+    ? (mainList.find(
+        (i) =>
+          i.verdict === "pending" && i.needs_reply && i.id !== selected.id,
+      ) ?? null)
     : null;
 
   if (items.length === 0) {
@@ -756,16 +1389,16 @@ function PracticeView({
       <section className="px-4 py-10 sm:px-0">
         <h1 className="text-3xl font-bold leading-tight">Chats</h1>
         <p className="mt-3 text-base leading-relaxed text-[var(--dim)]">
-          This is where Muse drafts replies to real DMs and comments for you to
-          review, one by one. Nothing reaches Instagram until you tap Publish on
-          an answer you approved. Your revision of each draft is saved as the
-          source of truth for retraining.
+          This is where Muse drafts replies to real DMs and comments for you
+          to review, one by one. Nothing reaches Instagram until you tap
+          Publish on an answer you approved. Your revision of each draft is
+          saved as the source of truth for retraining.
         </p>
         <p className="mt-3 text-base leading-relaxed text-[var(--dim)]">
-          Add a message that is still waiting for a reply and Muse will draft an
-          answer in your voice. For a true blind test, add a thread you already
-          answered as a blind holdout: what you really said stays sealed until
-          your revision is saved.
+          Add a message that is still waiting for a reply and Muse will draft
+          an answer in your voice. For a true blind test, add a thread you
+          already answered as a blind holdout: what you really said stays
+          sealed until your revision is saved.
         </p>
         <div className="mt-6 flex flex-wrap gap-2">
           <button
@@ -794,6 +1427,10 @@ function PracticeView({
     );
   }
 
+  if (shownPost && kindFilter === "comment") {
+    return <PostView key={shownPost.key} post={shownPost} onBack={() => setOpenPost(null)} />;
+  }
+
   if (chatOpen && selected && selected.kind === "dm") {
     return (
       <ChatView
@@ -801,7 +1438,9 @@ function PracticeView({
         item={selected}
         onBack={() => setChatOpen(false)}
         onNext={
-          nextPending ? () => onSelect(nextPending.id) : () => onSelect(null)
+          nextPending
+            ? () => onSelect(nextPending.id)
+            : () => onSelect(null)
         }
         hasNext={nextPending != null}
         onGoTraining={onGoTraining}
@@ -832,9 +1471,7 @@ function PracticeView({
         >
           <span
             aria-hidden="true"
-            className={
-              isRefreshing ? "inline-block animate-spin" : "inline-block"
-            }
+            className={isRefreshing ? "inline-block animate-spin" : "inline-block"}
           >
             ↻
           </span>
@@ -884,11 +1521,13 @@ function PracticeView({
         role="group"
         aria-label="Filter queue"
       >
-        {[
-          { id: "all", label: "All" },
-          { id: "dm", label: "DMs" },
-          { id: "comment", label: "Comments" },
-        ].map((f) => (
+        {(
+          [
+            { id: "all", label: "All" },
+            { id: "dm", label: "DMs" },
+            { id: "comment", label: "Comments" },
+          ]
+        ).map((f) => (
           <button
             key={f.id}
             type="button"
@@ -910,90 +1549,138 @@ function PracticeView({
         ))}
       </div>
 
+      {kindFilter !== "comment" && (
+        <div className="mt-3 grid grid-cols-3 gap-1.5 px-3 sm:px-0" role="group" aria-label="Show">
+          <ToggleChip
+            on={needsReplyOn}
+            onClick={toggleNeedsReply}
+            label="Needs Reply"
+            ariaLabel="Needs Reply: show only chats waiting for your reply"
+          />
+          <ToggleChip
+            on={repliedOn}
+            onClick={toggleReplied}
+            label="Replied"
+            ariaLabel="Replied: show only chats you replied to"
+          />
+          <ToggleChip
+            on={hideFollowing}
+            onClick={() => setHideFollowing((v) => !v)}
+            label={hideFollowing ? "Following hidden" : "Hide following"}
+            ariaLabel={hideFollowing ? "Show people you follow" : "Hide following: hide people you follow"}
+            icon={hideFollowing ? <IconEye size={17} /> : <IconEyeOff size={17} />}
+          />
+        </div>
+      )}
+
+      {kindFilter === "comment" ? (
+        posts.length > 0 ? (
+          <>
+            <ul className="mt-3 grid grid-cols-3 gap-1 px-1 sm:px-0" aria-label="Posts with comments">
+              {posts.map((post) => (
+                <li key={post.key}>
+                  <PostSquare post={post} onOpen={setOpenPost} />
+                </li>
+              ))}
+            </ul>
+            <p className="px-4 pt-2 pb-1 text-xs text-[var(--dim)] sm:px-0">
+              {posts.length} {posts.length === 1 ? "post" : "posts"} with comments · tap one to see every comment under it
+            </p>
+          </>
+        ) : (
+          <p className="py-10 text-center text-sm text-[var(--dim)]">
+            {search.trim() ? "Nothing matches that search." : "No comments here yet."}
+          </p>
+        )
+      ) : (
+        <>
       <ul className="mt-2">
-        {filtered.map((item) => {
-          const handle = handleOf(item);
-          const profile = profileOf(handle);
-          const isSelected =
-            selected?.id === item.id && item.kind === "comment";
-          const unread = item.verdict === "pending";
-          const statusText =
-            item.publish_status === "published"
-              ? "Published ✓"
-              : item.publish_status === "publishing"
-                ? "Publishing…"
-                : item.publish_status === "publish_failed"
-                  ? "Publish failed"
-                  : item.verdict === "pending"
-                    ? item.draft_text
-                      ? "Draft ready"
-                      : item.draft_wanted
-                        ? "Muse is drafting"
-                        : "Waiting"
-                    : verdictLabel(item.verdict);
-          return (
-            <li key={item.id}>
-              <button
-                type="button"
-                onClick={() => {
-                  onSelect(item.id);
-                  if (item.kind === "dm") setChatOpen(true);
-                }}
-                aria-current={isSelected ? "true" : undefined}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-left active:bg-[var(--surface)]"
-                style={
-                  isSelected ? { background: "var(--surface)" } : undefined
-                }
-              >
-                <Avatar handle={handle} size={52} ring={unread} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5">
-                    <span
-                      className="truncate text-base"
-                      style={{ fontWeight: unread ? 700 : 500 }}
-                    >
-                      {handle || "Unknown"}
-                    </span>
-                    {profile.verified && <VerifiedBadge size={13} />}
-                    <span className="ml-auto shrink-0 text-xs text-[var(--dim)]">
-                      · {shortTime(item.created_at)}
-                    </span>
-                  </span>
-                  <span
-                    className="mt-0.5 block truncate text-sm"
-                    style={{
-                      color: unread ? "var(--text)" : "var(--dim)",
-                      fontWeight: unread ? 600 : 400,
-                    }}
-                  >
-                    {item.incoming_text}
-                  </span>
-                  <span className="mt-0.5 flex items-center gap-2 text-xs text-[var(--dim)]">
-                    <span>
-                      {item.kind === "dm" ? "DM" : "Comment"} · {statusText}
-                    </span>
-                    <SimLabel label={item.label} />
-                  </span>
-                </span>
-                {unread && (
-                  <span
-                    aria-hidden="true"
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ background: "var(--accent)" }}
-                  />
-                )}
-              </button>
-            </li>
-          );
-        })}
+        {mainList.map((item) => (
+          <InboxRow
+            key={item.id}
+            item={item}
+            isSelected={selected?.id === item.id && item.kind === "comment"}
+            onOpen={handleOpen}
+            onMove={handleMove}
+            showFolder={mailView}
+          />
+        ))}
       </ul>
-      {filtered.length === 0 && (
+      {mainList.length > 0 && (
+        <p className="px-4 pt-2 pb-1 text-xs text-[var(--dim)] sm:px-0">
+          {mainList.length} {mainList.length === 1 ? "chat" : "chats"}
+          {search.trim()
+            ? ` matching “${search.trim()}”`
+            : needsReplyOn
+              ? mainList.length === 1 ? " needs your reply" : " need your reply"
+              : repliedOn
+                ? " you replied to"
+                : kindFilter !== "all"
+                  ? ` in this filter`
+                  : " in the inbox"}
+          {hideFollowing ? " · people you follow are hidden" : ""}
+          {mailView ? "" : " · swipe a chat left to move it to General"}
+        </p>
+      )}
+      {mainList.length === 0 && (
         <p className="py-10 text-center text-sm text-[var(--dim)]">
-          Nothing matches that search.
+          {search.trim()
+            ? "Nothing matches that search."
+            : needsReplyOn
+              ? "Every chat has your reply. Nothing is waiting right now."
+              : repliedOn
+                ? "No replies here yet."
+                : "Nothing in this view right now."}
         </p>
       )}
 
-      {selected && selected.kind === "comment" ? (
+      {generalList.length > 0 && (
+        <>
+          <h2 className="mt-6 px-4 text-sm font-semibold tracking-wide text-[var(--dim)] sm:px-0">
+            General · {generalList.length}
+          </h2>
+          <p className="px-4 pt-0.5 text-xs text-[var(--dim)] sm:px-0">
+            Chats you move here come back to the inbox when they DM again.
+            Chats Instagram keeps in General stay. Swipe left to move one back now.
+          </p>
+          <ul className="mt-2">
+            {generalList.map((item) => (
+              <InboxRow
+                key={item.id}
+                item={item}
+                isSelected={
+                  selected?.id === item.id && item.kind === "comment"
+                }
+                onOpen={handleOpen}
+                onMove={handleMove}
+              />
+            ))}
+          </ul>
+        </>
+      )}
+
+      {[
+        { list: lists.requests, title: "Requests", note: "Message requests, the way Instagram keeps them apart." },
+        { list: lists.spam, title: "Spam", note: "Hidden requests Instagram filed as spam." },
+      ].map((part) =>
+        part.list.length > 0 ? (
+          <div key={part.title}>
+            <h2 className="mt-6 px-4 text-sm font-semibold tracking-wide text-[var(--dim)] sm:px-0">
+              {part.title} · {part.list.length}
+            </h2>
+            <p className="px-4 pt-0.5 text-xs text-[var(--dim)] sm:px-0">{part.note}</p>
+            <ul className="mt-2">
+              {part.list.map((item) => (
+                <InboxRow key={item.id} item={item} isSelected={false} onOpen={handleOpen} onMove={handleMove} />
+              ))}
+            </ul>
+          </div>
+        ) : null,
+      )}
+        </>
+      )}
+
+      {kindFilter !== "comment" && selected && selected.kind === "comment" ? (
         <div className="px-4 sm:px-0">
           <ItemCard
             key={selected.id}
@@ -1007,7 +1694,7 @@ function PracticeView({
             onGoTraining={onGoTraining}
           />
         </div>
-      ) : selected && selected.kind === "dm" ? (
+      ) : kindFilter !== "comment" && selected && selected.kind === "dm" ? (
         <p className="px-4 py-6 text-center text-sm text-[var(--dim)] sm:px-0">
           Tap the chat above to open it like an Instagram DM.
         </p>
@@ -1017,11 +1704,563 @@ function PracticeView({
 }
 
 // ---------------------------------------------------------------------------
+// Comments by post (Big Edit #23). The Comments filter shows a square for each post with comments. Tapping one flies
+// the post in with a back button: its video or a preview of it, then every comment under it, replied ones too, in
+// groups with a separator (Big Edit #14.1): people she follows, then people who follow her, then everyone else.
+// Reply asks her Muse for a draft at once; tapping the draft edits it, and the edit is kept. Refresh opens a box for
+// direction, and with the box left empty her Muse redrafts on its own.
+// ---------------------------------------------------------------------------
+
+/** Comments grouped by the post they sit under, newest activity first. Comments with no post on file share one. */
+function postsOf(comments) {
+  const map = new Map();
+  for (const c of comments) {
+    const key = c.media_id || "none";
+    const post = map.get(key) ?? {
+      key,
+      mediaId: c.media_id ?? null,
+      preview: null,
+      permalink: null,
+      caption: null,
+      comments: [],
+      waiting: 0,
+      latest: 0,
+    };
+    post.preview = post.preview || c.media_preview_url || null;
+    post.permalink = post.permalink || c.media_permalink || null;
+    post.caption = post.caption || c.context_text || null;
+    post.comments.push(c);
+    if (awaitingReply(c)) post.waiting += 1;
+    post.latest = Math.max(post.latest, lastActivityMs(c));
+    map.set(key, post);
+  }
+  return [...map.values()].sort((a, b) => b.latest - a.latest);
+}
+
+/** Big Edit #14.1: people she follows, then people who follow her, then everyone else, so no comment is left out. */
+const COMMENT_GROUPS = [
+  { id: "following", label: "People you follow", test: (c) => c.following },
+  { id: "followers", label: "People who follow you", test: (c) => !c.following && c.follows_her === true },
+  { id: "others", label: "Everyone else", test: (c) => !c.following && c.follows_her !== true },
+];
+
+function PostSquare({ post, onOpen }) {
+  const [failed, setFailed] = useState(false);
+  const count = post.comments.length;
+  const words = `${count} ${count === 1 ? "comment" : "comments"}${post.waiting ? `, ${post.waiting} waiting for your reply` : ""}`;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(post.key)}
+      aria-label={post.mediaId ? `Post with ${words}` : `Comments with no post on file: ${words}`}
+      className="relative block aspect-square w-full overflow-hidden rounded-md bg-[var(--surface-alt)]"
+    >
+      {post.preview && !failed ? (
+        <img
+          src={post.preview}
+          alt=""
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <span className="flex h-full w-full flex-col items-center justify-center gap-1 px-2 text-center text-[var(--dim)]">
+          <IconReels size={26} />
+          {post.caption && (
+            <span className="line-clamp-2 text-[11px] leading-tight">{post.caption}</span>
+          )}
+        </span>
+      )}
+      <span className="absolute bottom-1.5 left-1.5 flex items-center gap-1 rounded-full bg-black/65 px-1.5 py-px text-[11px] font-semibold text-white">
+        <IconComment size={12} />
+        {count}
+      </span>
+      {post.waiting > 0 && (
+        <span
+          className="absolute top-1.5 right-1.5 min-w-5 rounded-full px-1.5 text-center text-[11px] leading-5 font-bold text-white"
+          style={{ background: "var(--accent)" }}
+        >
+          {post.waiting}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function PostEmbed({ url }) {
+  return (
+    <iframe
+      src={url}
+      title="The post, shown through Instagram's embed"
+      loading="lazy"
+      scrolling="no"
+      allow="encrypted-media; picture-in-picture; web-share"
+      className="block w-full rounded-2xl border-0 bg-white"
+      style={{ height: 560 }}
+    />
+  );
+}
+
+function PostView({ post, onBack }) {
+  const [playing, setPlaying] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [captionOpen, setCaptionOpen] = useState(false);
+  const embed = igEmbedUrl(post.permalink);
+  const sorted = [...post.comments].sort((a, b) => lastActivityMs(b) - lastActivityMs(a));
+  const count = post.comments.length;
+  return (
+    <section className="dm-fly-in fixed inset-0 z-40 overflow-y-auto bg-[var(--bg)]" aria-label="A post and its comments">
+      <div className="mx-auto w-full max-w-2xl pb-[6.5rem]">
+        <div className="sticky top-0 z-10 flex items-center gap-2 bg-[var(--bg)] px-3 py-2">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back to posts"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--surface-alt)]"
+          >
+            <IconBack size={22} />
+          </button>
+          <h1 className="min-w-0 flex-1 truncate text-base font-bold">
+            {count} {count === 1 ? "comment" : "comments"}
+            {post.waiting > 0 && (
+              <span className="font-normal text-[var(--dim)]"> · {post.waiting} waiting</span>
+            )}
+          </h1>
+          {post.permalink && (
+            <a
+              href={post.permalink}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Open on Instagram"
+              title="Open on Instagram"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--surface-alt)]"
+            >
+              <IconLink size={20} />
+            </a>
+          )}
+        </div>
+
+        <div className="px-4 sm:px-0">
+          {playing && embed ? (
+            <PostEmbed url={embed} />
+          ) : post.preview && !failed ? (
+            <div className="relative overflow-hidden rounded-2xl bg-[var(--surface-alt)]">
+              <img
+                src={post.preview}
+                alt={post.caption ?? "The post"}
+                onError={() => setFailed(true)}
+                className="mx-auto max-h-[60vh] w-full object-contain"
+              />
+              {embed && (
+                <button
+                  type="button"
+                  onClick={() => setPlaying(true)}
+                  aria-label="Play the post here"
+                  className="absolute inset-0 flex items-center justify-center"
+                >
+                  <span className="flex h-14 w-14 items-center justify-center rounded-full bg-black/55 text-white">
+                    <IconPlay size={26} />
+                  </span>
+                </button>
+              )}
+            </div>
+          ) : embed ? (
+            <PostEmbed url={embed} />
+          ) : (
+            <div
+              className="flex flex-col items-center justify-center gap-1.5 rounded-2xl bg-[var(--surface)] px-4 py-8 text-center text-[var(--dim)]"
+              style={{ border: "1px dashed var(--border)" }}
+            >
+              <IconReels size={28} />
+              <p className="text-sm">
+                {post.mediaId
+                  ? "No preview of this post is on file yet."
+                  : "These comments came in with no post on file."}
+              </p>
+            </div>
+          )}
+          {post.caption && (
+            <button
+              type="button"
+              onClick={() => setCaptionOpen((v) => !v)}
+              aria-expanded={captionOpen}
+              className={`mt-3 block w-full text-left text-sm leading-relaxed whitespace-pre-line ${captionOpen ? "" : "line-clamp-3"}`}
+            >
+              {post.caption}
+            </button>
+          )}
+        </div>
+
+        {COMMENT_GROUPS.map((g) => {
+          const list = sorted.filter(g.test);
+          if (list.length === 0) return null;
+          return (
+            <div key={g.id} className="mt-5">
+              <div className="flex items-center gap-3 px-4 sm:px-0" role="separator" aria-label={`${g.label}, ${list.length}`}>
+                <span aria-hidden="true" className="h-px flex-1 bg-[var(--border)]" />
+                <span aria-hidden="true" className="text-xs font-semibold tracking-wide text-[var(--dim)] uppercase">
+                  {g.label} · {list.length}
+                </span>
+                <span aria-hidden="true" className="h-px flex-1 bg-[var(--border)]" />
+              </div>
+              <ul className="mt-1">
+                {list.map((c) => (
+                  <CommentRow key={c.id} item={c} />
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/** One comment and her side of it: her sent reply (each line editable on Instagram), her reply on Instagram, her draft
+ *  (tap to edit, kept), Muse drafting, or Reply. */
+function CommentRow({ item }) {
+  const queryClient = useQueryClient();
+  const handle = handleOf(item);
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["items"] });
+  const kept = Array.isArray(item.work_lines) ? item.work_lines.map((l) => l.text).join("\n") : null;
+  const draft = kept ?? item.draft_text ?? "";
+  const published = item.publish_status === "published";
+  const sending = item.publish_status === "publishing";
+  const sentLines = published ? (item.published_text ?? "").split("\n").filter((l) => l.trim() !== "") : [];
+  const latest = latestMeaningfulMessage(item);
+  const repliedOnInstagram = !published && !sending && (item.source === "holdout" || latest?.from === "me");
+  const instagramReply = repliedOnInstagram && latest?.from === "me" ? latest.text : null;
+
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState("");
+  const [askOpen, setAskOpen] = useState(false);
+  const [direction, setDirection] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [sentEdit, setSentEdit] = useState(null);
+  const [error, setError] = useState("");
+
+  const draftMutation = useMutation({
+    mutationFn: async (args) =>
+      await api.dm_generatedraft({ id: item.id, mode: item.draft_mode === "deterrence" ? "deterrence" : "listening", ...args }),
+    onSuccess: () => {
+      setError("");
+      setAskOpen(false);
+      setDirection("");
+      invalidate();
+    },
+    onError: (e) => setError(e.message),
+  });
+  const keepMutation = useMutation({
+    mutationFn: async (next) =>
+      await api.dm_savework({
+        id: item.id,
+        lines: next.split("\n").map((l) => l.trim()).filter(Boolean).map((t) => ({ text: t, approved: true })),
+      }),
+    onSuccess: () => {
+      setError("");
+      setEditing(false);
+      invalidate();
+    },
+    onError: (e) => setError(e.message),
+  });
+  const sendMutation = useMutation({
+    mutationFn: async () =>
+      await api.dm_publishitem({
+        id: item.id,
+        revision_text: draft,
+        verdict: item.draft_text && draft.trim() === item.draft_text.trim() ? "approved" : "edited",
+      }),
+    onSuccess: () => {
+      setError("");
+      setConfirming(false);
+      invalidate();
+    },
+    onError: (e) => setError(e.message),
+  });
+  const editSentMutation = useMutation({
+    mutationFn: async (args) => await api.dm_editpublished({ id: item.id, line_index: args.index, text: args.text }),
+    onSuccess: () => {
+      setError("");
+      setSentEdit(null);
+      invalidate();
+    },
+    onError: (e) => setError(e.message),
+  });
+  const drafting = draftMutation.isPending || item.draft_wanted;
+  const buttonClass = "rounded-full px-3.5 py-1.5 text-sm font-semibold disabled:opacity-60";
+  const quietButton = { background: "var(--surface)", border: "1px solid var(--border)" };
+
+  return (
+    <li className="px-4 py-3 sm:px-0">
+      <div className="flex items-start gap-2.5">
+        <Avatar handle={handle} size={34} />
+        <div className="min-w-0 flex-1">
+          <p className="flex flex-wrap items-center gap-1.5 text-sm">
+            <span className="font-semibold">{handle || "Unknown"}</span>
+            {item.following && <FollowingBadge />}
+            <span className="text-xs text-[var(--dim)]">{shortTime(lastActivityIso(item))}</span>
+          </p>
+          <p className="mt-0.5 text-[15px] leading-snug whitespace-pre-line">
+            {item.incoming_text || "Their words aren't on file."}
+          </p>
+
+          {sentLines.length > 0 ? (
+            <div className="mt-2">
+              <p className="text-xs font-semibold text-[var(--sage)]">Your reply</p>
+              {sentLines.map((line, idx) =>
+                sentEdit?.index === idx ? (
+                  <div key={`edit-${idx}`} className="mt-1">
+                    <label htmlFor={`sent-edit-${item.id}-${idx}`} className="sr-only">
+                      Edit this sent line
+                    </label>
+                    <textarea
+                      id={`sent-edit-${item.id}-${idx}`}
+                      {...FIELDS.dm_editpublished.text}
+                      value={sentEdit.text}
+                      onChange={(e) => setSentEdit({ index: idx, text: e.target.value })}
+                      rows={2}
+                      className="w-full resize-none rounded-xl bg-[var(--surface-alt)] px-3 py-2 text-[15px] outline-none"
+                    />
+                    <p className="pt-1 text-xs text-[var(--dim)]">This one already went out, so the edit goes to Instagram too.</p>
+                    <div className="mt-1.5 flex gap-2">
+                      <button
+                        type="button"
+                        disabled={!sentEdit.text.trim() || editSentMutation.isPending}
+                        onClick={() => editSentMutation.mutate({ index: idx, text: sentEdit.text.trim() })}
+                        className={`${buttonClass} text-white`}
+                        style={{ background: "var(--accent)" }}
+                      >
+                        {editSentMutation.isPending ? "Saving…" : "Save edit"}
+                      </button>
+                      <button type="button" onClick={() => setSentEdit(null)} className={buttonClass} style={quietButton}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={`sent-${idx}`} className="mt-1 flex items-start gap-2">
+                    <p className="min-w-0 flex-1 rounded-[18px] px-3 py-2 text-[15px] leading-snug text-white" style={{ background: "var(--bubble-gradient)" }}>
+                      {line}
+                      {item.edited_at && item.edited_line_index === idx && (
+                        <span className="pl-1.5 text-xs text-white/75">Edited</span>
+                      )}
+                    </p>
+                    {item.edit_status !== "editing" && (
+                      <button
+                        type="button"
+                        onClick={() => setSentEdit({ index: idx, text: line })}
+                        aria-label={`Edit your sent reply: ${line}`}
+                        className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+                        style={quietButton}
+                      >
+                        <IconEdit size={15} />
+                      </button>
+                    )}
+                  </div>
+                ),
+              )}
+              {item.edit_status === "editing" && (
+                <p className="pt-1 text-xs text-[var(--dim)]">Sending your edit to Instagram…</p>
+              )}
+              {item.edit_status === "edit_failed" && (
+                <p className="pt-1 text-xs" style={{ color: "var(--danger)" }}>
+                  Your edit didn&apos;t go through, so this still shows what&apos;s on Instagram
+                  {item.edit_error ? `: ${item.edit_error}` : "."}
+                </p>
+              )}
+            </div>
+          ) : sending ? (
+            <p className="mt-2 text-sm text-[var(--dim)]">Sending your reply…</p>
+          ) : repliedOnInstagram ? (
+            <p className="mt-2 text-sm text-[var(--dim)]">
+              <span className="font-semibold text-[var(--sage)]">Replied on Instagram</span>
+              {instagramReply ? `: ${instagramReply}` : ""}
+            </p>
+          ) : editing ? (
+            <div className="mt-2">
+              <label htmlFor={`comment-reply-${item.id}`} className="sr-only">
+                Edit your reply
+              </label>
+              <textarea
+                id={`comment-reply-${item.id}`}
+                {...FIELDS.dm_savereview.revision_text}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={3}
+                autoFocus
+                className="w-full resize-none rounded-xl bg-[var(--surface-alt)] px-3 py-2 text-[15px] outline-none"
+              />
+              <div className="mt-1.5 flex gap-2">
+                <button
+                  type="button"
+                  disabled={!text.trim() || keepMutation.isPending}
+                  onClick={() => keepMutation.mutate(text)}
+                  className={`${buttonClass} text-white`}
+                  style={{ background: "var(--accent)" }}
+                >
+                  {keepMutation.isPending ? "Saving…" : "Save"}
+                </button>
+                <button type="button" onClick={() => setEditing(false)} className={buttonClass} style={quietButton}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : draft ? (
+            <div className="mt-2">
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={`Your draft reply: ${draft}. Tap to edit it`}
+                onClick={() => {
+                  setText(draft);
+                  setEditing(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setText(draft);
+                    setEditing(true);
+                  }
+                }}
+                className="rounded-[18px] px-3 py-2 text-[15px] leading-snug whitespace-pre-line text-white"
+                style={{
+                  background: "var(--bubble-gradient)",
+                  opacity: drafting ? 0.5 : 0.85,
+                  outline: "2px dashed rgba(255,255,255,0.85)",
+                  outlineOffset: 2,
+                }}
+              >
+                {draft}
+              </div>
+              <p className="pt-1.5 text-xs text-[var(--dim)]">
+                {drafting
+                  ? "Muse is redrafting this one…"
+                  : kept !== null
+                    ? "Your edit, kept. Tap it to edit again"
+                    : "Muse's draft. Tap it to edit"}
+              </p>
+              {item.publish_status === "publish_failed" && (
+                <p className="pt-1 text-xs" style={{ color: "var(--danger)" }}>
+                  That send didn&apos;t go through{item.publish_error ? `: ${item.publish_error}` : "."} Tap Send to try again.
+                </p>
+              )}
+              {confirming ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="text-sm">Send this to @{handle} on Instagram?</span>
+                  <button
+                    type="button"
+                    disabled={sendMutation.isPending}
+                    onClick={() => sendMutation.mutate()}
+                    className={`${buttonClass} text-white`}
+                    style={{ background: "var(--accent)" }}
+                  >
+                    {sendMutation.isPending ? "Sending…" : "Send"}
+                  </button>
+                  <button type="button" onClick={() => setConfirming(false)} className={buttonClass} style={quietButton}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {item.source !== "holdout" && item.needs_reply && (
+                    <button
+                      type="button"
+                      disabled={drafting}
+                      onClick={() => setConfirming(true)}
+                      className={`${buttonClass} flex items-center gap-1.5 text-white`}
+                      style={{ background: "var(--accent)" }}
+                    >
+                      <IconSend size={15} />
+                      Send
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={drafting}
+                    onClick={() => setAskOpen((v) => !v)}
+                    aria-expanded={askOpen}
+                    className={`${buttonClass} flex items-center gap-1.5`}
+                    style={quietButton}
+                  >
+                    <IconRefresh size={15} />
+                    Refresh
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : drafting ? (
+            <p className="mt-2 text-sm text-[var(--dim)]">Muse is drafting your reply…</p>
+          ) : !item.needs_reply ? (
+            <p className="mt-2 text-sm text-[var(--dim)]">No reply needed here.</p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => draftMutation.mutate({ variant: "fresh" })}
+              className={`${buttonClass} mt-2 flex items-center gap-1.5 text-white`}
+              style={{ background: "var(--accent)" }}
+            >
+              <IconReplyArrow size={15} />
+              Reply
+            </button>
+          )}
+
+          {askOpen && !drafting && (
+            <div className="mt-2 rounded-2xl bg-[var(--surface)] p-3" style={{ border: "1px solid var(--border)" }}>
+              <label htmlFor={`direction-${item.id}`} className="text-[13px] font-semibold text-[var(--dim)]">
+                Direction for the new draft (optional)
+              </label>
+              <textarea
+                id={`direction-${item.id}`}
+                name="direction"
+                maxLength={300}
+                value={direction}
+                onChange={(e) => setDirection(e.target.value)}
+                rows={2}
+                placeholder="Warmer, shorter, ask about their week…"
+                className="mt-1.5 w-full resize-none rounded-xl bg-[var(--surface-alt)] px-3 py-2 text-[15px] outline-none placeholder:text-[var(--dim)]"
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={draftMutation.isPending}
+                  onClick={() => draftMutation.mutate({ variant: "again", direction: direction.trim() })}
+                  className={`${buttonClass} text-white`}
+                  style={{ background: "var(--accent)" }}
+                >
+                  {direction.trim() ? "Redraft with this" : "Redraft on its own"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAskOpen(false);
+                    setDirection("");
+                  }}
+                  className={buttonClass}
+                  style={quietButton}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {error && (
+            <p className="mt-1.5 text-sm" style={{ color: "var(--danger)" }}>
+              {error}
+            </p>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Chat labels (Flag / Booked / Lead / Ordered / Paid / Shipped). Since 1.18.0
 // a label is saved with her account (dm_setlabel), so every device shows it.
 // ---------------------------------------------------------------------------
 
 const LABEL_KEY = "reply-sim-labels";
+const HIDE_FOLLOWING_KEY = "reply-sim-hide-following";
 // Before 1.18.0 labels were kept in each browser, by chat number, another account's under its handle (1.15.0). The page
 // moves what this browser kept up to her account once (dm_importlabels) and then lets the browser's copy go.
 const labelKey = () => { const s = currentSession(); return s.owner || !s.handle ? LABEL_KEY : `${LABEL_KEY}:${s.handle}`; };
@@ -1049,22 +2288,191 @@ function SimLabel({ label }) {
 
 // ---------------------------------------------------------------------------
 // ThreadMessageRow: one earlier message of the thread, rendered as what it
-// actually is: a text bubble on the correct side, a shared post/reel/story
-// card, a small centered reaction label, a voice note row, or a dashed
+// actually is, a text bubble on the correct side, a shared post/reel/story
+// card, a voice note row, or a dashed
 // placeholder for one of Instagram's generic/admin messages whose text is
 // not on file. Non-text messages are never dropped and never shown as an
-// empty bubble, so the visible count matches the real thread.
+// empty bubble, so the visible count matches the real thread. Reactions
+// are the one exception: they never render as a row at all, their emoji
+// rides under the message they react to (see reactionAttachments).
 // ---------------------------------------------------------------------------
 
-function ThreadMessageRow({ m, handle, fxBackground, reaction, pressProps }) {
+// A shared story, reel or post, shown as what it actually is. When the
+// import resolved the media (a story-archive image for a story, a post
+// lookup thumbnail for a reel/post), the card shows that real image,
+// never a substitute, with its caption where there is one, and tapping
+// opens the share link on Instagram. A story with no resolved image (or
+// whose image link has expired) shows an honest unavailable card instead
+// of an empty bubble.
+function ShareCard({
+  m,
+  handle,
+  mine,
+  hideText,
+  reaction,
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const label =
+    m.kind === "share_post"
+      ? "Post"
+      : m.kind === "share_reel"
+        ? "Reel"
+        : "Story";
+  const isStory = m.kind === "share_story";
+  const showImage = Boolean(m.media_url) && !imgFailed;
+  // A post/reel share with a working link but no image of its own shows
+  // the real post through Instagram's own embed, never a placeholder
+  // icon standing in for a picture that exists.
+  const embedUrl = !isStory && !showImage ? igEmbedUrl(m.url) : null;
+  const replyLabel = m.reply_to
+    ? mine
+      ? `You replied to a ${m.reply_to}`
+      : `Replied to your ${m.reply_to}`
+    : null;
+  const card = (
+    <div
+      className={`${embedUrl ? "w-[270px] max-w-[78vw]" : "w-48"} overflow-hidden rounded-[22px] bg-[var(--surface)]`}
+      style={{ border: "1px solid var(--border)" }}
+    >
+      {showImage ? (
+        <div className="relative">
+          <img
+            src={m.media_url ?? undefined}
+            alt={m.caption ?? `${label} shared in this chat`}
+            onError={() => setImgFailed(true)}
+            className={`w-full object-cover ${isStory ? "aspect-[3/4]" : "aspect-[4/5]"}`}
+            loading="lazy"
+          />
+          {!isStory && (
+            <span
+              aria-hidden="true"
+              className="absolute inset-0 flex items-center justify-center"
+            >
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/55 text-white">
+                <IconPlay size={22} />
+              </span>
+            </span>
+          )}
+          <span className="absolute top-2 left-2 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">
+            {label}
+          </span>
+        </div>
+      ) : embedUrl ? (
+        <iframe
+          src={embedUrl}
+          title={`${label} shared in this chat, shown through Instagram's embed${m.caption ? `: ${m.caption}` : ""}`}
+          loading="lazy"
+          scrolling="no"
+          allow="encrypted-media; picture-in-picture; web-share"
+          className="block w-full border-0 bg-white"
+          style={{ height: m.kind === "share_reel" ? 480 : 430 }}
+        />
+      ) : (
+        <div
+          className="flex flex-col items-center justify-center gap-1.5 px-3 py-5 text-center"
+          style={
+            isStory && !m.media_url
+              ? { borderBottom: "1px dashed var(--border)" }
+              : undefined
+          }
+        >
+          <span className="text-[var(--dim)]">
+            {m.kind === "share_post" ? (
+              <IconImage size={26} />
+            ) : m.kind === "share_reel" ? (
+              <IconReels size={26} />
+            ) : (
+              <IconPlay size={26} />
+            )}
+          </span>
+          <p className="text-[13px] leading-tight font-semibold">
+            {isStory ? "Story unavailable" : label}
+          </p>
+          {isStory && (
+            <p className="text-xs leading-tight text-[var(--dim)]">
+              Expired or couldn't be loaded
+            </p>
+          )}
+        </div>
+      )}
+      <div className="px-3 py-2">
+        {(showImage || embedUrl) && (
+          <p className="text-[13px] leading-tight font-semibold">{label}</p>
+        )}
+        <p className="text-xs leading-tight text-[var(--dim)]">
+          {mine ? "You shared this" : "Shared with you"}
+          {m.url ? " · Tap to open" : ""}
+        </p>
+        {m.caption && (
+          <p className="pt-1 text-[13px] leading-snug whitespace-pre-line">
+            {m.caption}
+          </p>
+        )}
+        {m.text && !hideText && (
+          <p className="pt-1 text-[13px] leading-snug whitespace-pre-line text-[var(--dim)]">
+            {m.text}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+  return (
+    <div className={`mb-1 flex flex-col ${mine ? "items-end" : "items-start"}`}>
+      {replyLabel && (
+        <p className={`pb-1 text-xs text-[var(--dim)] ${mine ? "pr-1" : "pl-10"}`}>
+          {replyLabel}
+        </p>
+      )}
+      <div className={`flex ${mine ? "justify-end" : "items-end gap-2"}`}>
+        {!mine && <Avatar handle={handle} size={28} />}
+        <div className="relative">
+          {m.url ? (
+            <a
+              href={m.url}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`${mine ? "You" : `@${handle}`} shared a ${label.toLowerCase()}${m.caption ? `: ${m.caption}` : ""}. Open on Instagram`}
+              className="block"
+            >
+              {card}
+            </a>
+          ) : (
+            <div
+              role="img"
+              aria-label={`${mine ? "You" : `@${handle}`} shared a ${label.toLowerCase()}${isStory && !showImage ? ". Story unavailable, expired or couldn't be loaded" : ""}`}
+            >
+              {card}
+            </div>
+          )}
+          {reaction && (
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-2.5 left-2 rounded-full bg-[var(--surface-alt)] px-1.5 py-px text-sm"
+              style={{ border: "2px solid var(--bg)" }}
+            >
+              {reaction}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ThreadMessageRow({
+  m,
+  handle,
+  fxBackground,
+  reaction,
+  pressProps,
+}) {
   const mine = m.from === "me";
 
   if (m.kind === "reaction") {
-    return (
-      <p className="mx-auto mb-2 w-fit max-w-[85%] rounded-full bg-[var(--surface)] px-3 py-1 text-center text-xs text-[var(--dim)]">
-        {mine ? "You" : `@${handle}`} reacted to a message
-      </p>
-    );
+    // A reaction never renders as a row or as generic text: its emoji
+    // is attached under the message it reacts to (the `reaction` prop
+    // of that message's row), or nowhere when no emoji is on file.
+    return null;
   }
 
   if (
@@ -1072,69 +2480,147 @@ function ThreadMessageRow({ m, handle, fxBackground, reaction, pressProps }) {
     m.kind === "share_reel" ||
     m.kind === "share_story"
   ) {
-    const label =
-      m.kind === "share_post"
-        ? "Post"
-        : m.kind === "share_reel"
-          ? "Reel"
-          : "Story";
-    const card = (
+    return (
+      <ShareCard m={m} handle={handle} mine={mine} reaction={reaction} />
+    );
+  }
+
+  if (m.kind === "text" && (!m.text || m.text.trim() === "")) {
+    // Defensive: a text message with no text is not a text message,
+    // it renders as a typed row, never as a blank bubble. (The server
+    // re-kinds these to generic on read and at import; this covers any
+    // payload that still slips through.)
+    return (
       <div
-        className="w-44 rounded-[22px] bg-[var(--surface)] p-2.5"
-        style={{ border: "1px solid var(--border)" }}
+        className={`mb-1 flex ${mine ? "justify-end" : "items-end gap-2"}`}
       >
-        <div className="flex h-20 items-center justify-center rounded-2xl bg-[var(--surface-alt)] text-[var(--dim)]">
-          {m.kind === "share_post" ? (
-            <IconImage size={26} />
-          ) : m.kind === "share_reel" ? (
-            <IconReels size={26} />
-          ) : (
-            <IconPlay size={26} />
+        {!mine && <Avatar handle={handle} size={28} />}
+        <div
+          role="img"
+          aria-label="A message whose text is not on file"
+          className="relative rounded-[22px] px-3.5 py-2.5 text-[15px] text-[var(--dim)] italic"
+          style={{ border: "1.5px dashed var(--border)" }}
+        >
+          Message
+          {reaction && (
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-2.5 left-2 rounded-full bg-[var(--surface-alt)] px-1.5 py-px text-sm not-italic"
+              style={{ border: "2px solid var(--bg)" }}
+            >
+              {reaction}
+            </span>
           )}
         </div>
-        <p className="px-1 pt-2 text-[13px] leading-tight font-semibold">
-          {label}
-        </p>
-        <p className="px-1 pb-0.5 text-xs leading-tight text-[var(--dim)]">
-          {mine ? "You shared this" : "Shared with you"}
-        </p>
       </div>
     );
+  }
+
+  if (m.kind === "call" || m.kind === "call_missed") {
+    // A call event, the way Instagram shows it: a pill with a phone
+    // icon in a circle, the call label ("Audio call ended", "Audio
+    // call", "You started an audio call"…) and the call's own time
+    // under it. A missed call gets Instagram's red/pink treatment,
+    // a bright pink circle with the missed-call phone.
+    const missed = m.kind === "call_missed";
+    const label = callLabelOf(m);
+    const timeLabel = m.at
+      ? new Date(m.at).toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : null;
     return (
-      <div className={`mb-1 flex ${mine ? "justify-end" : "items-end gap-2"}`}>
+      <div
+        className={`mb-1 flex ${mine ? "justify-end" : "items-end gap-2"}`}
+      >
         {!mine && <Avatar handle={handle} size={28} />}
-        {m.url ? (
-          <a
-            href={m.url}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={`${mine ? "You" : `@${handle}`} shared a ${label.toLowerCase()}. Open on Instagram`}
-            className="block"
+        <div
+          role="img"
+          aria-label={`${label}${timeLabel ? ` at ${timeLabel}` : ""}${mine ? ", your call" : `, call with ${handle}`}`}
+          className="relative flex items-center gap-3 rounded-[22px] bg-[var(--bubble-in)] px-4 py-3"
+        >
+          <span
+            aria-hidden="true"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white"
+            style={{
+              background: missed ? "var(--danger)" : "var(--surface-alt)",
+            }}
           >
-            {card}
-          </a>
-        ) : (
-          <div
-            role="img"
-            aria-label={`${mine ? "You" : `@${handle}`} shared a ${label.toLowerCase()}`}
-          >
-            {card}
-          </div>
-        )}
+            {missed ? <IconPhoneMissed size={20} /> : <IconPhone size={19} />}
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[15px] leading-tight font-semibold">
+              {label}
+            </span>
+            {timeLabel && (
+              <span className="mt-0.5 block text-[13px] leading-tight text-[var(--dim)]">
+                {timeLabel}
+              </span>
+            )}
+          </span>
+          {reaction && (
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-2.5 left-2 rounded-full bg-[var(--surface-alt)] px-1.5 py-px text-sm"
+              style={{ border: "2px solid var(--bg)" }}
+            >
+              {reaction}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (m.kind === "video") {
+    // Instagram shows a video message as a pill with a play mark and
+    // the word "Video", gradient on her side, grey on theirs.
+    return (
+      <div
+        className={`mb-1 flex ${mine ? "justify-end" : "items-end gap-2"}`}
+      >
+        {!mine && <Avatar handle={handle} size={28} />}
+        <div
+          role="img"
+          aria-label={
+            mine ? "Video you sent" : `Video from ${handle}`
+          }
+          className={`relative flex items-center gap-2 rounded-[22px] px-4 py-2.5 ${
+            mine ? "text-white" : "bg-[var(--bubble-in)]"
+          }`}
+          style={mine ? { background: fxBackground } : undefined}
+        >
+          <IconPlay size={15} />
+          <span className="text-[15px] font-medium">Video</span>
+          {reaction && (
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-2.5 left-2 rounded-full bg-[var(--surface-alt)] px-1.5 py-px text-sm"
+              style={{ border: "2px solid var(--bg)" }}
+            >
+              {reaction}
+            </span>
+          )}
+        </div>
       </div>
     );
   }
 
   if (m.kind === "voice") {
     return (
-      <div className={`mb-1 flex ${mine ? "justify-end" : "items-end gap-2"}`}>
+      <div
+        className={`mb-1 flex ${mine ? "justify-end" : "items-end gap-2"}`}
+      >
         {!mine && <Avatar handle={handle} size={28} />}
         <div
           role="img"
           aria-label={
-            mine ? "Voice message you sent" : `Voice message from ${handle}`
+            mine
+              ? "Voice message you sent"
+              : `Voice message from ${handle}`
           }
-          className={`flex items-center gap-2.5 rounded-[22px] px-3.5 py-2.5 ${
+          className={`relative flex items-center gap-2.5 rounded-[22px] px-3.5 py-2.5 ${
             mine ? "text-white" : "bg-[var(--bubble-in)]"
           }`}
           style={mine ? { background: fxBackground } : undefined}
@@ -1156,6 +2642,15 @@ function ThreadMessageRow({ m, handle, fxBackground, reaction, pressProps }) {
             ))}
           </span>
           <span className="text-[13px] whitespace-nowrap">Voice message</span>
+          {reaction && (
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-2.5 left-2 rounded-full bg-[var(--surface-alt)] px-1.5 py-px text-sm"
+              style={{ border: "2px solid var(--bg)" }}
+            >
+              {reaction}
+            </span>
+          )}
         </div>
       </div>
     );
@@ -1163,7 +2658,9 @@ function ThreadMessageRow({ m, handle, fxBackground, reaction, pressProps }) {
 
   if (m.kind === "generic" || m.kind === "admin") {
     return (
-      <div className={`mb-1 flex ${mine ? "justify-end" : "items-end gap-2"}`}>
+      <div
+        className={`mb-1 flex ${mine ? "justify-end" : "items-end gap-2"}`}
+      >
         {!mine && <Avatar handle={handle} size={28} />}
         <div
           role="img"
@@ -1172,10 +2669,19 @@ function ThreadMessageRow({ m, handle, fxBackground, reaction, pressProps }) {
               ? "A generic message from Instagram. Its text is not on file"
               : "An admin message from Instagram. Its text is not on file"
           }
-          className="rounded-[22px] px-3.5 py-2.5 text-[15px] text-[var(--dim)] italic"
+          className="relative rounded-[22px] px-3.5 py-2.5 text-[15px] text-[var(--dim)] italic"
           style={{ border: "1.5px dashed var(--border)" }}
         >
           {m.kind === "generic" ? "Generic message" : "Admin message"}
+          {reaction && (
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-2.5 left-2 rounded-full bg-[var(--surface-alt)] px-1.5 py-px text-sm not-italic"
+              style={{ border: "2px solid var(--bg)" }}
+            >
+              {reaction}
+            </span>
+          )}
         </div>
       </div>
     );
@@ -1245,6 +2751,28 @@ function ThreadMessageRow({ m, handle, fxBackground, reaction, pressProps }) {
 // Delete. The "Advanced" section under SEND holds the old review tools:
 // Muse's draft card, feedback, verdict, Save Review, holdout reveal,
 // remove. Nothing in Advanced sends.
+//
+// When the window reaches past the incoming message, her sent reply is
+// in it, with their later activity after it, that activity is shown the
+// way Instagram shows it: a reaction on her sent message sits attached
+// under her bubble, and their first activity after it (a reply, or that
+// reaction) becomes the "Seen … ago" receipt under her bubble, timed by
+// the activity's own timestamp. A post/reel share with no image of its
+// own renders through Instagram's embed, so the real post shows. A sent
+// bubble can be edited by holding it down: the edit goes through the
+// same agent handoff as a send, and the bubble only changes, wearing
+// "Edited" with the time, once the edit is confirmed on Instagram; a
+// failed edit keeps the original text and says so.
+//
+// Voice staleness: every draft is stamped with the voice-profile version
+// it was generated under. Opening a chat asks the server (openThread) to
+// refresh a PENDING thread's draft once when its stamp is older than the
+// current voice; approved, edited and published drafts are never
+// auto-refreshed, they wear a "Voice changed since this draft" note and
+// an explicit "Regenerate with current voice" button in Advanced. The
+// inbox only shows the marker; listing never generates. A story reply
+// whose words were never captured at import shows a "wasn't captured"
+// note instead of the "replied to your story" placeholder as a bubble.
 // ---------------------------------------------------------------------------
 
 const BUBBLE_FX = {
@@ -1268,11 +2796,58 @@ function nextLineId() {
   return `line-${lineSeq}`;
 }
 
-function splitLines(text, stage) {
+function splitLines(text, stage, sent) {
   return text
     .split("\n")
     .filter((l) => l.trim() !== "")
-    .map((t) => ({ id: nextLineId(), text: t, stage }));
+    .map((t) => ({
+      id: nextLineId(),
+      text: t,
+      stage,
+      ...(sent ? { sent: true } : {}),
+    }));
+}
+
+/** Draft texts a send left behind. Once leftovers are tracked they are
+ *  stored as such; for chats published before that, they are what
+ *  remains of the draft once the sent lines are taken out of it. */
+function leftoverDraftText(item) {
+  if (item.leftover_text != null) return item.leftover_text;
+  const remaining = (item.draft_text ?? "")
+    .split("\n")
+    .filter((l) => l.trim() !== "");
+  const sentLines = (item.published_text ?? "")
+    .split("\n")
+    .filter((l) => l.trim() !== "");
+  for (const s of sentLines) {
+    const idx = remaining.indexOf(s);
+    if (idx >= 0) remaining.splice(idx, 1);
+  }
+  return remaining.join("\n");
+}
+
+/** The lines she was working on, kept with the chat (Big Edit #24), or null when she hasn't touched them since the
+ *  last draft or send. */
+function keptLines(item) {
+  if (!Array.isArray(item.work_lines)) return null;
+  return item.work_lines.map((l) => ({ id: nextLineId(), text: l.text, stage: l.approved ? 2 : 1 }));
+}
+
+/** The chat's outgoing lines: for a published chat, the sent lines
+ *  first (locked, in order, their indexes are the published indexes
+ *  the edit flow uses), then any unsent drafts, still stage 1. */
+function buildLines(item, published) {
+  const kept = keptLines(item);
+  if (published && item.published_text) {
+    return [
+      ...splitLines(item.published_text, 2, true),
+      ...(kept ?? splitLines(leftoverDraftText(item), 1)),
+    ];
+  }
+  if (kept) return kept;
+  if (item.verdict !== "pending")
+    return splitLines(item.revision_text ?? item.draft_text ?? "", 2);
+  return splitLines(item.draft_text ?? item.revision_text ?? "", 1);
 }
 
 const SKIP_SEND_CONFIRM_KEY = "reply-sim-skip-send-confirm";
@@ -1285,34 +2860,50 @@ function readSkipSendConfirm() {
   }
 }
 
-function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
+function ChatView({
+  item,
+  onBack,
+  onNext,
+  hasNext,
+  onGoTraining,
+}) {
   const queryClient = useQueryClient();
   const handle = handleOf(item);
   const profile = profileOf(handle);
 
   const published = item.publish_status === "published";
   const publishing = item.publish_status === "publishing";
-  const locked = published || publishing;
+  // (A published chat is not locked anymore: unsent leftover drafts in
+  //  it stay tappable, editable and sendable, only the sent lines are.)
 
   const [screen, setScreen] = useState("chat");
   const [sheet, setSheet] = useState(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [lines, setLines] = useState(() => {
-    if (published && item.published_text)
-      return splitLines(item.published_text, 2);
-    if (item.verdict !== "pending")
-      return splitLines(item.revision_text ?? item.draft_text ?? "", 2);
-    return splitLines(item.draft_text ?? item.revision_text ?? "", 1);
-  });
+  const [lines, setLines] = useState(() =>
+    buildLines(item, published),
+  );
+  // Big Edit #24: her edits are kept. Each change she makes to her unsent lines (an edit, an approval, a removed or an
+  // added text) is saved with the chat, so it's still there when she comes back. A new draft or a send replaces them.
+  const [workDirty, setWorkDirty] = useState(false);
+  const unsentWork = (list) => list.filter((l) => !l.sent).map((l) => ({ text: l.text, approved: l.stage === 2 }));
+  const workRef = useRef({ dirty: false, lines });
+  workRef.current = { dirty: workDirty, lines };
   const [composer, setComposer] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState("");
+  // Editing a line that already went out: the index into the published
+  // lines being edited through the Instagram handoff, or null.
+  const [pubEditIdx, setPubEditIdx] = useState(null);
+  const [pubEditError, setPubEditError] = useState("");
   const [feedback, setFeedback] = useState(item.feedback ?? "");
   const [verdictChoice, setVerdictChoice] = useState(
     item.verdict === "pending" ? null : item.verdict,
   );
   const [saveError, setSaveError] = useState("");
   const [draftError, setDraftError] = useState("");
+  // Set when opening this chat refreshed its stale pending draft in the
+  // current voice (the server reports it through openThread).
+  const [voiceRefreshed, setVoiceRefreshed] = useState(false);
   const [sendError, setSendError] = useState("");
   const [saved, setSaved] = useState(item.verdict !== "pending");
   const [copiedWhich, setCopiedWhich] = useState(null);
@@ -1344,30 +2935,80 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["items"] });
 
+  // Opening a chat marks it read in the build (the subtle Read mark in
+  // the inbox). It never touches the Instagram read state.
+  const markReadMutation = useMutation({
+    mutationFn: async () => await api.dm_markreadinbuild({ id: item.id }),
+    onSuccess: () => invalidate(),
+  });
+  const markReadFired = useRef(false);
+  useEffect(() => {
+    if (!item.build_read_at && !markReadFired.current) {
+      markReadFired.current = true;
+      markReadMutation.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+
+  // Opening a chat is the one place a stale draft refreshes. The server
+  // regenerates a PENDING thread's draft once when its voice stamp is
+  // older than the current voice profile, and returns approved, edited
+  // and published threads untouched. The inbox never does this, listing
+  // chats costs no generation at all.
+  const openQuery = useQuery({
+    queryKey: ["open-thread", item.id],
+    queryFn: () => api.dm_openthread({ id: item.id }),
+    enabled: item.kind === "dm",
+    staleTime: Infinity,
+    retry: false,
+  });
+  useEffect(() => {
+    const opened = openQuery.data;
+    if (!opened) return;
+    // A space with a model redrafts at once; here her Muse is asked, and the old draft shows until the new one lands.
+    if (opened.regenerated) {
+      setVoiceRefreshed(true);
+      invalidate();
+    } else if (opened.wanted && !item.draft_wanted) invalidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openQuery.data]);
+  // This draft predates the current voice and will not be auto-refreshed:
+  // it is reviewed or already sent, so it only changes if she taps
+  // "Regenerate with current voice" in Advanced.
+  const showVoiceMarker =
+    item.voice_stale &&
+    Boolean(item.draft_text) &&
+    (item.verdict !== "pending" || published);
+  const voiceRefreshWorking =
+    item.kind === "dm" &&
+    item.verdict === "pending" &&
+    item.publish_status === "unpublished" &&
+    item.needs_reply &&
+    Boolean(item.draft_text) &&
+    item.voice_stale &&
+    (openQuery.isFetching || item.draft_wanted);
+
+  const sectionMutation = useMutation({
+    mutationFn: async (section) =>
+      await api.dm_setchatsection({ id: item.id, section }),
+    onSuccess: (_data, section) => {
+      invalidate();
+      showToast(
+        section === "general"
+          ? "Moved to General. It comes back when they DM again"
+          : "Back in the main inbox",
+      );
+      onBack();
+    },
+    onError: (error) => showToast(error.message),
+  });
+
   const showToast = (msg) => {
     setToast(msg);
     window.setTimeout(() => setToast(null), 2400);
   };
 
-  // Opening the chat (1.14.0, Quill #725, Rose #770): a pending draft written
-  // under an older version of her voice is drafted again, once, in her voice
-  // as it is now. Here her Muse is asked; a space with a model redrafts at
-  // once. Approved, edited and published drafts are only marked.
-  useEffect(() => {
-    let live = true;
-    api
-      .dm_openthread({ id: item.id })
-      .then((r) => {
-        if (live && (r.regenerated || (r.wanted && !item.draft_wanted)))
-          invalidate();
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // A regenerated draft replaces the stage-1 lines wholesale. She has not
+  // A regenerated draft replaces the stage-1 lines wholesale, she has not
   // touched the new draft yet, so nothing of hers is lost.
   useEffect(() => {
     if (item.draft_text !== draftSeenRef.current) {
@@ -1379,12 +3020,14 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
     }
   }, [item.draft_text, item.verdict, published, publishing]);
 
-  // When a publish lands, the thread settles on exactly what was sent.
+  // When a publish lands, the thread settles on exactly what was sent,
+  // plus whatever drafts the send left behind, still stage 1.
   useEffect(() => {
     if (published && item.published_text) {
-      setLines(splitLines(item.published_text, 2));
+      setLines(buildLines(item, true));
       setEditingId(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [published, item.published_text]);
 
   // Keep the newest messages in view when a line is added.
@@ -1424,6 +3067,33 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
     return () => window.clearTimeout(id);
   }, [advancedOpen]);
 
+  const keepMutation = useMutation({
+    mutationFn: async (next) => await api.dm_savework({ id: item.id, lines: next }),
+    onSuccess: () => invalidate(),
+    onError: (error) => showToast(`Couldn't keep that edit: ${error.message}`),
+  });
+  useEffect(() => {
+    if (!workDirty) return undefined;
+    const t = window.setTimeout(() => {
+      setWorkDirty(false);
+      keepMutation.mutate(unsentWork(lines));
+    }, 500);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines, workDirty]);
+  // Leaving the chat right after a change still keeps it.
+  useEffect(
+    () => () => {
+      if (!workRef.current.dirty) return;
+      api
+        .dm_savework({ id: item.id, lines: unsentWork(workRef.current.lines) })
+        .then(() => queryClient.invalidateQueries({ queryKey: ["items"] }))
+        .catch(() => {});
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const draftMutation = useMutation({
     mutationFn: async (variant) =>
       await api.dm_generatedraft({ id: item.id, mode: "dm", variant }),
@@ -1435,9 +3105,7 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
   });
   // With no model on the server, Muse writes the draft: it waits until Muse hands it back.
   const drafting = draftMutation.isPending || item.draft_wanted;
-  const draftLabel = draftMutation.isPending
-    ? "Drafting…"
-    : "Waiting for Muse…";
+  const draftLabel = draftMutation.isPending ? "Drafting…" : "Waiting for Muse…";
 
   const joinedLines = lines.map((l) => l.text).join("\n");
   const allApproved = lines.length > 0 && lines.every((l) => l.stage === 2);
@@ -1464,13 +3132,14 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
   });
 
   const publishMutation = useMutation({
-    mutationFn: async (text) =>
+    mutationFn: async (args) =>
       await api.dm_publishitem({
         id: item.id,
-        revision_text: text,
+        revision_text: args.text,
+        remaining_text: args.remaining,
         feedback: feedback.trim(),
         verdict:
-          item.draft_text && text === item.draft_text.trim()
+          item.draft_text && args.text === item.draft_text.trim()
             ? "approved"
             : "edited",
       }),
@@ -1480,6 +3149,20 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
       invalidate();
     },
     onError: (error) => setSendError(error.message),
+  });
+
+  const editPublishedMutation = useMutation({
+    mutationFn: async (args) =>
+      await api.dm_editpublished({
+        id: item.id,
+        line_index: args.line_index,
+        text: args.text,
+      }),
+    onSuccess: () => {
+      setPubEditError("");
+      invalidate();
+    },
+    onError: (error) => setPubEditError(error.message),
   });
 
   const revealMutation = useMutation({
@@ -1534,26 +3217,30 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
 
   // ---- Stage flow -------------------------------------------------------
 
-  const approvedLines = lines.filter((l) => l.stage === 2);
+  const approvedLines = lines.filter((l) => l.stage === 2 && !l.sent);
   const approvedText = approvedLines.map((l) => l.text).join("\n");
 
   const toggleStage = (id) => {
-    if (locked) return;
+    if (publishing) return;
     setLines((prev) =>
       prev.map((l) =>
-        l.id === id ? { ...l, stage: l.stage === 1 ? 2 : 1 } : l,
+        l.id === id && !l.sent
+          ? { ...l, stage: l.stage === 1 ? 2 : 1 }
+          : l,
       ),
     );
     setSaved(false);
+    setWorkDirty(true);
   };
 
   const deleteLine = (id) => {
-    setLines((prev) => prev.filter((l) => l.id !== id));
+    setLines((prev) => prev.filter((l) => l.id !== id || l.sent));
     if (editingId === id) {
       setEditingId(null);
       setEditText("");
     }
     setSaved(false);
+    setWorkDirty(true);
   };
 
   const startEdit = (line) => {
@@ -1568,9 +3255,12 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
     if (editingId && text) {
       // Pressing enter locks the edited text into stage 2.
       setLines((prev) =>
-        prev.map((l) => (l.id === editingId ? { ...l, text, stage: 2 } : l)),
+        prev.map((l) =>
+          l.id === editingId ? { ...l, text, stage: 2 } : l,
+        ),
       );
       setSaved(false);
+      setWorkDirty(true);
     }
     setEditingId(null);
     setEditText("");
@@ -1581,6 +3271,35 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
     setEditText("");
   };
 
+  // Editing a line that already went out goes through the publish
+  // handoff: the composer loads the sent text, Enter hands the new text
+  // to her agent to apply on Instagram, and the bubble only changes once
+  // that is confirmed (see confirmEdit on the server).
+  const startPublishedEdit = (index) => {
+    const line = lines[index];
+    if (!line) return;
+    setPubEditIdx(index);
+    setEditText(line.text);
+    setPubEditError("");
+    setPressMsg(null);
+    window.setTimeout(() => composerRef.current?.focus(), 60);
+  };
+
+  const confirmPublishedEdit = () => {
+    const text = editText.trim();
+    if (pubEditIdx !== null && text) {
+      editPublishedMutation.mutate({ line_index: pubEditIdx, text });
+    }
+    setPubEditIdx(null);
+    setEditText("");
+  };
+
+  const cancelPublishedEdit = () => {
+    setPubEditIdx(null);
+    setEditText("");
+    setPubEditError("");
+  };
+
   const addComposed = () => {
     const parts = composer
       .split("\n")
@@ -1589,20 +3308,27 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
     if (parts.length === 0) return;
     setLines((prev) => [
       ...prev,
-      ...parts.map((text) => ({ id: nextLineId(), text, stage: 1 })),
+      ...parts.map((text) => ({ id: nextLineId(), text, stage: 1  })),
     ]);
     setComposer("");
     setSaved(false);
+    setWorkDirty(true);
   };
 
   const doSend = () => {
-    if (approvedLines.length === 0 || locked) return;
+    if (approvedLines.length === 0 || publishing) return;
     setSendError("");
-    publishMutation.mutate(approvedText);
+    // Only the approved texts go out. The drafts left at stage 1 are
+    // handed over as the leftovers, so they stay in the chat as drafts.
+    const remaining = lines
+      .filter((l) => !l.sent && l.stage === 1)
+      .map((l) => l.text)
+      .join("\n");
+    publishMutation.mutate({ text: approvedText, remaining });
   };
 
   const handleSendTap = () => {
-    if (approvedLines.length === 0 || locked) return;
+    if (approvedLines.length === 0 || publishing) return;
     if (readSkipSendConfirm()) {
       doSend();
       return;
@@ -1685,6 +3411,7 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
             }}
             onSaveNickname={(n) => setNickname(n)}
             onToast={showToast}
+            onMoveSection={(section) => sectionMutation.mutate(section)}
           />
         </div>
         {toastEl}
@@ -1707,37 +3434,89 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
   }
 
   const fxStyle = BUBBLE_FX[fx] ?? BUBBLE_FX.gradient;
-  // The thread's last 10 messages, oldest first. The window ends with the
-  // incoming message itself (for this sender, its last two texts together
-  // are the incoming message). Those trailing texts already render as the
-  // incoming bubble below, so the context is everything before them.
+  // The thread's last 10 messages, oldest first (the server returns them
+  // chronologically). The window is read in three parts: the context
+  // before the incoming message; the incoming message itself, one or
+  // more of their texts, or a story/reel/post share carrying the text
+  // (that share renders as its card above the incoming bubble); and
+  // anything after it, her sent reply and their later activity, which
+  // drive the reaction on her bubble and the Seen receipt.
   const threadWindow = item.thread_messages.slice(-10);
-  let incomingCount = 0;
+  const isShareKind = (k) =>
+    k === "share_post" || k === "share_reel" || k === "share_story";
+  let anchor = -1;
   for (let i = threadWindow.length - 1; i >= 0; i--) {
     const m = threadWindow[i];
     if (
       m &&
       m.from === "them" &&
-      m.kind === "text" &&
+      m.kind !== "call" &&
+      m.kind !== "call_missed" &&
       m.text &&
       item.incoming_text.includes(m.text)
     ) {
-      incomingCount++;
-    } else {
+      anchor = i;
       break;
     }
   }
-  const threadContext = threadWindow.slice(
-    0,
-    threadWindow.length - incomingCount,
-  );
+  let incomingStart = anchor;
+  if (anchor >= 0 && threadWindow[anchor]?.kind === "text") {
+    while (incomingStart > 0) {
+      const p = threadWindow[incomingStart - 1];
+      if (
+        p &&
+        p.from === "them" &&
+        p.kind === "text" &&
+        p.text &&
+        item.incoming_text.includes(p.text)
+      ) {
+        incomingStart--;
+      } else {
+        break;
+      }
+    }
+  }
+  let threadContext;
+  let incomingMsgs;
+  let afterMsgs;
+  if (anchor >= 0) {
+    threadContext = threadWindow.slice(0, incomingStart);
+    incomingMsgs = threadWindow.slice(incomingStart, anchor + 1);
+    afterMsgs = threadWindow.slice(anchor + 1);
+  } else {
+    // No text match (the incoming message is a bare share, or its text
+    // is not on file): fall back to trailing-text detection.
+    let incomingCount = 0;
+    for (let i = threadWindow.length - 1; i >= 0; i--) {
+      const m = threadWindow[i];
+      if (
+        m &&
+        m.from === "them" &&
+        m.kind === "text" &&
+        m.text &&
+        item.incoming_text.includes(m.text)
+      ) {
+        incomingCount++;
+      } else {
+        break;
+      }
+    }
+    threadContext = threadWindow.slice(
+      0,
+      threadWindow.length - incomingCount,
+    );
+    incomingMsgs = threadWindow.slice(threadWindow.length - incomingCount);
+    afterMsgs = [];
+  }
+  const incomingShare = incomingMsgs.find((m) => isShareKind(m.kind)) ?? null;
   const incomingAt =
-    incomingCount > 0
-      ? (threadWindow[threadWindow.length - 1]?.at ?? null)
+    incomingMsgs.length > 0
+      ? (incomingMsgs[incomingMsgs.length - 1]?.at ?? null)
       : null;
   const hasThreadTimes = threadWindow.some((m) => m.at);
   // Date separators, IG-style: one before the first message of each new
   // day, across the context messages and the incoming message.
+
 
   const threadEntries = [];
   {
@@ -1751,22 +3530,146 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
         });
       }
       if (m.at) prevAt = m.at;
-      threadEntries.push({ type: "msg", key: `ctx-${i}`, m });
+      threadEntries.push({ type: "msg", key: `ctx-${i}`, m, wIdx: i });
     });
   }
   const lastContextAt =
     [...threadContext].reverse().find((m) => m.at)?.at ?? null;
   const incomingSepLabel =
-    incomingAt && (!lastContextAt || !sameLocalDay(lastContextAt, incomingAt))
+    incomingAt &&
+    (!lastContextAt || !sameLocalDay(lastContextAt, incomingAt))
       ? igDateSeparator(incomingAt)
       : null;
+  // Her sent reply inside the window, and their first activity after it.
+  // That activity is the only honest read signal there is: a reply or a
+  // reaction/like proves they saw her message, and its own timestamp is
+  // when, the Seen receipt is derived from it, never invented. A
+  // reaction that is that first activity also belongs on her bubble, the
+  // way Instagram shows it, not as a floating label.
+  const publishedLineTexts =
+    published && item.published_text
+      ? item.published_text.split("\n").filter((l) => l.trim() !== "")
+      : [];
+  const sentMsg =
+    afterMsgs.find(
+      (m) =>
+        m.from === "me" &&
+        m.kind === "text" &&
+        m.text !== null &&
+        publishedLineTexts.includes(m.text),
+    ) ?? null;
+  const sentAtMs = sentMsg?.at
+    ? Date.parse(sentMsg.at)
+    : item.published_at
+      ? Date.parse(item.published_at)
+      : NaN;
+  let seenAt = null;
+  if (published && !Number.isNaN(sentAtMs)) {
+    const first = afterMsgs.find(
+      (m) => m.from === "them" && m.at && Date.parse(m.at) > sentAtMs,
+    );
+    if (first) {
+      seenAt = first.at;
+    }
+  }
+  // Reactions paired with the messages they sit on, across the whole
+  // window (chronological pairing, see reactionAttachments). A stored
+  // reaction renders only as its emoji under its message; a reaction
+  // with no emoji on file renders nothing, and no reaction ever renders
+  // as generic text.
+  const attachments = reactionAttachments(threadWindow);
+  const storedFor = (wIdx) => {
+    const e = attachments.get(wIdx);
+    return e && e.length > 0 ? e.join(" ") : undefined;
+  };
+  const combineReaction = (
+    stored,
+    local,
+  ) =>
+    [stored, local].filter(Boolean).join(" ") || undefined;
+  // Window indices of her sent lines inside the window, in order, they
+  // correspond one-to-one to the sent bubbles rendered below, so a
+  // reaction paired with a sent window message lands under that bubble.
+  const sentWindowIdx = [];
+  afterMsgs.forEach((m, ai) => {
+    if (
+      m.from === "me" &&
+      m.kind === "text" &&
+      m.text !== null &&
+      publishedLineTexts.includes(m.text)
+    ) {
+      sentWindowIdx.push(
+        anchor >= 0
+          ? anchor + 1 + ai
+          : threadWindow.length - afterMsgs.length + ai,
+      );
+    }
+  });
+  const sentLineReaction = (lineIdx) => {
+    const wIdx = sentWindowIdx[lineIdx];
+    if (wIdx === undefined) return null;
+    return storedFor(wIdx) ?? null;
+  };
+  // Reactions paired with any of the incoming messages land under the
+  // incoming bubble (or its share card).
+  const incomingStored = (() => {
+    if (anchor < 0) return undefined;
+    const parts = [];
+    for (let w = incomingStart; w <= anchor; w++) {
+      const e = attachments.get(w);
+      if (e) parts.push(...e);
+    }
+    return parts.length > 0 ? parts.join(" ") : undefined;
+  })();
+  // No incoming bubble at all when there is no real message from them:
+  // the stored incoming text is a diagnostic or a reaction placeholder,
+  // or, for a no-reply history chat, the window holds no message from
+  // them for the bubble to be.
+  const hideIncomingBubble =
+    item.incoming_text.trim() === "" ||
+    isNonMessageText(item.incoming_text) ||
+    (!item.needs_reply &&
+      anchor < 0 &&
+      incomingMsgs.length === 0 &&
+      threadWindow.length > 0);
+  // Window entries after the incoming message that still render as rows:
+  // everything except her sent lines (the bubbles below are those) and
+  // reactions (they ride under their messages instead).
+  const afterRowList = afterMsgs
+    .map((m, ai) => ({
+      m,
+      wIdx:
+        anchor >= 0
+          ? anchor + 1 + ai
+          : threadWindow.length - afterMsgs.length + ai,
+    }))
+    .filter(({ m }) => {
+      if (m.kind === "reaction") return false;
+      if (
+        m.from === "me" &&
+        m.kind === "text" &&
+        m.text !== null &&
+        publishedLineTexts.includes(m.text)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  const sentCount = lines.filter((l) => l.sent).length;
+  const unsentCount = lines.length - sentCount;
+  const pressLine = pressMsg?.lineId
+    ? lines.find((l) => l.id === pressMsg.lineId)
+    : undefined;
   const canSend =
-    item.source !== "holdout" && !locked && approvedLines.length > 0;
+    item.source !== "holdout" &&
+    item.needs_reply &&
+    !publishing &&
+    approvedLines.length > 0;
 
   return (
     <section className="fixed inset-0 z-40 bg-[var(--bg)]">
       <div className="mx-auto flex h-full w-full max-w-2xl flex-col">
-        {/* Chat header: the person's @handle tops the conversation, and
+        {/* Chat header, the person's @handle tops the conversation, and
             tapping it opens their real Instagram profile. */}
         <div className="flex items-center gap-2 px-3 py-2">
           <button
@@ -1797,6 +3700,12 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
                 {nickname || `@${handle}`}
               </span>
               {profile.verified && <VerifiedBadge size={14} />}
+              {item.following && <FollowingBadge />}
+              {isReadNotReplied(item) && (
+                <span className="shrink-0">
+                  <ReadChip />
+                </span>
+              )}
             </span>
             <span className="block truncate text-[13px] text-[var(--dim)]">
               Business chat
@@ -1829,7 +3738,7 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
           </div>
         )}
 
-        {/* Messages: the only scrollable part of the chat */}
+        {/* Messages, the only scrollable part of the chat */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 pt-2 pb-3">
           {item.context_text && (
             <div className="mx-auto mb-3 max-w-[85%] rounded-2xl bg-[var(--surface)] px-3.5 py-2.5 text-[13px] leading-relaxed text-[var(--dim)]">
@@ -1837,9 +3746,9 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
             </div>
           )}
 
-          {!hasThreadTimes && (
+          {!hasThreadTimes && item.last_activity_at && (
             <p className="py-3 text-center text-xs font-medium tracking-wide text-[var(--dim)]">
-              {igDateSeparator(item.created_at)}
+              {igDateSeparator(item.last_activity_at)}
             </p>
           )}
 
@@ -1862,7 +3771,10 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
                 m={entry.m}
                 handle={handle}
                 fxBackground={fxStyle?.background}
-                reaction={reactions[entry.key]}
+                reaction={combineReaction(
+                  storedFor(entry.wIdx),
+                  reactions[entry.key],
+                )}
                 pressProps={
                   entry.m.kind === "text" && entry.m.text
                     ? pressHandlers({
@@ -1882,41 +3794,82 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
             </p>
           )}
 
-          {item.story_reply_not_captured ? (
-            <p className="mx-auto mt-4 max-w-[85%] rounded-xl bg-[var(--gold-soft)] px-3 py-2 text-center text-[13px] text-[var(--gold)]">
-              They replied to your story. The words of that reply weren&apos;t
-              captured when this chat was imported, so there is no message text
-              to show here.
-            </p>
-          ) : (
-            <div className="mt-2 flex items-end gap-2">
-              <Avatar handle={handle} size={28} />
-              <div className="relative max-w-[78%]">
-                <div
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Message from ${handle}. Long-press for options.`}
-                  {...pressHandlers({
-                    key: "in",
-                    text: item.incoming_text,
-                    mine: false,
-                  })}
-                  className="whitespace-pre-line rounded-[22px] bg-[var(--bubble-in)] px-3.5 py-2.5 text-base leading-snug select-none"
-                >
-                  {item.incoming_text}
-                </div>
-                {reactions["in"] && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute -bottom-2.5 left-2 rounded-full bg-[var(--surface-alt)] px-1.5 py-px text-sm"
-                    style={{ border: "2px solid var(--bg)" }}
-                  >
-                    {reactions["in"]}
-                  </span>
-                )}
-              </div>
-            </div>
+          {/* The incoming message answered a story/reel/post: the share
+              itself shows as its card, with the text as the bubble below
+              it, the way Instagram shows a story reply. */}
+          {incomingShare && (
+            <ShareCard
+              m={incomingShare}
+              handle={handle}
+              mine={false}
+              hideText
+              reaction={storedFor(
+                incomingStart + incomingMsgs.indexOf(incomingShare),
+              )}
+            />
           )}
+
+          {item.story_reply_not_captured ? (
+            <p className="mx-auto mt-2 max-w-[85%] rounded-xl bg-[var(--gold-soft)] px-3 py-2 text-center text-[13px] leading-relaxed text-[var(--gold)]">
+              They replied to your story. The words of that reply weren&apos;t
+              captured when this chat was imported, so there is no message
+              text to show here.
+            </p>
+          ) : hideIncomingBubble ? null : (
+          <div className="mt-2 flex items-end gap-2">
+            <Avatar handle={handle} size={28} />
+            <div className="relative max-w-[78%]">
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={`Message from ${handle}. Long-press for options.`}
+                {...pressHandlers({
+                  key: "in",
+                  text: item.incoming_text,
+                  mine: false,
+                })}
+                className="whitespace-pre-line rounded-[22px] bg-[var(--bubble-in)] px-3.5 py-2.5 text-base leading-snug select-none"
+              >
+                {item.incoming_text}
+              </div>
+              {combineReaction(incomingStored, reactions["in"]) && (
+                <span
+                  aria-hidden="true"
+                  className="absolute -bottom-2.5 left-2 rounded-full bg-[var(--surface-alt)] px-1.5 py-px text-sm"
+                  style={{ border: "2px solid var(--bg)" }}
+                >
+                  {combineReaction(incomingStored, reactions["in"])}
+                </span>
+              )}
+            </div>
+          </div>
+          )}
+
+          {/* Later window entries that are not part of her sent reply,
+              e.g. a message she sent on Instagram itself after this one,
+              or a further message from them. Her sent lines and their
+              reaction on them render with the bubbles below instead. */}
+          {afterRowList.map(({ m, wIdx }, i) => (
+            <ThreadMessageRow
+              key={`after-${i}`}
+              m={m}
+              handle={handle}
+              fxBackground={fxStyle?.background}
+              reaction={combineReaction(
+                storedFor(wIdx),
+                reactions[`after-${i}`],
+              )}
+              pressProps={
+                m.kind === "text" && m.text
+                  ? pressHandlers({
+                      key: `after-${i}`,
+                      text: m.text,
+                      mine: m.from === "me",
+                    })
+                  : undefined
+              }
+            />
+          ))}
 
           {item.has_actual && !revealedActual && (
             <p className="mx-auto mt-4 max-w-[85%] rounded-xl bg-[var(--gold-soft)] px-3 py-2 text-center text-[13px] text-[var(--gold)]">
@@ -1925,9 +3878,21 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
             </p>
           )}
 
-          {item.voice_stale && item.verdict !== "pending" && (
-            <p className="mx-auto mt-4 max-w-[85%] rounded-xl bg-[var(--gold-soft)] px-3 py-2 text-center text-[13px] text-[var(--gold)]">
-              Voice changed since this draft
+          {voiceRefreshWorking && (
+            <p className="mx-auto mt-4 max-w-[85%] text-center text-[13px] text-[var(--dim)]">
+              This draft predates your current voice. It&apos;s being redrafted…
+            </p>
+          )}
+          {voiceRefreshed && !voiceRefreshWorking && (
+            <p className="mx-auto mt-4 max-w-[85%] text-center text-[13px] text-[var(--dim)]">
+              This draft was refreshed in your current voice when you
+              opened the chat.
+            </p>
+          )}
+          {showVoiceMarker && (
+            <p className="mx-auto mt-4 max-w-[85%] rounded-xl bg-[var(--gold-soft)] px-3 py-2 text-center text-[13px] leading-relaxed text-[var(--gold)]">
+              Voice changed since this draft. It stays exactly as
+              written unless you regenerate it in Advanced.
             </p>
           )}
 
@@ -1935,98 +3900,168 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
             <div className="mt-5">
               <p className="pr-1 pb-1.5 text-right text-[13px] text-[var(--dim)]">
                 {published
-                  ? "You sent"
+                  ? unsentCount > 0
+                    ? "You sent. The dashed ones below haven't gone out yet"
+                    : "You sent"
                   : publishing
                     ? "Sending…"
                     : "Your reply. Tap a draft to approve it"}
               </p>
               <div className="flex flex-col items-end gap-1.5">
-                {lines.map((line) => {
+                {lines.map((line, idx) => {
                   const key = `out-${line.id}`;
-                  const isDraft = line.stage === 1 && !locked;
+                  const isDraft = line.stage === 1 && !line.sent;
+                  const lineReaction = line.sent
+                    ? sentLineReaction(idx)
+                    : null;
+                  const editPendingHere =
+                    published &&
+                    item.edit_status === "editing" &&
+                    item.pending_edit_line === idx;
+                  const editFailedHere =
+                    published &&
+                    item.edit_status === "edit_failed" &&
+                    item.pending_edit_line === idx;
+                  const editedHere =
+                    published &&
+                    item.edited_line_index === idx &&
+                    Boolean(item.edited_at);
                   return (
                     <div
                       key={line.id}
-                      className="flex max-w-[85%] items-center gap-1.5"
+                      className="flex max-w-[85%] flex-col items-end"
                     >
-                      {line.stage === 2 && !published && (
-                        <span
-                          aria-hidden="true"
-                          style={{ color: "var(--sage)" }}
-                        >
-                          <IconCheck size={14} />
-                        </span>
-                      )}
-                      <div className="relative">
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          aria-label={
-                            published
-                              ? "Sent reply. Long-press for options."
-                              : isDraft
-                                ? `Draft reply: ${line.text}. Tap to approve. Long-press for options.`
-                                : `Approved reply: ${line.text}. Tap to move back to draft. Long-press for options.`
-                          }
-                          onClick={() => toggleStage(line.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              toggleStage(line.id);
-                            }
-                          }}
-                          {...pressHandlers({
-                            key,
-                            text: line.text,
-                            mine: true,
-                            lineId: line.id,
-                            stage: line.stage,
-                          })}
-                          className="whitespace-pre-line rounded-[22px] px-3.5 py-2.5 text-base leading-snug text-white select-none"
-                          style={{
-                            background: fxStyle?.background,
-                            opacity: isDraft ? 0.75 : 1,
-                            outline: isDraft
-                              ? "2px dashed rgba(255,255,255,0.85)"
-                              : "none",
-                            outlineOffset: isDraft ? 2 : 0,
-                          }}
-                        >
-                          {line.text}
-                        </div>
-                        {reactions[key] && (
+                      <div className="flex items-center gap-1.5">
+                        {line.stage === 2 && !line.sent && (
                           <span
                             aria-hidden="true"
-                            className="absolute -bottom-2.5 right-2 rounded-full bg-[var(--surface-alt)] px-1.5 py-px text-sm"
-                            style={{ border: "2px solid var(--bg)" }}
+                            style={{ color: "var(--sage)" }}
                           >
-                            {reactions[key]}
+                            <IconCheck size={14} />
                           </span>
                         )}
+                        <div className="relative">
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            aria-label={
+                              line.sent
+                                ? `Sent reply: ${line.text}. Long-press for options, including Edit.`
+                                : isDraft
+                                  ? `Draft reply: ${line.text}. Tap to approve. Long-press for options.`
+                                  : `Approved reply: ${line.text}. Tap to move back to draft. Long-press for options.`
+                            }
+                            onClick={() => toggleStage(line.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                toggleStage(line.id);
+                              }
+                            }}
+                            {...pressHandlers({
+                              key,
+                              text: line.text,
+                              mine: true,
+                              lineId: line.id,
+                              stage: line.stage,
+                            })}
+                            className="whitespace-pre-line rounded-[22px] px-3.5 py-2.5 text-base leading-snug text-white select-none"
+                            style={{
+                              background: fxStyle?.background,
+                              opacity: isDraft ? 0.75 : 1,
+                              outline: isDraft
+                                ? "2px dashed rgba(255,255,255,0.85)"
+                                : "none",
+                              outlineOffset: isDraft ? 2 : 0,
+                            }}
+                          >
+                            {line.text}
+                          </div>
+                          {reactions[key] && (
+                            <span
+                              aria-hidden="true"
+                              className="absolute -bottom-2.5 right-2 rounded-full bg-[var(--surface-alt)] px-1.5 py-px text-sm"
+                              style={{ border: "2px solid var(--bg)" }}
+                            >
+                              {reactions[key]}
+                            </span>
+                          )}
+                          {/* Their real reaction on this sent message,
+                              attached under the bubble the way Instagram
+                              shows it. */}
+                          {lineReaction && (
+                            <span
+                              role="img"
+                              aria-label={`${handle} reacted ${lineReaction} to your sent message`}
+                              className="absolute -bottom-2.5 left-2 rounded-full bg-[var(--surface-alt)] px-1.5 py-px text-sm"
+                              style={{ border: "2px solid var(--bg)" }}
+                            >
+                              {lineReaction}
+                            </span>
+                          )}
+                        </div>
                       </div>
+                      {editPendingHere && (
+                        <p className="pr-1 pt-1.5 text-right text-xs text-[var(--dim)]">
+                          Sending this edit to Instagram…
+                        </p>
+                      )}
+                      {editFailedHere && (
+                        <p
+                          className="max-w-full pr-1 pt-1.5 text-right text-xs"
+                          style={{ color: "var(--danger)" }}
+                        >
+                          Edit didn&apos;t go through. This still shows what&apos;s
+                          on Instagram
+                          {item.edit_error ? `: ${item.edit_error}` : ""}
+                        </p>
+                      )}
+                      {editedHere && !editPendingHere && (
+                        <p className="pr-1 pt-1.5 text-right text-xs text-[var(--dim)]">
+                          Edited
+                          {item.edited_at
+                            ? ` · ${new Date(item.edited_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+                            : ""}
+                        </p>
+                      )}
                     </div>
                   );
                 })}
               </div>
               <p className="pr-1 pt-2 text-right text-xs text-[var(--dim)]">
                 {published
-                  ? `Published ✓${item.published_at ? ` · ${new Date(item.published_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}`
+                  ? [
+                      seenAt
+                        ? seenLabel(seenAt)
+                        : `Published ✓${item.published_at ? ` · ${new Date(item.published_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}`,
+                      unsentCount > 0
+                        ? `${unsentCount} draft${unsentCount === 1 ? "" : "s"} not sent yet`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
                   : publishing
                     ? "Publishing… your approved texts are on their way"
                     : item.publish_status === "publish_failed"
                       ? "The last send did not go through. Your approved texts are still here, tap Send to retry"
                       : approvedLines.length > 0
-                        ? `${approvedLines.length} approved · ${lines.length - approvedLines.length} still draft${lines.length - approvedLines.length === 1 ? "" : "s"}`
+                        ? `${approvedLines.length} approved · ${unsentCount - approvedLines.length} still draft${unsentCount - approvedLines.length === 1 ? "" : "s"}`
                         : "Drafts wear a dashed outline. Tap one to approve it"}
               </p>
             </div>
-          ) : (
-            !published && (
-              <p className="mx-auto mt-6 max-w-[85%] text-center text-sm leading-relaxed text-[var(--dim)]">
-                No draft yet. Type your own reply below (it starts as a draft)
-                or open Advanced and Muse will draft one in your voice.
-              </p>
-            )
+          ) : !published && item.needs_reply ? (
+            <p className="mx-auto mt-6 max-w-[85%] text-center text-sm leading-relaxed text-[var(--dim)]">
+              No draft yet. Type your own reply below (it starts as a
+              draft) or open Advanced and Muse will draft one in your
+              voice.
+            </p>
+          ) : null}
+
+          {!item.needs_reply && (
+            <p className="mx-auto mt-6 max-w-[85%] text-center text-sm leading-relaxed text-[var(--dim)]">
+              You&apos;re caught up here, no reply needed. This chat is in the
+              build so its history can guide future drafts.
+            </p>
           )}
 
           {extraGifs.map((g, i) => (
@@ -2058,7 +4093,7 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
             </div>
           )}
 
-          {/* Advanced panel: lives at the end of the scroll area, so a
+          {/* Advanced panel, lives at the end of the scroll area, so a
               locked Advanced leaves nothing below it to scroll to. */}
           {advancedOpen && (
             <div
@@ -2067,9 +4102,9 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
             >
               <h2 className="text-base font-bold">Advanced</h2>
               <p className="mt-1 text-[13px] leading-relaxed text-[var(--dim)]">
-                Draft tools, feedback and saving for training. Nothing in here
-                sends. The Send button below the composer is the only way these
-                texts reach Instagram.
+                Draft tools, feedback and saving for training. Nothing in
+                here sends. The Send button below the composer is the only
+                way these texts reach Instagram.
               </p>
 
               <div className="mt-4">
@@ -2118,6 +4153,27 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
                         {drafting ? draftLabel : "Again"}
                       </button>
                     </div>
+                    {showVoiceMarker && (
+                      <>
+                        <p
+                          className="mt-3 text-[13px] leading-relaxed"
+                          style={{ color: "var(--gold)" }}
+                        >
+                          Voice changed since this draft. Your voice
+                          profile was saved after this draft was written,
+                          and the draft was left exactly as it was.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => draftMutation.mutate("fresh")}
+                          disabled={drafting}
+                          className="mt-2 rounded-full px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                          style={{ background: "var(--gold)", color: "#1a1206" }}
+                        >
+                          {drafting ? draftLabel : "Regenerate with current voice"}
+                        </button>
+                      </>
+                    )}
                   </>
                 ) : (
                   <>
@@ -2176,11 +4232,13 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
                 role="group"
                 aria-label="Verdict"
               >
-                {[
-                  { id: "approved", label: "Approved as-is" },
-                  { id: "edited", label: "I edited it" },
-                  { id: "needs_work", label: "Needs work" },
-                ].map((v) => (
+                {(
+                  [
+                    { id: "approved", label: "Approved as-is" },
+                    { id: "edited", label: "I edited it" },
+                    { id: "needs_work", label: "Needs work" },
+                  ]
+                ).map((v) => (
                   <button
                     key={v.id}
                     type="button"
@@ -2210,17 +4268,22 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
                 ))}
               </div>
 
-              {item.publish_status === "publish_failed" &&
-                item.publish_error && (
-                  <p
-                    className="mt-3 rounded-2xl px-3.5 py-2.5 text-sm"
-                    style={{ background: "#3a1620", color: "var(--danger)" }}
-                  >
-                    That send did not go through: {item.publish_error}
-                  </p>
-                )}
+              {item.publish_error && item.publish_status !== "publishing" && (
+                <p
+                  className="mt-3 rounded-2xl px-3.5 py-2.5 text-sm"
+                  style={{ background: "#3a1620", color: "var(--danger)" }}
+                >
+                  {item.publish_status === "published"
+                    ? "The last follow-up send did not go through: "
+                    : "That send did not go through: "}
+                  {item.publish_error}
+                </p>
+              )}
               {saveError && (
-                <p className="mt-3 text-sm" style={{ color: "var(--danger)" }}>
+                <p
+                  className="mt-3 text-sm"
+                  style={{ color: "var(--danger)" }}
+                >
                   {saveError}
                 </p>
               )}
@@ -2287,7 +4350,9 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
               >
                 {confirmDelete ? (
                   <span className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="text-[var(--dim)]">Remove this chat?</span>
+                    <span className="text-[var(--dim)]">
+                      Remove this chat?
+                    </span>
                     <button
                       type="button"
                       onClick={() => deleteMutation.mutate()}
@@ -2333,14 +4398,18 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
           className="bg-[var(--bg)] pt-1"
           style={{ paddingBottom: "6.5rem" }}
         >
-          {editingId && (
+          {(editingId || pubEditIdx !== null) && (
             <div className="flex items-center px-4 pt-1 pb-1.5">
               <span className="flex-1 text-sm text-[var(--dim)]">
                 Editing message
+                {pubEditIdx !== null &&
+                  ". This one already went out, so the edit goes to Instagram too"}
               </span>
               <button
                 type="button"
-                onClick={cancelEdit}
+                onClick={
+                  pubEditIdx !== null ? cancelPublishedEdit : cancelEdit
+                }
                 aria-label="Cancel editing"
                 className="flex h-8 w-8 items-center justify-center rounded-full"
               >
@@ -2364,6 +4433,15 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
               </button>
             </div>
           )}
+          {!item.needs_reply && (
+            <p
+              className="mx-3 mt-2 rounded-full py-2.5 text-center text-sm"
+              style={{ background: "var(--surface)", color: "var(--dim)" }}
+            >
+              No reply needed here. This chat is in the build for context.
+            </p>
+          )}
+          {item.needs_reply && (
           <div className="mx-3 flex items-end gap-2 rounded-[26px] bg-[var(--surface-alt)] py-1.5 pr-2 pl-1.5">
             <span
               aria-hidden="true"
@@ -2380,16 +4458,22 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
             <textarea
               id={`composer-${item.id}`}
               ref={composerRef}
-              {...FIELDS.dm_savereview.revision_text}
-              value={editingId ? editText : composer}
+              {...FIELDS.dm_editpublished.text}
+              value={editingId || pubEditIdx !== null ? editText : composer}
               onChange={(e) => {
-                if (editingId) setEditText(e.target.value);
+                if (editingId || pubEditIdx !== null)
+                  setEditText(e.target.value);
                 else setComposer(e.target.value);
               }}
               onKeyDown={(e) => {
-                if (editingId && e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  confirmEdit();
+                if (e.key === "Enter" && !e.shiftKey) {
+                  if (pubEditIdx !== null) {
+                    e.preventDefault();
+                    confirmPublishedEdit();
+                  } else if (editingId) {
+                    e.preventDefault();
+                    confirmEdit();
+                  }
                 }
               }}
               rows={1}
@@ -2397,7 +4481,18 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
               aria-label="Message... your reply"
               className="max-h-32 min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-base leading-snug outline-none placeholder:text-[var(--dim)]"
             />
-            {editingId ? (
+            {pubEditIdx !== null ? (
+              <button
+                type="button"
+                onClick={confirmPublishedEdit}
+                disabled={editPublishedMutation.isPending}
+                aria-label="Save this edit. It goes to Instagram too"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white disabled:opacity-60"
+                style={{ background: "var(--bubble-gradient)" }}
+              >
+                <IconSend size={18} />
+              </button>
+            ) : editingId ? (
               <button
                 type="button"
                 onClick={confirmEdit}
@@ -2462,14 +4557,26 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
               </span>
             )}
           </div>
+          )}
 
           {sendError && (
-            <p className="px-4 pt-2 text-sm" style={{ color: "var(--danger)" }}>
+            <p
+              className="px-4 pt-2 text-sm"
+              style={{ color: "var(--danger)" }}
+            >
               {sendError}
             </p>
           )}
+          {pubEditError && (
+            <p
+              className="px-4 pt-2 text-sm"
+              style={{ color: "var(--danger)" }}
+            >
+              {pubEditError}
+            </p>
+          )}
 
-          {published ? (
+          {!item.needs_reply ? null : published && unsentCount === 0 ? (
             <p
               className="mx-3 mt-2 rounded-full py-2.5 text-center text-sm font-semibold"
               style={{
@@ -2477,7 +4584,9 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
                 color: "var(--sage)",
               }}
             >
-              Published to Instagram ✓
+              {item.edit_status === "editing"
+                ? "Sending edit to Instagram…"
+                : "Published to Instagram ✓"}
             </p>
           ) : item.source === "holdout" ? (
             <p className="px-4 pt-2.5 text-center text-[13px] text-[var(--dim)]">
@@ -2505,6 +4614,7 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
             </button>
           )}
 
+          {item.needs_reply && (
           <button
             type="button"
             onClick={() => setAdvancedOpen((o) => !o)}
@@ -2521,6 +4631,7 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
               className={`shrink-0 text-[var(--dim)] transition-transform ${advancedOpen ? "rotate-180" : ""}`}
             />
           </button>
+          )}
         </div>
       </div>
 
@@ -2605,7 +4716,10 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
           aria-label="Message options"
           onClick={() => setPressMsg(null)}
         >
-          <div className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="w-full max-w-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between rounded-full bg-[#2b2b2e] px-3 py-2 shadow-xl">
               {["❤️", "😂", "😮", "😢", "😡", "👍"].map((r) => (
                 <button
@@ -2644,9 +4758,10 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
                 pressMsg.mine
                   ? {
                       background: fxStyle?.background,
-                      opacity: pressMsg.stage === 1 && !locked ? 0.75 : 1,
+                      opacity:
+                        pressMsg.stage === 1 && !pressLine?.sent ? 0.75 : 1,
                       outline:
-                        pressMsg.stage === 1 && !locked
+                        pressMsg.stage === 1 && !pressLine?.sent
                           ? "2px dashed rgba(255,255,255,0.85)"
                           : "none",
                       outlineOffset: 2,
@@ -2710,16 +4825,33 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
                 {
                   icon: <IconEdit size={21} />,
                   label: "Edit",
-                  show: Boolean(pressMsg.lineId) && !locked,
+                  show:
+                    Boolean(pressMsg.lineId) &&
+                    (pressLine?.sent
+                      ? published && item.edit_status !== "editing"
+                      : !publishing),
                   action: () => {
-                    const line = lines.find((l) => l.id === pressMsg.lineId);
-                    if (line) startEdit(line);
+                    const idx = lines.findIndex(
+                      (l) => l.id === pressMsg.lineId,
+                    );
+                    if (idx < 0) return;
+                    if (pressLine?.sent) {
+                      // Already on Instagram: the edit goes through the
+                      // publish handoff and lands only when confirmed.
+                      startPublishedEdit(idx);
+                    } else {
+                      const line = lines[idx];
+                      if (line) startEdit(line);
+                    }
                   },
                 },
                 {
                   icon: <IconTrash size={21} />,
                   label: "Delete for you",
-                  show: Boolean(pressMsg.lineId) && !locked,
+                  show:
+                    Boolean(pressMsg.lineId) &&
+                    !pressLine?.sent &&
+                    !publishing,
                   action: () => {
                     if (pressMsg.lineId) deleteLine(pressMsg.lineId);
                     setPressMsg(null);
@@ -2856,9 +4988,7 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
       )}
       {sheet === "stickers" && (
         <StickersSheet
-          previewText={
-            joinedLines || "this is a draft reply with the keyboard behind it"
-          }
+          previewText={joinedLines || "this is a draft reply with the keyboard behind it"}
           currentFx={fx}
           onClose={() => setSheet(null)}
           onPickFx={(next) => {
@@ -2885,7 +5015,12 @@ function ChatView({ item, onBack, onNext, hasNext, onGoTraining }) {
 // IG-style bottom sheets
 // ---------------------------------------------------------------------------
 
-function SheetShell({ title, onClose, children, right }) {
+function SheetShell({
+  title,
+  onClose,
+  children,
+  right,
+}) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center"
@@ -2922,7 +5057,11 @@ const LABEL_OPTIONS = [
   { name: "Shipped", icon: <IconTruck size={24} /> },
 ];
 
-function LabelSheet({ current, onClose, onSave }) {
+function LabelSheet({
+  current,
+  onClose,
+  onSave,
+}) {
   const [picked, setPicked] = useState(current);
   return (
     <SheetShell
@@ -2986,7 +5125,10 @@ function LabelSheet({ current, onClose, onSave }) {
   );
 }
 
-function ScheduleSheet({ onClose, onConfirm }) {
+function ScheduleSheet({
+  onClose,
+  onConfirm,
+}) {
   const days = useMemo(() => {
     const out = [];
     const now = new Date();
@@ -3116,7 +5258,7 @@ function ScheduleSheet({ onClose, onConfirm }) {
             <select
               aria-label="AM or PM"
               value={ampm}
-              onChange={(e) => setAmpm(e.target.value)}
+              onChange={(e) => setAmpm(e.target.value )}
               className="w-full rounded-xl px-2 py-3 text-base"
               style={selectStyle}
             >
@@ -3126,13 +5268,15 @@ function ScheduleSheet({ onClose, onConfirm }) {
           </label>
         </div>
         <p className="px-6 pt-4 text-center text-sm text-[var(--dim)]">
-          Scheduling is visual in the simulator. Your Publish tap in the review
-          panel is still what sends.
+          Scheduling is visual in the simulator. Your Publish tap in the
+          review panel is still what sends.
         </p>
         <div className="px-5 pt-4">
           <button
             type="button"
-            onClick={() => onConfirm(`${day?.short ?? "today"} at ${timeStr}`)}
+            onClick={() =>
+              onConfirm(`${day?.short ?? "today"} at ${timeStr}`)
+            }
             className="w-full rounded-2xl py-3.5 text-base font-semibold text-white"
             style={{ background: "#4353ff" }}
           >
@@ -3144,7 +5288,11 @@ function ScheduleSheet({ onClose, onConfirm }) {
   );
 }
 
-function ForwardSheet({ people, onClose, onSend }) {
+function ForwardSheet({
+  people,
+  onClose,
+  onSend,
+}) {
   const [query, setQuery] = useState("");
   const [chosen, setChosen] = useState([]);
   const shown = people.filter((p) =>
@@ -3271,7 +5419,7 @@ function StickersSheet({
         Effects
       </h3>
       <div className="flex gap-3 overflow-x-auto px-5 pb-1">
-        {Object.keys(BUBBLE_FX).map((key) => {
+        {(Object.keys(BUBBLE_FX) ).map((key) => {
           const fxDef = BUBBLE_FX[key];
           if (!fxDef) return null;
           return (
@@ -3356,6 +5504,7 @@ function ChatDetails({
   onToggleMute,
   onSaveNickname,
   onToast,
+  onMoveSection,
 }) {
   const handle = handleOf(item);
   const profile = profileOf(handle);
@@ -3364,7 +5513,9 @@ function ChatDetails({
   const [nickDraft, setNickDraft] = useState(nickname);
   const [searching, setSearching] = useState(false);
 
-  const rows = [
+  const rows
+
+ = [
     {
       icon: (
         <span
@@ -3399,6 +5550,19 @@ function ChatDetails({
         setDisappearing(next);
         onToast(`Disappearing messages: ${next} (simulator setting)`);
       },
+    },
+    {
+      icon: <IconTag size={27} />,
+      title:
+        item.section === "general"
+          ? "Move back to Inbox"
+          : "Move to General",
+      sub:
+        item.section === "general"
+          ? "In General now. It returns on its own when they DM again"
+          : "The same as swiping left in the inbox",
+      action: () =>
+        onMoveSection(item.section === "general" ? "main" : "general"),
     },
     {
       icon: <IconHelpBubble size={27} />,
@@ -3490,15 +5654,18 @@ function ChatDetails({
             />
           </label>
           <p className="px-1 pt-2 text-[13px] text-[var(--dim)]">
-            This practice thread holds the one message in your queue. It is the
-            bubble you see in the chat.
+            This practice thread holds the one message in your queue. It is
+            the bubble you see in the chat.
           </p>
         </div>
       )}
 
       {editingNick && (
         <div className="mx-4 mt-4 rounded-2xl bg-[var(--surface)] p-4">
-          <label htmlFor="nickname-input" className="text-sm font-semibold">
+          <label
+            htmlFor="nickname-input"
+            className="text-sm font-semibold"
+          >
             Nickname for {handle}
           </label>
           <input
@@ -3560,10 +5727,7 @@ function ChatDetails({
                 </span>
               )}
             </span>
-            <IconChevronRight
-              size={19}
-              className="shrink-0 text-[var(--dim)]"
-            />
+            <IconChevronRight size={19} className="shrink-0 text-[var(--dim)]" />
           </button>
         ))}
       </div>
@@ -3594,7 +5758,11 @@ function ChatDetails({
   );
 }
 
-function ProfileView({ handle, onBack, onMessage }) {
+function ProfileView({
+  handle,
+  onBack,
+  onMessage,
+}) {
   const profile = profileOf(handle);
   return (
     <section className="pt-1">
@@ -3640,9 +5808,7 @@ function ProfileView({ handle, onBack, onMessage }) {
       </div>
 
       <div className="px-5 pt-3">
-        {profile.name && (
-          <p className="text-base font-semibold">{profile.name}</p>
-        )}
+        {profile.name && <p className="text-base font-semibold">{profile.name}</p>}
         {profile.category && (
           <p className="text-sm text-[var(--dim)]">{profile.category}</p>
         )}
@@ -3748,18 +5914,28 @@ function ProfileView({ handle, onBack, onMessage }) {
 
 // ---------------------------------------------------------------------------
 // One comment item: incoming message, draft, revision, verdict (the review
-// card used for comments; DMs use the chat view above)
+// card used for comments, DMs use the chat view above)
 // ---------------------------------------------------------------------------
 
-function ItemCard({ item, onNext, hasNext, onGoTraining }) {
+function ItemCard({
+  item,
+  onNext,
+  hasNext,
+  onGoTraining,
+}) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState("listening");
-  const [revision, setRevision] = useState(item.revision_text ?? "");
+  // Big Edit #24: what she types here is kept with the comment, so it's still there when she comes back.
+  const [revision, setRevision] = useState(() =>
+    Array.isArray(item.work_lines) ? item.work_lines.map((l) => l.text).join("\n") : (item.revision_text ?? ""),
+  );
+  const [revisionDirty, setRevisionDirty] = useState(false);
   const [feedback, setFeedback] = useState(item.feedback ?? "");
   const [verdictChoice, setVerdictChoice] = useState(
     item.verdict === "pending" ? null : item.verdict,
   );
-  const verdict = verdictChoice ?? (item.draft_text ? "approved" : "edited");
+  const verdict =
+    verdictChoice ?? (item.draft_text ? "approved" : "edited");
   const [saveError, setSaveError] = useState("");
   const [draftError, setDraftError] = useState("");
   const [saved, setSaved] = useState(item.verdict !== "pending");
@@ -3771,6 +5947,29 @@ function ItemCard({ item, onNext, hasNext, onGoTraining }) {
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["items"] });
+  useEffect(() => {
+    if (!revisionDirty) return undefined;
+    const t = window.setTimeout(() => {
+      setRevisionDirty(false);
+      const lines = revision.split("\n").map((l) => l.trim()).filter(Boolean).map((text) => ({ text, approved: true }));
+      api.dm_savework({ id: item.id, lines }).then(() => invalidate()).catch(() => {});
+    }, 600);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revision, revisionDirty]);
+  // Leaving the card right after typing still keeps it.
+  const revisionRef = useRef({ dirty: false, revision });
+  revisionRef.current = { dirty: revisionDirty, revision };
+  useEffect(
+    () => () => {
+      const { dirty, revision: last } = revisionRef.current;
+      if (!dirty) return;
+      const lines = last.split("\n").map((l) => l.trim()).filter(Boolean).map((text) => ({ text, approved: true }));
+      api.dm_savework({ id: item.id, lines }).then(() => queryClient.invalidateQueries({ queryKey: ["items"] })).catch(() => {});
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   const draftMutation = useMutation({
     mutationFn: async (variant) =>
@@ -3787,9 +5986,7 @@ function ItemCard({ item, onNext, hasNext, onGoTraining }) {
   });
   // With no model on the server, Muse writes the draft: it waits until Muse hands it back.
   const drafting = draftMutation.isPending || item.draft_wanted;
-  const draftLabel = draftMutation.isPending
-    ? "Drafting…"
-    : "Waiting for Muse…";
+  const draftLabel = draftMutation.isPending ? "Drafting…" : "Waiting for Muse…";
 
   const saveMutation = useMutation({
     mutationFn: async () =>
@@ -3854,12 +6051,14 @@ function ItemCard({ item, onNext, hasNext, onGoTraining }) {
     setRevision(item.draft_text);
     setVerdictChoice("approved");
     setSaved(false);
+    setRevisionDirty(true);
     flashCopied("into");
   };
 
   const handleRevisionChange = (value) => {
     setRevision(value);
     setSaved(false);
+    setRevisionDirty(true);
     if (
       verdict === "approved" &&
       item.draft_text &&
@@ -4001,15 +6200,13 @@ function ItemCard({ item, onNext, hasNext, onGoTraining }) {
           Muse's draft
         </h3>
         {item.kind === "comment" && !item.draft_text && (
-          <div
-            className="mt-2 flex gap-2"
-            role="group"
-            aria-label="Draft style"
-          >
-            {[
-              { id: "listening", label: "Listening" },
-              { id: "deterrence", label: "Deterrence" },
-            ].map((m) => (
+          <div className="mt-2 flex gap-2" role="group" aria-label="Draft style">
+            {(
+              [
+                { id: "listening", label: "Listening" },
+                { id: "deterrence", label: "Deterrence" },
+              ]
+            ).map((m) => (
               <button
                 key={m.id}
                 type="button"
@@ -4061,6 +6258,33 @@ function ItemCard({ item, onNext, hasNext, onGoTraining }) {
               : "No draft yet. Muse drafts blind, from the message alone, in your voice."}
           </p>
         )}
+        {item.voice_stale &&
+          item.draft_text &&
+          (item.verdict !== "pending" ||
+            item.publish_status === "published") && (
+            <div className="mt-2">
+              <p
+                className="rounded-lg px-3.5 py-2.5 text-sm leading-relaxed"
+                style={{
+                  background: "var(--gold-soft)",
+                  color: "var(--gold)",
+                }}
+              >
+                Voice changed since this draft. Your voice profile was
+                saved after this draft was written, and the draft was left
+                exactly as it was.
+              </p>
+              <button
+                type="button"
+                onClick={() => draftMutation.mutate("fresh")}
+                disabled={drafting}
+                className="mt-2 rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                style={{ background: "var(--gold)", color: "#1a1206" }}
+              >
+                {drafting ? draftLabel : "Regenerate with current voice"}
+              </button>
+            </div>
+          )}
         {draftError && (
           <p className="mt-2 text-sm" style={{ color: "var(--danger)" }}>
             {draftError}
@@ -4160,8 +6384,8 @@ function ItemCard({ item, onNext, hasNext, onGoTraining }) {
         )}
         {approvingAsIs && (
           <p className="mt-1.5 text-xs" style={{ color: "var(--sage)" }}>
-            Approving as-is: no edit needed. Save Review keeps the draft as your
-            answer, and Publish sends it to Instagram word for word.
+            Approving as-is: no edit needed. Save Review keeps the draft as
+            your answer, and Publish sends it to Instagram word for word.
           </p>
         )}
         <label
@@ -4193,11 +6417,13 @@ function ItemCard({ item, onNext, hasNext, onGoTraining }) {
           role="group"
           aria-label="Verdict"
         >
-          {[
-            { id: "approved", label: "Approved as-is" },
-            { id: "edited", label: "I edited it" },
-            { id: "needs_work", label: "Needs work" },
-          ].map((v) => (
+          {(
+            [
+              { id: "approved", label: "Approved as-is" },
+              { id: "edited", label: "I edited it" },
+              { id: "needs_work", label: "Needs work" },
+            ]
+          ).map((v) => (
             <button
               key={v.id}
               type="button"
@@ -4268,7 +6494,8 @@ function ItemCard({ item, onNext, hasNext, onGoTraining }) {
               className="rounded-full px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
               style={{ background: "var(--accent)" }}
             >
-              {publishMutation.isPending || item.publish_status === "publishing"
+              {publishMutation.isPending ||
+              item.publish_status === "publishing"
                 ? "Publishing…"
                 : item.publish_status === "publish_failed"
                   ? "Publish again"
@@ -4324,10 +6551,7 @@ function ItemCard({ item, onNext, hasNext, onGoTraining }) {
           className="mt-6 rounded-lg px-4 py-3"
           style={{ background: "var(--gold-soft)" }}
         >
-          <h3
-            className="text-sm font-semibold"
-            style={{ color: "var(--gold)" }}
-          >
+          <h3 className="text-sm font-semibold" style={{ color: "var(--gold)" }}>
             What you actually said
           </h3>
           <p className="mt-1.5 whitespace-pre-line text-base leading-relaxed">
@@ -4386,16 +6610,21 @@ function ItemCard({ item, onNext, hasNext, onGoTraining }) {
 // Shows their message and her answer as a mini chat thread.
 // ---------------------------------------------------------------------------
 
-function ReadyView({ items, onOpen, onRefresh, isRefreshing }) {
+function ReadyView({
+  items,
+  onOpen,
+  onRefresh,
+  isRefreshing,
+}) {
   const queryClient = useQueryClient();
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [error, setError] = useState("");
   const accountQuery = useQuery({
     queryKey: ["account"],
     queryFn: () => api.dm_getaccount({}),
     staleTime: 60_000,
   });
   const account = accountQuery.data?.handle ?? null;
-  const [selectedIds, setSelectedIds] = useState([]);
-  const [error, setError] = useState("");
 
   const ready = items.filter(
     (i) =>
@@ -4466,9 +6695,7 @@ function ReadyView({ items, onOpen, onRefresh, isRefreshing }) {
         >
           <span
             aria-hidden="true"
-            className={
-              isRefreshing ? "inline-block animate-spin" : "inline-block"
-            }
+            className={isRefreshing ? "inline-block animate-spin" : "inline-block"}
           >
             ↻
           </span>
@@ -4477,8 +6704,8 @@ function ReadyView({ items, onOpen, onRefresh, isRefreshing }) {
       </div>
       <p className="mt-2 text-sm leading-relaxed text-[var(--dim)]">
         These are answers you already reviewed and saved but did not publish
-        yet. What you see is exactly what will be sent: their message, and your
-        answer under it. {sendsAs(account)}
+        yet. What you see is exactly what will be sent: their message, and
+        your answer under it. {sendsAs(account)}
       </p>
 
       {error && (
@@ -4511,9 +6738,7 @@ function ReadyView({ items, onOpen, onRefresh, isRefreshing }) {
             <button
               type="button"
               onClick={() => publishSelectedMutation.mutate(chosen)}
-              disabled={
-                chosen.length === 0 || publishSelectedMutation.isPending
-              }
+              disabled={chosen.length === 0 || publishSelectedMutation.isPending}
               className="rounded-full px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
               style={{ background: "var(--accent)" }}
             >
@@ -4709,7 +6934,9 @@ function AddView({ onCreated }) {
         media_id:
           kind === "comment" && mediaId.trim() ? mediaId.trim() : undefined,
         comment_id:
-          kind === "comment" && commentId.trim() ? commentId.trim() : undefined,
+          kind === "comment" && commentId.trim()
+            ? commentId.trim()
+            : undefined,
         thread_id:
           kind === "dm" && threadId.trim() ? threadId.trim() : undefined,
       }),
@@ -4745,8 +6972,8 @@ function AddView({ onCreated }) {
     <section className="px-4 pt-4 sm:px-0">
       <h1 className="text-3xl font-bold leading-tight">Add a message</h1>
       <p className="mt-2 text-sm leading-relaxed text-[var(--dim)]">
-        Paste any DM or comment here instead of answering it in Instagram. Muse
-        drafts blind and you review it here.
+        Paste any DM or comment here instead of answering it in Instagram.
+        Muse drafts blind and you review it here.
       </p>
 
       <div className="mt-5 space-y-5">
@@ -4754,15 +6981,13 @@ function AddView({ onCreated }) {
           <span className="text-sm font-semibold tracking-wide text-[var(--dim)]">
             Type
           </span>
-          <div
-            className="mt-2 flex gap-2"
-            role="group"
-            aria-label="Message type"
-          >
-            {[
-              { id: "dm", label: "DM" },
-              { id: "comment", label: "Comment" },
-            ].map((k) => (
+          <div className="mt-2 flex gap-2" role="group" aria-label="Message type">
+            {(
+              [
+                { id: "dm", label: "DM" },
+                { id: "comment", label: "Comment" },
+              ]
+            ).map((k) => (
               <button
                 key={k.id}
                 type="button"
@@ -4786,23 +7011,25 @@ function AddView({ onCreated }) {
             Where it comes from
           </span>
           <div className="mt-2 space-y-2">
-            {[
-              {
-                id: "live",
-                label: "Live queue",
-                hint: "Still waiting for a reply. No answer exists yet, so the test is genuinely blind.",
-              },
-              {
-                id: "holdout",
-                label: "Blind holdout",
-                hint: "You already replied to this one. Your real reply is sealed until your revision is saved.",
-              },
-              {
-                id: "paste",
-                label: "Pasted practice",
-                hint: "From anywhere else: another platform, a screenshot, a what-if.",
-              },
-            ].map((s) => (
+            {(
+              [
+                {
+                  id: "live",
+                  label: "Live queue",
+                  hint: "Still waiting for a reply. No answer exists yet, so the test is genuinely blind.",
+                },
+                {
+                  id: "holdout",
+                  label: "Blind holdout",
+                  hint: "You already replied to this one. Your real reply is sealed until your revision is saved.",
+                },
+                {
+                  id: "paste",
+                  label: "Pasted practice",
+                  hint: "From anywhere else: another platform, a screenshot, a what-if.",
+                },
+              ]
+            ).map((s) => (
               <button
                 key={s.id}
                 type="button"
@@ -4984,7 +7211,10 @@ function AddView({ onCreated }) {
 // Training: reviewed revisions are the retraining corpus
 // ---------------------------------------------------------------------------
 
-function TrainingView({ items, stats }) {
+function TrainingView({
+  items,
+  stats,
+}) {
   const [copied, setCopied] = useState(false);
   const reviewed = items.filter((i) => i.verdict !== "pending");
 
@@ -5079,8 +7309,8 @@ function TrainingView({ items, stats }) {
 
       {reviewed.length === 0 ? (
         <p className="py-10 text-center text-sm text-[var(--dim)]">
-          Nothing reviewed yet. Save your first review in the Chats tab and it
-          will appear here.
+          Nothing reviewed yet. Save your first review in the Chats tab and
+          it will appear here.
         </p>
       ) : (
         <ul className="mt-6 space-y-3">
@@ -5097,7 +7327,9 @@ function TrainingView({ items, stats }) {
                 <Badge tone={item.kind === "dm" ? "accent" : "gold"}>
                   {kindLabel(item.kind)}
                 </Badge>
-                <Badge tone={item.verdict === "needs_work" ? "gold" : "sage"}>
+                <Badge
+                  tone={item.verdict === "needs_work" ? "gold" : "sage"}
+                >
                   {verdictLabel(item.verdict)}
                 </Badge>
                 {item.publish_status === "published" && (
@@ -5154,7 +7386,9 @@ function VoiceView() {
     queryKey: ["voice-profile"],
     queryFn: () => api.dm_getvoiceprofile({}),
   });
-  const [draft, setDraft] = useState(null);
+  const [draft, setDraft] = useState(
+    null,
+  );
   const [saveError, setSaveError] = useState("");
   const [justSaved, setJustSaved] = useState(false);
 
@@ -5191,7 +7425,10 @@ function VoiceView() {
     onError: (error) => setSaveError(error.message),
   });
 
-  const updateSection = (index, patch) => {
+  const updateSection = (
+    index,
+    patch,
+  ) => {
     setDraft((prev) =>
       (prev ?? sections).map((s, i) => (i === index ? { ...s, ...patch } : s)),
     );
@@ -5214,9 +7451,9 @@ function VoiceView() {
         The voice behind the drafts
       </h1>
       <p className="mt-2 text-sm leading-relaxed text-[var(--dim)]">
-        This is your written voice source. Every field is editable, and your
-        changes apply to the next draft Muse writes. One rule per line. The
-        starting wording comes from Muse, and Restore puts it back.
+        This is your written voice source. Every field is editable, and
+        your changes apply to the next draft Muse writes. One rule per
+        line. The starting wording comes from Muse, and Restore puts it back.
       </p>
 
       {voiceQuery.isPending ? (
@@ -5250,7 +7487,10 @@ function VoiceView() {
                 }}
               >
                 <div className="flex items-center gap-2">
-                  <label htmlFor={`voice-title-${i}`} className="sr-only">
+                  <label
+                    htmlFor={`voice-title-${i}`}
+                    className="sr-only"
+                  >
                     Section title
                   </label>
                   <textarea
@@ -5258,9 +7498,7 @@ function VoiceView() {
                     value={s.title}
                     maxLength={120}
                     rows={s.title.length > 30 ? 2 : 1}
-                    onChange={(e) =>
-                      updateSection(i, { title: e.target.value })
-                    }
+                    onChange={(e) => updateSection(i, { title: e.target.value })}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") e.preventDefault();
                     }}
@@ -5321,7 +7559,11 @@ function VoiceView() {
             <button
               type="button"
               onClick={() => {
-                if (sections.some((s) => !s.title.trim() || !s.body.trim())) {
+                if (
+                  sections.some(
+                    (s) => !s.title.trim() || !s.body.trim(),
+                  )
+                ) {
                   setSaveError(
                     "Every section needs a title and at least one rule. Fill in or remove the empty one first.",
                   );
@@ -5358,8 +7600,8 @@ function VoiceView() {
             )}
             {dirty && !justSaved && (
               <span className="text-sm text-[var(--dim)]">
-                Unsaved changes. Drafts keep using the saved voice until you
-                save.
+                Unsaved changes. Drafts keep using the saved voice until
+                you save.
               </span>
             )}
           </div>

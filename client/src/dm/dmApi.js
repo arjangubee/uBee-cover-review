@@ -4,7 +4,8 @@
 import { post } from "../api.js";
 
 const NAMES = ["listitems", "createitem", "generatedraft", "savereview", "publishitem", "confirmpublish", "revealactual", "deleteitem",
-  "exporttraining", "getvoiceprofile", "savevoiceprofile", "resetvoiceprofile", "getaccount", "openthread", "setlabel", "importlabels"];
+  "exporttraining", "getvoiceprofile", "savevoiceprofile", "resetvoiceprofile", "getaccount", "openthread", "setlabel", "importlabels",
+  "editpublished", "markreadinbuild", "setchatsection", "savework"];
 
 export const api = Object.fromEntries(NAMES.map((n) => [`dm_${n}`, (args) => post(`/api/dm/${n}`, args)]));
 
@@ -22,6 +23,9 @@ export const FIELDS = {
   dm_savereview: {
     revision_text: { name: "revision_text", maxLength: 4000 },
     feedback: { name: "feedback", maxLength: 2000 },
+  },
+  dm_editpublished: {
+    text: { name: "text", maxLength: 2000, required: true },
   },
 };
 

@@ -160,3 +160,20 @@ shows it. `setlabel` with `{ "id": ..., "label": "Booked" }` sets one and `"labe
 when she asks you to.
 
 The Ready to Publish screen names her account from the Instagram connector's handle (section 5).
+
+Since 1.22.0 (the simulator's Chats):
+1. With each chat, send what you know from Instagram: `folder` (primary, general, requests or spam), `following` (she
+   follows them), `follows_her`, `ig_read` (she read it on Instagram), `needs_reply` (false for a chat you bring in only
+   for its history), `last_activity_timestamp_ms` (Instagram's own number) and, for a comment, its post: `media_id`,
+   `media_preview_url` and `media_permalink`. On a later sync, `updatethread` with the chat's id refreshes any of them,
+   with or without `thread_messages`.
+2. Send a thread's messages with their real kind: text, share_post, share_reel, share_story, reaction, voice, video,
+   call, call_missed, generic or admin. A call has no text of its own: send its label (for example "You missed an audio
+   call") as its text. A shared post or story can carry `media_url` and `caption`. A chat with history can come in
+   with an empty incoming_text when there's no message from them.
+3. A draft she asked for with direction carries `direction` in `draftswanted`: follow it.
+4. Edits to a line that already went out: check `editswanted` the way you check `publishwanted`. Each one has the line
+   as it is on Instagram (`old_text`), the line she wants (`new_text`) and the ids. Edit that message in place. If it
+   can't be edited in place (Instagram may not allow editing a comment reply), don't delete it and don't send the new
+   text as a fresh message. Report every one with `confirmedit`: `{ "id": ..., "ok": true }`, or `{ "id": ..., "ok":
+   false, "detail": "the reason, in plain words" }`.

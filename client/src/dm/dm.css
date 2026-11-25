@@ -28,3 +28,26 @@
 .dm-root .font-serif-display {
   font-family: var(--serif);
 }
+
+/* 1.22.0 (Big Edit #23): a post flies in from the side, the way a chat opens on Instagram. */
+@keyframes dm-fly-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+.dm-root .dm-fly-in {
+  animation: dm-fly-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dm-root .dm-fly-in {
+    animation: none;
+  }
+}
+
+/* Phone tap targets at least 32px tall, as in the simulator. :where keeps it under every class's own size. */
+.dm-root :where(button, [role="button"], select, summary, input:not([type="checkbox"], [type="radio"])) {
+  min-height: 2rem;
+}

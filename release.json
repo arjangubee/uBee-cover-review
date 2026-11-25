@@ -1,7 +1,9 @@
 {
-  "version": "1.21.1",
-  "date": "2026-11-24",
+  "version": "1.22.0",
+  "date": "2026-11-25",
   "whatsNew": [
-    "Drafts in your voice keep their emoji endings, and only !! endings follow your voice's !! rule"
+    "Chats open on Needs Reply: every chat waiting for your answer, labeled Primary, General or Requests",
+    "Replied lists the chats you answered, and Comments shows a square for each post with every comment under it",
+    "Your edits to a reply are kept, and a text that already went out can be edited"
   ]
 }

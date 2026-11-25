@@ -1554,11 +1554,13 @@ try {
     const live = list.items[0];
     assert(live.incoming_text === "hi there, how do I start?" && live.sender === "@test.person" && live.source === "live" && live.verdict === "pending", `live: ${JSON.stringify(live).slice(0, 300)}`);
     assert(live.publish_status === "unpublished" && live.has_target === true && live.draft_text === null && live.draft_wanted === false, "a fresh live item");
+    // 1.22.0: a text with no words is kept as a generic message (the simulator's rule), and each message carries its picture and caption.
     assert(JSON.stringify(live.thread_messages) === JSON.stringify([
-      { from: "them", kind: "text", text: "first message", url: null, reply_to: null, at: null },
-      { from: "me", kind: "reaction", text: null, url: null, reply_to: null, at: null },
-      { from: "them", kind: "share_reel", text: null, url: "https://example.com/r/1", reply_to: null, at: "2026-11-20T01:00:00-08:00" },
-      { from: "them", kind: "text", text: "kept as text", url: null, reply_to: "story", at: null }]), `thread: ${JSON.stringify(live.thread_messages)}`);
+      { from: "them", kind: "text", text: "first message", url: null, media_url: null, caption: null, reply_to: null, at: null },
+      { from: "me", kind: "reaction", text: null, url: null, media_url: null, caption: null, reply_to: null, at: null },
+      { from: "them", kind: "share_reel", text: null, url: "https://example.com/r/1", media_url: null, caption: null, reply_to: null, at: "2026-11-20T01:00:00-08:00" },
+      { from: "them", kind: "generic", text: null, url: null, media_url: null, caption: null, reply_to: null, at: null },
+      { from: "them", kind: "text", text: "kept as text", url: null, media_url: null, caption: null, reply_to: "story", at: null }]), `thread: ${JSON.stringify(live.thread_messages)}`);
     const holdout = list.items[1];
     assert(holdout.has_actual === true && holdout.actual_reply === null && holdout.revealed === false, `holdout: ${JSON.stringify(holdout).slice(0, 300)}`);
     const comment = list.items[2];
@@ -1612,7 +1614,7 @@ try {
     assert((await dm("draftswanted")).items.map((w) => w.id).join(",") === String(dmIds.comment), "only the comment still waits");
     await dm("generatedraft", { id: dmIds.live });
     const live = (await dm("draftswanted")).items.find((w) => w.id === dmIds.live);
-    assert(live.prompt.includes("Thread so far, oldest first:\nThem: first message\nthe creator: [reacted to a message]\nThem: [shared a reel]\nThem: kept as text"), `thread in the prompt: ${live.prompt}`);
+    assert(live.prompt.includes("Thread so far, oldest first:\nThem: first message\nthe creator: [reacted to a message]\nThem: [shared a reel]\nThem: [sent a message]\nThem: kept as text"), `thread in the prompt: ${live.prompt}`);
     assert(live.prompt.includes("Do not start your reply the same way as these recent drafts: Something tells"), "recent openings");
     await dm("savedraft", { id: dmIds.live, draft_text: "Yayyy welcome in!!" });
   });
@@ -1649,7 +1651,6 @@ try {
     await dm("confirmpublish", { id: dmIds.live, ok: true });
     item = await dmItem(dmIds.live);
     assert(item.publish_status === "published" && item.published_text === "Yayyy welcome in!!\nLemme know how it lands" && item.published_at && item.publish_error === null, "published");
-    await dmFails("publishitem", { id: dmIds.live }, 409, "already published");
     const stats = (await dm("listitems")).stats;
     assert(stats.published === 1 && stats.reviewed === 2 && stats.ready === 0, `stats: ${JSON.stringify(stats)}`);
     await dmFails("confirmpublish", { id: 99999, ok: true }, 404);
@@ -1754,6 +1755,192 @@ try {
     assert(back.ok === true && s.incoming_text === "Where was this taken?" && s.story_reply_not_captured === false, `a later import with the words recovers them: ${JSON.stringify(s).slice(0, 300)}`);
     await dmFails("openthread", { id: 99999 }, 404);
     await dmFails("updatethread", { id: lost, thread_messages: "nope" }, 400);
+  });
+  // ---------- 1.22.0: Chats, aligned to the reply practice simulator (Big Edit #20 to #24 and 14.1, room #1030) ----------
+  // The facts her Muse brings with each chat: where it came from, who follows whom, Instagram's read mark, whether it
+  // needs her reply, when it last moved, and for a comment the post it sits under.
+  const chat122 = {};
+  await check("v1.22 a chat carries where it came from, who follows whom, its read mark and its post; old chats read as before", async () => {
+    chat122.dm = (await dm("createitem", { kind: "dm", sender: "@friend.one", incoming_text: "hey you", thread_id: "t-122",
+      folder: "requests", following: true, follows_her: false, ig_read: true, needs_reply: true, last_activity_timestamp_ms: Date.parse("2026-11-20T10:00:00Z"),
+      thread_messages: [{ from: "them", kind: "video", url: "https://example.com/v.mp4", at: "2026-11-20T09:00:00Z" },
+        { from: "them", kind: "call_missed", at: "2026-11-20T09:30:00Z" }, { from: "them", kind: "text", text: "hey you", at: "2026-11-20T10:00:00Z" }] })).id;
+    chat122.comment = (await dm("createitem", { kind: "comment", sender: "fan.two", incoming_text: "so pretty", media_id: "m-122", comment_id: "c-122",
+      media_preview_url: "https://example.com/p.jpg", media_permalink: "https://www.instagram.com/p/abc/", following: false, follows_her: true })).id;
+    const d = await dmItem(chat122.dm);
+    assert(d.folder === "requests" && d.following === true && d.follows_her === false && d.ig_read === true && d.needs_reply === true, `facts: ${JSON.stringify(d).slice(0, 400)}`);
+    assert(d.section === "main" && d.build_read_at === null && d.edit_status === "none" && d.pending_edit_line === null && d.leftover_text === null, "the rest start plain");
+    assert(d.last_activity_at === "2026-11-20T10:00:00.000Z", `last activity: ${d.last_activity_at}`);
+    assert(d.thread_messages.map((m) => m.kind).join() === "video,call_missed,text" && d.thread_messages[0].url === "https://example.com/v.mp4", `kinds: ${JSON.stringify(d.thread_messages)}`);
+    const c = await dmItem(chat122.comment);
+    assert(c.media_id === "m-122" && c.media_preview_url === "https://example.com/p.jpg" && c.media_permalink === "https://www.instagram.com/p/abc/" && c.follows_her === true, `post: ${JSON.stringify(c).slice(0, 400)}`);
+    const old = await dmItem(dmIds.live);
+    assert(old.folder === null && old.following === false && old.follows_her === null && old.ig_read === false && old.needs_reply === true && old.section === "main", `an older chat: ${JSON.stringify(old).slice(0, 300)}`);
+    await dmFails("createitem", { kind: "dm", incoming_text: "hi", folder: "archive" }, 400, "folder");
+    await dmFails("createitem", { kind: "dm", incoming_text: "hi", following: "yes" }, 400, "following");
+    await dmFails("createitem", { kind: "dm", incoming_text: "hi", last_activity_timestamp_ms: "not a time" }, 400, "last_activity_timestamp_ms");
+  });
+  await check("v1.22 a thread reads the way the simulator keeps it: oldest first, a call label is a call, a reaction keeps only its emoji, and a message with no words shows as its type", async () => {
+    const id = (await dm("createitem", { kind: "dm", sender: "caller.one", incoming_text: "Liked a message", thread_messages: [
+      { from: "them", kind: "text", text: "later", at: "2026-11-21T10:00:00Z" }, { from: "them", kind: "text", text: "earlier", at: "2026-11-21T09:00:00Z" },
+      { from: "them", text: "You missed an audio call", at: "2026-11-21T09:10:00Z" }, { from: "me", kind: "generic", text: "Audio call ended", at: "2026-11-21T09:20:00Z" },
+      { from: "them", kind: "reaction", text: "Liked a message", at: "2026-11-21T09:30:00Z" }, { from: "me", kind: "reaction", text: "Reacted \u{1F602} to your message", at: "2026-11-21T09:40:00Z" },
+      { from: "them", kind: "text", at: "2026-11-21T09:50:00Z" },
+      { from: "them", kind: "share_story", media_url: "https://example.com/s.jpg", caption: "sunrise", at: "2026-11-21T09:55:00Z" }] })).id;
+    const d = await dmItem(id);
+    assert(d.thread_messages.map((m) => `${m.kind}:${m.text}`).join("|") === "text:earlier|call_missed:You missed an audio call|call:Audio call ended|reaction:\u{2764}\u{FE0F}|reaction:\u{1F602}|generic:null|share_story:null|text:later",
+      `kinds: ${JSON.stringify(d.thread_messages)}`);
+    assert(d.thread_messages[6].media_url === "https://example.com/s.jpg" && d.thread_messages[6].caption === "sunrise", "a story share keeps its picture and caption");
+    assert(d.incoming_text === "" && d.last_activity_at === "2026-11-21T10:00:00.000Z", `a reaction is no message, and the newest message sets the time: ${JSON.stringify(d).slice(0, 300)}`);
+    await dm("generatedraft", { id });
+    const p = (await dm("draftswanted")).items.find((w) => w.id === id);
+    assert(p.prompt.includes('Them: [missed a call, "You missed an audio call"]') && p.prompt.includes('the creator: [had a call, "Audio call ended"]') && p.prompt.includes('Them: [shared a story, caption: "sunrise"]'),
+      `the prompt names each kind: ${p.prompt}`);
+    await dm("savedraft", { id, draft_text: "Hahaha I saw that" });
+  });
+  await check("v1.22 a chat that needs no reply stays out of Pending, opening it never redrafts it, and a chat with history can come in with no message from them", async () => {
+    const id = (await dm("createitem", { kind: "dm", sender: "done.one", incoming_text: "thank you so much", needs_reply: false })).id;
+    assert((await dmItem(id)).needs_reply === false && !(await dm("listitems", { filter: "pending" })).items.some((i) => i.id === id), "not pending");
+    const all = await dm("listitems");
+    assert(all.stats.pending === all.items.filter((i) => i.verdict === "pending" && i.needs_reply).length, `the pending count leaves it out: ${JSON.stringify(all.stats)}`);
+    await dm("generatedraft", { id });
+    await dm("savedraft", { id, draft_text: "Thank you for being here" });
+    await dm("savevoiceprofile", { sections: [{ title: "Punctuation and emoji", body: "Hardly any commas." }] });
+    const opened = await dm("openthread", { id });
+    assert(opened.item.voice_stale === true && opened.wanted === false, `stale, and nothing asked: ${JSON.stringify(opened).slice(0, 200)}`);
+    await dm("savevoiceprofile", { sections: [{ title: "Punctuation and emoji", body: "~1 in 5 replies end with !!" }] });
+    const mine = (await dm("createitem", { kind: "dm", sender: "only.me", incoming_text: "", needs_reply: false, thread_messages: [{ from: "me", text: "Alohaaa!!" }] })).id;
+    assert((await dmItem(mine)).incoming_text === "", "a chat with history and no message from them");
+    await dmFails("createitem", { kind: "dm", incoming_text: "" }, 400, "Their message");
+  });
+  await check("v1.22 a send takes only the texts she approved: the rest stay as drafts, a later send joins what went out, and a failed later send leaves the first ones sent", async () => {
+    const id = (await dm("createitem", { kind: "dm", sender: "two.texts", incoming_text: "what do you offer?", thread_id: "t-two" })).id;
+    const before = Date.now();
+    await dm("publishitem", { id, revision_text: "Lemme share my yummy menu", remaining_text: "And a sweet treat for you" });
+    let d = await dmItem(id);
+    assert(d.leftover_text === "And a sweet treat for you" && (await dm("publishwanted")).items.find((w) => w.id === id).text === "Lemme share my yummy menu", `only the approved text goes: ${JSON.stringify(d).slice(0, 300)}`);
+    await dm("confirmpublish", { id, ok: true });
+    d = await dmItem(id);
+    assert(d.published_text === "Lemme share my yummy menu" && Date.parse(d.last_activity_at) >= before, `sent, and the chat moved: ${d.last_activity_at}`);
+    await dm("publishitem", { id, revision_text: "And a sweet treat for you", remaining_text: "" });
+    d = await dmItem(id);
+    assert(d.publish_status === "publishing" && d.leftover_text === null && (await dm("publishwanted")).items.find((w) => w.id === id).text === "And a sweet treat for you", `the rest goes later: ${JSON.stringify(d).slice(0, 300)}`);
+    await dm("confirmpublish", { id, ok: true });
+    d = await dmItem(id);
+    assert(d.published_text === "Lemme share my yummy menu\nAnd a sweet treat for you" && d.revision_text === d.published_text, `it joins what went out: ${JSON.stringify(d).slice(0, 300)}`);
+    await dm("publishitem", { id, revision_text: "Hahaha one more" });
+    await dm("confirmpublish", { id, ok: false, detail: "thread not found" });
+    d = await dmItem(id);
+    assert(d.publish_status === "published" && d.publish_error === "thread not found" && d.published_text === "Lemme share my yummy menu\nAnd a sweet treat for you", `a failed later send leaves the first ones sent: ${JSON.stringify(d).slice(0, 300)}`);
+    await dm("editpublished", { id, line_index: 0, text: "Lemme share my menu" });
+    await dmFails("publishitem", { id, revision_text: "More" }, 409, "Let it land");
+    await dm("confirmedit", { id, ok: false, detail: "can't edit" });
+  });
+  await check("v1.22 a later sync updates the facts, and a newer message from them brings a General chat back to the inbox", async () => {
+    // The simulator's rule: a chat she moved to General comes back once their newest message is newer than her move.
+    await dm("setchatsection", { id: chat122.dm, section: "general" });
+    assert((await dmItem(chat122.dm)).section === "general", "moved to General");
+    await dm("updatethread", { id: chat122.dm, thread_messages: [{ from: "them", kind: "text", text: "hey you", at: "2026-11-20T10:00:00Z" }] });
+    assert((await dmItem(chat122.dm)).section === "general", "an older message from them doesn't move it back");
+    const later = new Date(Date.now() + 60_000).toISOString(), later2 = new Date(Date.now() + 120_000).toISOString();
+    await dm("updatethread", { id: chat122.dm, folder: "primary", ig_read: false, follows_her: true, thread_messages: [
+      { from: "them", kind: "text", text: "hey you", at: "2026-11-20T10:00:00Z" }, { from: "them", kind: "text", text: "you there?", at: later }] });
+    const d = await dmItem(chat122.dm);
+    assert(d.folder === "primary" && d.ig_read === false && d.follows_her === true && d.following === true, `facts updated, the rest kept: ${JSON.stringify(d).slice(0, 300)}`);
+    assert(d.section === "main" && d.last_activity_at === later, `back in the inbox: ${d.section} ${d.last_activity_at}`);
+    await dm("setchatsection", { id: chat122.dm, section: "general" });
+    await dm("updatethread", { id: chat122.dm, thread_messages: [{ from: "them", kind: "text", text: "you there?", at: later },
+      { from: "me", kind: "text", text: "Yesss!!", at: later2 }] });
+    assert((await dmItem(chat122.dm)).section === "general", "her own message doesn't move it back");
+    await dm("setchatsection", { id: chat122.dm, section: "main" });
+    await dmFails("setchatsection", { id: chat122.dm, section: "requests" }, 400, "section");
+  });
+  await check("v1.22 opening a chat in the app marks it read here, apart from Instagram's own read mark", async () => {
+    const r = await dm("markreadinbuild", { id: chat122.comment });
+    const c = await dmItem(chat122.comment);
+    assert(r.ok === true && typeof c.build_read_at === "string" && c.ig_read === false, `read here only: ${JSON.stringify(c).slice(0, 200)}`);
+  });
+  await check("v1.22 Refresh with a direction asks her Muse with it, and an empty direction asks for a fresh one", async () => {
+    await dm("generatedraft", { id: chat122.comment, variant: "again", direction: "  warmer, and ask about the dress  " });
+    let w = (await dm("draftswanted")).items.find((i) => i.id === chat122.comment);
+    assert(w && w.variant === "again" && w.direction === "warmer, and ask about the dress" && w.prompt.includes("warmer, and ask about the dress"), `with a direction: ${JSON.stringify(w).slice(0, 400)}`);
+    await dm("savedraft", { id: chat122.comment, draft_text: "Thank you for being here!!" });
+    await dm("generatedraft", { id: chat122.comment, variant: "again", direction: "" });
+    w = (await dm("draftswanted")).items.find((i) => i.id === chat122.comment);
+    assert(w && w.direction === null && !w.prompt.includes("Her direction"), `no direction: ${JSON.stringify(w).slice(0, 300)}`);
+    await dmFails("generatedraft", { id: chat122.comment, direction: "x".repeat(301) }, 400, "direction");
+    await dm("savedraft", { id: chat122.comment, draft_text: "Thank you for being here!!" });
+  });
+  await check("v1.22 a sent line can be edited: her Muse is asked, and only its report changes what shows as sent", async () => {
+    const id = chat122.comment;
+    await dmFails("editpublished", { id, line_index: 0, text: "Thank you so much!!" }, 409, "gone out");
+    await dm("publishitem", { id, revision_text: "Thank you for being here!!\nYour dress is a dream!!" });
+    await dm("confirmpublish", { id, ok: true });
+    await dmFails("editpublished", { id, line_index: 1, text: "Your dress is a dream!!" }, 400, "same text");
+    await dmFails("editpublished", { id, line_index: 5, text: "Hi!!" }, 409, "no longer there");
+    const r = await dm("editpublished", { id, line_index: 1, text: "That dress is a dream!!" });
+    let c = await dmItem(id);
+    assert(r.status === "editing" && c.edit_status === "editing" && c.pending_edit_line === 1 && c.published_text.endsWith("Your dress is a dream!!"), `editing: ${JSON.stringify(c).slice(0, 300)}`);
+    await dmFails("editpublished", { id, line_index: 0, text: "Thank you!!" }, 409, "already on its way");
+    const want = (await dm("editswanted")).items.find((i) => i.id === id);
+    assert(want && want.old_text === "Your dress is a dream!!" && want.new_text === "That dress is a dream!!" && want.line_index === 1 && want.comment_id === "c-122", `asked: ${JSON.stringify(want)}`);
+    await dm("confirmedit", { id, ok: false, detail: "Instagram doesn't let a comment reply be edited." });
+    c = await dmItem(id);
+    assert(c.edit_status === "edit_failed" && c.edit_error.includes("doesn't let") && c.published_text.endsWith("Your dress is a dream!!"), "a failed edit changes nothing sent");
+    assert(!(await dm("editswanted")).items.some((i) => i.id === id), "and isn't asked again");
+    await dm("editpublished", { id, line_index: 1, text: "That dress is a dream!!" });
+    await dm("confirmedit", { id, ok: true });
+    c = await dmItem(id);
+    assert(c.edit_status === "none" && c.published_text === "Thank you for being here!!\nThat dress is a dream!!" && c.edited_line_index === 1 && typeof c.edited_at === "string", `edited: ${JSON.stringify(c).slice(0, 300)}`);
+    await dmFails("confirmedit", { id, ok: true }, 409, "no edit");
+  });
+  await check("v1.22 her edits are kept: the lines she's working on are saved with the chat until a new draft or a send replaces them", async () => {
+    const id = (await dm("createitem", { kind: "dm", sender: "keep.edits", incoming_text: "can I book a call?" })).id;
+    await dm("generatedraft", { id });
+    await dm("savedraft", { id, draft_text: "Yesss lemme send you my link\nSomething tells me this is your week" });
+    assert((await dmItem(id)).work_lines === null, "nothing kept yet");
+    const kept = [{ text: "Yesss lemme send you the link", approved: true }, { text: "Something tells me this is your week", approved: false }];
+    assert((await dm("savework", { id, lines: kept })).ok === true, "saved");
+    let d = await dmItem(id);
+    assert(JSON.stringify(d.work_lines) === JSON.stringify(kept) && d.verdict === "pending" && d.draft_text.startsWith("Yesss lemme send you my link"), `kept, and the draft and verdict stay: ${JSON.stringify(d).slice(0, 300)}`);
+    await dm("savework", { id, lines: [{ text: "  Trimmed  ", approved: true }] });
+    assert((await dmItem(id)).work_lines[0].text === "Trimmed", "trimmed");
+    await dmFails("savework", { id, lines: [{ text: "  ", approved: true }] }, 400, "text");
+    await dmFails("savework", { id, lines: [{ text: "Hi", approved: "yes" }] }, 400, "approved");
+    await dmFails("savework", { id, lines: "nope" }, 400, "lines");
+    await dm("savework", { id, lines: [] });
+    assert(JSON.stringify((await dmItem(id)).work_lines) === "[]", "she deleted every line: kept as none, not as untouched");
+    await dm("savework", { id, lines: null });
+    assert((await dmItem(id)).work_lines === null, "null clears it");
+    await dm("savework", { id, lines: kept });
+    await dm("generatedraft", { id, variant: "again" });
+    await dm("savedraft", { id, draft_text: "Alohaaa yes!!" });
+    assert((await dmItem(id)).work_lines === null, "a new draft replaces what she was working on");
+    await dm("savework", { id, lines: kept });
+    await dm("publishitem", { id, revision_text: "Yesss lemme send you the link", remaining_text: "Something tells me this is your week" });
+    d = await dmItem(id);
+    assert(d.work_lines === null && d.leftover_text === "Something tells me this is your week", `a send splits it into what went and what's left: ${JSON.stringify(d).slice(0, 300)}`);
+    await dm("confirmpublish", { id, ok: true });
+  });
+  await check("v1.22 a chat Instagram keeps in General starts in her General, and only a change on Instagram moves it again", async () => {
+    const id = (await dm("createitem", { kind: "dm", sender: "gen.folder", incoming_text: "hi there", folder: "general" })).id;
+    let d = await dmItem(id);
+    assert(d.section === "general" && d.folder === "general", `starts in General: ${d.section}`);
+    const later = new Date(Date.now() + 60_000).toISOString();
+    await dm("updatethread", { id, folder: "general", thread_messages: [{ from: "them", kind: "text", text: "hi there", at: later }] });
+    assert((await dmItem(id)).section === "general", "a newer message doesn't move a chat Instagram keeps in General");
+    await dm("setchatsection", { id, section: "main" });
+    await dm("updatethread", { id, folder: "general" });
+    assert((await dmItem(id)).section === "main", "her own move holds while Instagram's folder stays the same");
+    await dm("updatethread", { id, folder: "primary" });
+    await dm("setchatsection", { id, section: "general" });
+    await dm("updatethread", { id, folder: "general" });
+    d = await dmItem(id);
+    assert(d.section === "general", "Instagram moving it to General moves it here too");
+    await dm("updatethread", { id, folder: "primary" });
+    assert((await dmItem(id)).section === "main", "and moving it out brings it back to the inbox");
+    const req = (await dm("createitem", { kind: "dm", sender: "req.folder", incoming_text: "hello", folder: "requests" })).id;
+    assert((await dmItem(req)).section === "main", "a request isn't General");
   });
   await check("v1.14 every class the Chats screen uses has a rule in its stylesheet (after changing classes: node scripts/dm-css.mjs)", async () => {
     const dir = new URL("../client/src/dm/", import.meta.url).pathname;

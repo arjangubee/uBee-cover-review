@@ -1,7 +1,7 @@
 // Client logic checked without a browser: the layout math that puts the quote on the posted cover where
 // the review deck shows it, the words the Approved grid uses, and the new-version check for hosted copies.
 // Run: node scripts/render-test.mjs
-import { FONT_CSS, FONT_LABELS, HALF_PRESETS, PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, colorPatch, contrastPixel, coverLayout, drawCover, estimatedLineCount, insideSafeZone, lookOf, mosaicRects, normalizePlacement, presetOn, randomizeLayout, registerFonts, safeZoneFor, textBoxes, textHitBoxes, withLook } from "../client/src/renderCover.js";
+import { LANDSCAPE_MIN_WIDTH, autoLines, rewrapWidth, FONT_CSS, FONT_LABELS, HALF_PRESETS, PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, colorPatch, contrastPixel, coverLayout, drawCover, estimatedLineCount, insideSafeZone, lookOf, mosaicRects, normalizePlacement, presetOn, randomizeLayout, registerFonts, safeZoneFor, textBoxes, textHitBoxes, withLook } from "../client/src/renderCover.js";
 import { createHistory } from "../client/src/undo.js";
 import { globalHide, overlayOf, ownQuote, quoteShown } from "../client/src/quoteOverlay.js";
 import { RANDOM_LAYOUTS, ZOOM_REST, changedFields, displayTitle, parseSong, randomEditorialLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars, zoomPan, zoomSettle, zoomTo } from "../client/src/reviewMath.js";
@@ -735,6 +735,25 @@ check("v1.20 a color picked after either 50% preset is at 100% again; a hand-set
   assert(JSON.stringify(colorPatch({ textColor: "#000000", opacity: 50 }, "#FFFFFF")) === JSON.stringify({ textColor: "#FFFFFF", opacity: 100 }), "after Black 50%");
   assert(JSON.stringify(colorPatch({ textColor: "#FB0909", opacity: 70 }, "#FFFFFF")) === JSON.stringify({ textColor: "#FFFFFF" }), "a hand-set opacity stays");
   assert(JSON.stringify(colorPatch({ textColor: "#FB0909", opacity: 50 }, "#FFFFFF")) === JSON.stringify({ textColor: "#FFFFFF" }), "50% on another color isn't a preset");
+});
+
+check("v1.27 a landscape drag off center re-wraps the text narrower instead of stopping, and stays on the photo (Quill #1145)", () => {
+  const W = 1600, H = 900, m = (px) => (t) => t.length * px * 0.5;
+  const quote = "the sea keeps every secret you whisper to it at night";
+  assert(rewrapWidth(W / 2, 0.42 * W, 84, 0, W) === null, "centered, the 84% column keeps its width");
+  assert(rewrapWidth(0.25 * W, 0.42 * W, 84, 0, W) === 50 && rewrapWidth(0.05 * W, 0.42 * W, 84, 0, W) === LANDSCAPE_MIN_WIDTH, "narrower toward an edge, 38% at the least");
+  assert(rewrapWidth(0.75 * W, 0.42 * W, 84, 0, W) === 50, "the same to the right");
+  const wide = coverLayout({ quote, horizontalPosition: 25 }, W, H, m);
+  assert(Math.abs(wide.anchorX / W - 0.5) < 0.1, `the 84% column can't go far off center: ${wide.anchorX / W}`);
+  for (const [h, w] of [[25, 50], [75, 50], [20, 38], [80, 38]]) {
+    const L = coverLayout({ quote, horizontalPosition: h, textWidth: w }, W, H, m);
+    assert(Math.abs(L.anchorX / W - h / 100) < 0.02, `center reaches ${h}% at ${w}%: ${(100 * L.anchorX) / W}`);
+    assert(L.bounds.left >= 0 && L.bounds.right <= W, `fully on the photo at ${h}%: ${L.bounds.left} to ${L.bounds.right}`);
+  }
+  const n = autoLines({ quote, textWidth: 84 }, W, H), narrow = autoLines({ quote, textWidth: 42 }, W, H);
+  assert(n === estimatedLineCount(quote) && narrow === Math.min(quote.split(" ").length, Math.ceil(n * 2)), `re-wraps to more rows: ${n} to ${narrow}`);
+  assert(autoLines({ quote, textWidth: 42 }, 900, 1600) === estimatedLineCount(quote) && autoLines({ quote, textWidth: 42 }, 1000, 1000) === estimatedLineCount(quote),
+    "portrait and square are as before");
 });
 
 console.log(failed ? "RENDER TEST FAILED" : "RENDER TEST OK");

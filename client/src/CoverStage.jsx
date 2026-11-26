@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import CoverCanvas from "./CoverCanvas.jsx";
 import Icon from "./icons.jsx";
-import { safeZoneFor, textHitBoxes } from "./renderCover.js";
+import { rewrapWidth, safeZoneFor, textHitBoxes } from "./renderCover.js";
 import { lockAxis, startAxis } from "./safeLock.js";
 import { GUIDE_IDS, SNAP_PX, guidesFor, snap, snapGuidesOn } from "./snapGuides.js";
 
@@ -109,7 +109,8 @@ export default function CoverStage({
     const z = safeZoneFor(cssW, cssH);
     Object.assign(p, { zone: z, halfW: b.halfW, halfH: b.halfH,
       lockX: startAxis(b.centerX, b.halfW, z.left, z.right), lockY: startAxis(b.centerY, b.halfH, z.top, z.bottom),
-      snapOn: snapGuidesOn(), guides: null, gx: null, gy: null, slideAt, cssW, cssH });
+      snapOn: snapGuidesOn(), guides: null, gx: null, gy: null, slideAt, cssW, cssH,
+      w0: cssW > cssH ? b.textWidth : null, w: null }); // a landscape box re-wraps narrower to follow a drag (1.27.0)
   }
   const pointer = (cssW, cssH, slideAt = null) => ({
     onPointerDown(e) {
@@ -156,8 +157,15 @@ export default function CoverStage({
         snap(snapPos, p.bounds, p.guides, SNAP_PX, snapOut);
         x = snapOut.x; y = snapOut.y; gx = snapOut.xGuide; gy = snapOut.yGuide;
       }
+      // A landscape drag past where the block's edge meets the photo's edge re-wraps it narrower instead of stopping
+      // (1.27.0, Quill #1145), down to 38%, so the center keeps following her. The block always stays on the photo.
+      let halfW = p.halfW;
+      if (p.zone && p.w0) {
+        p.w = rewrapWidth(x, p.halfW, p.w0, p.zone.left, p.zone.right);
+        if (p.w != null) halfW = (p.halfW * p.w) / p.w0;
+      }
       if (p.zone) {
-        const ax = lockAxis(p.lockX, x, p.halfW, p.zone.left, p.zone.right), ay = lockAxis(p.lockY, y, p.halfH, p.zone.top, p.zone.bottom);
+        const ax = lockAxis(p.lockX, x, halfW, p.zone.left, p.zone.right), ay = lockAxis(p.lockY, y, p.halfH, p.zone.top, p.zone.bottom);
         p.lockX = ax.state; p.lockY = ay.state;
         if (ax.center !== x) gx = null; // a safe edge held it off the line: no line shows
         if (ay.center !== y) gy = null;
@@ -171,8 +179,10 @@ export default function CoverStage({
       const h = Math.min(100, Math.max(0, (x / r.width) * 100));
       const v = Math.min(100, Math.max(0, (y / r.height) * 100));
       const hx = gx ? Math.round(h * 1000) / 1000 : Math.round(h), vy = gy ? Math.round(v * 1000) / 1000 : Math.round(v);
-      if (!p.lifted) onMoveBox(p.hit, hx, vy);
-      else if (p.moved) { p.placed = true; onMoveText(p.hit, hx, vy, slideAt); } // past a tap's wiggle
+      // Back toward the middle in the same drag, the box widens again, never past the width it started this drag with.
+      const w = p.w0 ? (p.w ?? p.w0) : null;
+      if (!p.lifted) onMoveBox(p.hit, hx, vy, w);
+      else if (p.moved) { p.placed = true; onMoveText(p.hit, hx, vy, slideAt, w); } // past a tap's wiggle
     },
     onPointerUp() {
       const p = press.current;

@@ -243,6 +243,44 @@ try {
     });
   });
 
+  await check("v1.27 an exact song request lands that song as is, either order or with by, and one that isn't listed changes nothing (Quill #1119)", async () => {
+    await withCopy(4185, async (api) => {
+      const c = await cover(api, "a.png", { quote: QUOTES[1], song: "Night Owls - Slow Night" });
+      let r = await now(api, c.id, { song: { on: true, prompt: "Sunset Drive - Sun Kids" } });
+      assert(r.item.songFile === FILE("sun--sunset-drive") && r.item.song === "Sun Kids - Sunset Drive", `title - artist: ${r.item.song}`);
+      r = await now(api, c.id, { song: { on: true, prompt: "Night Owls - Slow Night" } });
+      assert(r.item.songFile === FILE("night--slow-night"), `artist - title, even one it had: ${r.item.song}`);
+      r = await now(api, c.id, { song: { on: true, prompt: "dance floor by beat club" } });
+      assert(r.item.songFile === FILE("beat--dance-floor"), `title by artist: ${r.item.song}`);
+      const was = await itemOf(api, c.id);
+      for (const prompt of ["Sunset Boulevard - Sun Kids", "November - Tyler, The Creator"]) {
+        assert((await api.status(`/api/items/${c.id}/remix-now`, { song: { on: true, prompt } })) === 422, `not found: ${prompt}`);
+        const e = await now(api, c.id, { song: { on: true, prompt } });
+        assert(/isn't on your song lists/.test(e.error || ""), `it says so: ${JSON.stringify(e)}`);
+      }
+      const after = await itemOf(api, c.id);
+      assert(after.song === was.song && after.songFile === was.songFile && after.revision === was.revision, "no same-artist stand-in, nothing changed");
+    });
+  });
+
+  await check("v1.27 Shuffle picks by what the cover says, never repeats a song on that cover, and says when the list is done (Quill #1119, Arjang #1092)", async () => {
+    await withCopy(4185, async (api) => {
+      const c = await cover(api, "a.png", { quote: QUOTES[2], song: "Night Owls - Slow Night", description: "dancing on the floor" });
+      const seen = [c.song];
+      for (let i = 0; i < 3; i++) {
+        const r = await api.post(`/api/items/${c.id}/edit`, { shuffleSong: true });
+        assert(r.item && !seen.includes(r.item.song), `shuffle ${i + 1} is new: ${r.item?.song} after ${seen.join(", ")}`);
+        seen.push(r.item.song);
+      }
+      assert(seen[1] === "Beat Club - Dance Floor", `the first shuffle matches the cover: ${seen[1]}`);
+      assert((await api.status(`/api/items/${c.id}/edit`, { shuffleSong: true })) === 409, "the list is done");
+      const done = await itemOf(api, c.id);
+      assert(done.song === seen[3], `the song stays when the list is done: ${done.song}`);
+      const again = await api.post(`/api/items/${c.id}/edit`, { shuffleSong: true });
+      assert(again.item && again.item.song !== seen[3], `then it starts over: ${again.item?.song}`);
+    });
+  });
+
   await check("v1.21 Undo puts back everything a remix changed, and Redo does it again", async () => {
     await withCopy(4185, async (api) => {
       const c = await cover(api, "a.png", { quote: QUOTES[0], song: "Night Owls - Slow Night" });

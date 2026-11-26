@@ -1,9 +1,7 @@
 {
-  "version": "1.27.0",
+  "version": "1.27.1",
   "date": "2026-11-25",
   "whatsNew": [
-    "Shuffle picks a song that fits the post and never repeats one on the same cover, and a song named in Remix as Title - Artist lands exactly",
-    "On a landscape photo, dragging text toward a side re-wraps it narrower so it can go there",
-    "TikTok Sans now has every weight from Light to Black, and new text boxes start in Bold"
+    "Covers no longer show up empty when one background call fails: the list retries, and an error says what didn't load"
   ]
 }

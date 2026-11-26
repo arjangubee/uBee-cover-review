@@ -106,20 +106,33 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  // 1.27.1 (room #1193, #1207): one call that fails no longer blanks Covers. Before, the four calls shared one Promise.all
+  // with no catch, so any one failing threw before the list was set and the screen read empty. Now each call stands alone:
+  // the covers list is tried up to 3 times, and if it still fails the covers she had stay on screen and the error names it.
   const load = useCallback(async () => {
+    const soft = (path) => api(path).catch((e) => { console.error(`Cover Review: ${path} didn't load: ${e.message}`); return null; });
+    const listOf = async () => {
+      for (let tries = 1; ; tries++) {
+        try { return await api(`/api/items?status=${list}`); } catch (e) {
+          console.error(`Cover Review: the covers list didn't load (try ${tries}): ${e.message}`);
+          if (tries >= 3) throw new Error(`Covers didn't load: ${e.message}. Tap the logo to try again.`);
+          await new Promise((r) => setTimeout(r, 600 * tries));
+        }
+      }
+    };
     const [s, q, qs, quiz, pc, pal, calls, sym] = await Promise.all([
-      api("/api/setup/status"), api(`/api/items?status=${list}`), api("/api/quotes/status"), api("/api/quiz/quotes"),
-      api("/api/pollen/channels").catch(() => null), api("/api/palette").catch(() => null), api("/api/settings/caption-ctas").catch(() => null),
-      api("/api/connectors/symphony").catch(() => null),
+      soft("/api/setup/status"), listOf().catch((e) => ({ error: e })), soft("/api/quotes/status"), soft("/api/quiz/quotes"),
+      soft("/api/pollen/channels"), soft("/api/palette"), soft("/api/settings/caption-ctas"), soft("/api/connectors/symphony"),
     ]);
     setSymphony(sym);
-    setStatus(s);
-    setItems(q.items);
-    setQuotesStatus(qs);
-    setQuizQuotes(quiz.quotes);
+    if (s) setStatus(s);
+    if (qs) setQuotesStatus(qs);
+    if (quiz) setQuizQuotes(quiz.quotes);
     setPollen(pc);
     applyPalette(pal);
     setCtas(calls?.ctas || []);
+    if (q.error) throw q.error; // the covers she had stay; the error shows
+    setItems(Array.isArray(q.items) ? q.items : []);
     setLoads((n) => n + 1);
   }, [list, applyPalette]);
   useEffect(() => { load().catch((e) => say(e.message)); }, [load, say]);

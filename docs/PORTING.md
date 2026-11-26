@@ -12,6 +12,29 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.27.1: Covers never blank on one failed call (hotfix)
+
+Room #1193, #1197 and #1207. Covers read empty (Queue, Approved and Passed) while the data was intact and the list call
+answered fine on the server. The page's load ran its first four calls (setup status, the covers list, quotes status,
+quiz quotes) in one Promise.all with no catch, so any one of them failing in the browser threw before the list was set,
+and the only sign was a toast for 2.8 seconds.
+
+1. Each call in the load stands alone. Setup status, quotes status and quiz quotes keep what she had when they fail.
+2. The covers list is tried up to 3 times (0.6 s, then 1.2 s apart). If it still fails, the covers already on screen stay
+   and the error says "Covers didn't load: <why>. Tap the logo to try again."
+3. Each failed call logs its path and error to the browser console (`Cover Review: <path> didn't load: ...`), so the next
+   report names the call.
+
+| Where | Change |
+| --- | --- |
+| client/src/App.jsx | `load`: calls stand alone, the list retries, failures logged |
+
+### Data steps (her space, never the repo)
+
+- None. Re-verify every count. Live check: Covers shows Queue, Approved and Passed with the counts from the server.
+- If Covers is still empty after the port, read the browser console on his device for the `Cover Review:` line: that's
+  the failing call, and the fix goes there.
+
 ## 1.27.0: song shuffle, landscape re-wrap and the TikTok Sans files
 
 Arjang #1092, #1094 and #1112; Quill #1119, #1145 and #1163 (the shuffle and drag half of color + shuffle).

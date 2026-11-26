@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import CoverCanvas from "./CoverCanvas.jsx";
 import Icon from "./icons.jsx";
-import { rewrapWidth, safeZoneFor, textHitBoxes } from "./renderCover.js";
+import { STYLE_DEFAULTS, rewrapWidth, safeZoneFor, textHitBoxes } from "./renderCover.js";
 import { lockAxis, startAxis } from "./safeLock.js";
 import { GUIDE_IDS, SNAP_PX, guidesFor, snap, snapGuidesOn } from "./snapGuides.js";
 import { SWIPE, buzzesMidDrag, flyFor, haptic, progressFor, releaseFor, stampFor, tiltFor, velocityOf } from "./swipe.js";
@@ -96,13 +96,59 @@ export default function CoverStage({
       snapOn: snapGuidesOn(), guides: null, gx: null, gy: null, slideAt, cssW, cssH,
       w0: b.textWidth, w: null }); // a box re-wraps narrower to follow a drag: landscape (1.27.0), every ratio (1.29.0)
   }
+  // Two fingers on a text box (1.35.0, Arjang Nov 26) pinch it bigger or smaller, and move it with them: in the editor
+  // the second finger joins a press on a box; outside it, two fingers on a box lift it at once. The size stays between
+  // the Size slider's ends (or wherever it already was past them).
+  const sizeOf = (index) => {
+    const b = index === -1 ? item : (item.extraTexts || [])[index];
+    return Number(b?.fontSize) || STYLE_DEFAULTS.fontSize;
+  };
+  function startPinch(p, e, cssW, cssH, slideAt) {
+    const b = boxesAt(cssW, cssH, slideAt).find((bx) => bx.index === p.hit);
+    const r = e.currentTarget.getBoundingClientRect();
+    const s0 = sizeOf(p.hit);
+    p.pinch = { id: e.pointerId, x: e.clientX, y: e.clientY, d0: Math.max(12, Math.hypot(e.clientX - p.cx, e.clientY - p.cy)), s0,
+      lo: Math.min(24, s0), hi: Math.max(110, s0), mid0: { x: (e.clientX + p.cx) / 2, y: (e.clientY + p.cy) / 2 },
+      c0: b ? { x: (b.centerX * r.width) / cssW, y: (b.centerY * r.height) / cssH } : { x: p.cx - r.left, y: p.cy - r.top } };
+    if (p.gx || p.gy) { p.gx = p.gy = null; setGuide(null); }
+  }
+  function applyPinch(p, e, slideAt) {
+    const q = p.pinch, r = e.currentTarget.getBoundingClientRect();
+    const d = Math.hypot(q.x - p.cx, q.y - p.cy);
+    const size = Math.round(Math.min(q.hi, Math.max(q.lo, (q.s0 * d) / q.d0)));
+    const mid = { x: (q.x + p.cx) / 2, y: (q.y + p.cy) / 2 };
+    const h = Math.round(Math.min(100, Math.max(0, ((q.c0.x + mid.x - q.mid0.x) / r.width) * 100)));
+    const v = Math.round(Math.min(100, Math.max(0, ((q.c0.y + mid.y - q.mid0.y) / r.height) * 100)));
+    if (!p.freed) { p.freed = true; onFree?.(p.hit); }
+    p.moved = true;
+    if (!p.lifted) onMoveBox(p.hit, h, v, null, size);
+    else { p.placed = true; onMoveText(p.hit, h, v, slideAt, null, size); }
+  }
   const pointer = (cssW, cssH, slideAt = null) => ({
     onPointerDown(e) {
+      const p0 = press.current;
+      if (p0 && p0.id !== e.pointerId) {
+        // A second finger: only on a text box she's moving or holding, and only one pinch at a time.
+        if (p0.pinch || p0.hit == null || p0.mouse || pickMode || e.pointerType === "mouse") return;
+        if (!p0.drag) {
+          if (editing || !onMoveText || p0.moved) return;
+          clearTimeout(p0.timer); // two fingers on the box lift it right away
+          p0.lifted = true;
+          p0.drag = true;
+          try { e.currentTarget.setPointerCapture?.(p0.id); } catch { /* the first finger may be gone already */ }
+          grab(p0, cssW, cssH, slideAt);
+          setLift({ index: p0.hit, slideAt });
+        }
+        try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* the pointer may be gone already */ }
+        startPinch(p0, e, cssW, cssH, slideAt);
+        return;
+      }
       const r = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - r.left, y = e.clientY - r.top;
       const hit = hitAt(x, y, cssW, cssH, slideAt);
       // In the editor a press on any text box picks it and drags it at once (1.20.0, Big Edit item 9).
-      const p = { x0: e.clientX, y0: e.clientY, x, y, hit, moved: false, mouse: e.pointerType === "mouse", drag: editing && !pickMode && hit != null, lifted: false };
+      const p = { id: e.pointerId, x0: e.clientX, y0: e.clientY, cx: e.clientX, cy: e.clientY, x, y, hit, moved: false, mouse: e.pointerType === "mouse",
+        drag: editing && !pickMode && hit != null, lifted: false };
       press.current = p;
       if (p.drag) {
         e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -125,6 +171,13 @@ export default function CoverStage({
     onPointerMove(e) {
       const p = press.current;
       if (!p) return;
+      if (p.pinch) {
+        if (e.pointerId === p.pinch.id) { p.pinch.x = e.clientX; p.pinch.y = e.clientY; } else if (e.pointerId === p.id) { p.cx = e.clientX; p.cy = e.clientY; } else return;
+        applyPinch(p, e, slideAt);
+        return;
+      }
+      if (e.pointerId !== p.id || p.pinched) return; // after a pinch the box stays where the fingers left it
+      p.cx = e.clientX; p.cy = e.clientY;
       if (Math.abs(e.clientX - p.x0) > TAP || Math.abs(e.clientY - p.y0) > TAP) { p.moved = true; if (!p.lifted) clearTimeout(p.timer); }
       if (!p.drag) return;
       if (!p.freed && Math.hypot(e.clientX - p.x0, e.clientY - p.y0) > FREE) { p.freed = true; onFree?.(p.hit); }
@@ -169,10 +222,12 @@ export default function CoverStage({
       if (!p.lifted) onMoveBox(p.hit, hx, vy, w);
       else if (p.moved) { p.placed = true; onMoveText(p.hit, hx, vy, slideAt, w); } // past a tap's wiggle
     },
-    onPointerUp() {
+    onPointerUp(e) {
       const p = press.current;
-      press.current = null;
       if (!p) return;
+      if (p.pinch && e.pointerId === p.pinch.id) { p.pinch = null; p.pinched = true; return; } // the first finger finishes it
+      if (e.pointerId !== p.id) return;
+      press.current = null;
       clearTimeout(p.timer);
       if (p.gx || p.gy) setGuide(null);
       if (p.lifted) setLift(null);
@@ -190,10 +245,12 @@ export default function CoverStage({
       if (editing) onSelectBox(p.hit);
       else onStartEdit(p.hit, slideAt);
     },
-    onPointerCancel() {
+    onPointerCancel(e) {
       const p = press.current;
-      press.current = null;
       if (!p) return;
+      if (p.pinch && e.pointerId === p.pinch.id) { p.pinch = null; p.pinched = true; return; }
+      if (e.pointerId !== p.id) return;
+      press.current = null;
       clearTimeout(p.timer);
       if (p.gx || p.gy) setGuide(null);
       if (p.lifted) setLift(null);
@@ -564,7 +621,7 @@ export default function CoverStage({
           <UnderCard key={below.item.id} item={below.item} quoteOn={below.quoteOn} maxW={stageW} maxH={stageH} story={story} safe={safe} />
         </div>
       )}
-      <div className="swipeCard" ref={cardRef} style={canSwipe ? { touchAction: "pan-y pinch-zoom" } : undefined}
+      <div className="swipeCard" ref={cardRef} style={canSwipe ? { touchAction: "pan-y" } : undefined}
         onPointerDown={cardDown} onPointerMove={cardMove} onPointerUp={cardUp} onPointerCancel={cardCancel}
         onLostPointerCapture={(e) => { if (e.target === e.currentTarget) cardCancel(e); /* the photo's own one bubbles here too */ }}>
         {single ? (

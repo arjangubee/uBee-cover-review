@@ -2383,6 +2383,24 @@ try {
     assert(onCover.length === 5 && onCover[0].quote === "on the cover", `the cover holds 5: ${JSON.stringify(onCover.map((b) => b.quote))}`);
     assert(!saved.some((b) => ["no such photo", "not a number", "negative"].includes(b.quote)), "a box on a photo that isn't there is dropped");
   });
+  await check("v1.35 Save Color keeps a color in her custom colors, newest first, with no limit, apart from her recent colors", async () => {
+    const start = await (await fetch(`${base}/api/palette`)).json();
+    assert(Array.isArray(start.savedColors), `the palette lists saved colors: ${JSON.stringify(start).slice(0, 200)}`);
+    const hexes = Array.from({ length: 9 }, (_, i) => `#0${i}AA${i}${i}`);
+    let pal = start;
+    for (const hex of hexes) pal = await postJson(`/api/palette/saved-colors`, { hex: hex.toLowerCase() });
+    assert(pal.savedColors.length >= 9 && pal.savedColors[0] === hexes[8] && pal.savedColors.includes(hexes[0]), `no limit, newest first: ${JSON.stringify(pal.savedColors)}`);
+    const again = await postJson(`/api/palette/saved-colors`, { hex: hexes[0] });
+    assert(again.savedColors[0] === hexes[0] && again.savedColors.filter((c) => c === hexes[0]).length === 1, "saving one she has moves it to the front, once");
+    assert(JSON.stringify(again.customColors) === JSON.stringify(start.customColors), "saving never touches her recent colors");
+    const gone = await postJson(`/api/palette/saved-colors/remove`, { hex: hexes[3] });
+    assert(!gone.savedColors.includes(hexes[3]) && gone.savedColors.length === again.savedColors.length - 1, JSON.stringify(gone.savedColors));
+    for (const path of ["/api/palette/saved-colors", "/api/palette/saved-colors/remove"]) {
+      const bad = await fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hex: "blue" }) });
+      assert(bad.status === 400, `${path}: a bad color answers 400, got ${bad.status}`);
+    }
+    for (const hex of hexes) await postJson(`/api/palette/saved-colors/remove`, { hex });
+  });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);
     const root = new URL("../", import.meta.url).pathname;

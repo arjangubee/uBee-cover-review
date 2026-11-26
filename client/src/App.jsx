@@ -594,6 +594,14 @@ export default function App() {
       say(was ? "Quotes are back. Each cover shows its own." : "Quotes hidden on every cover. Hold the T again to bring them back.");
     }).finally(() => { holding.current = false; });
   };
+  // After a randomize the button has focus again (1.29.0, Quill #1216), so Enter or Space runs it once more on a computer.
+  // Never pulled out of a field she moved into while it ran.
+  const randomizeBtn = useRef(null);
+  const refocusRandomize = () => requestAnimationFrame(() => {
+    const el = document.activeElement;
+    const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+    if (!typing && randomizeBtn.current && el !== randomizeBtn.current) randomizeBtn.current.focus({ preventScroll: true });
+  });
   const randomize = () => attempt(async () => {
     // The original's six layouts, kept inside the safe zone (1.8). Layout only: never the color, the font or the weight.
     // With Color lock off (1.14.1, Arjang #790 item 4) it also picks a new color from the palette.
@@ -608,7 +616,7 @@ export default function App() {
     if (others.length) patch.textColor = others[Math.floor(Math.random() * others.length)].hex;
     const before = { style: pickStyle(drawn, Object.keys(patch)) }, after = { style: patch };
     await record("Randomize", current.id, before, after);
-  });
+  }).finally(refocusRandomize);
   // Takes one of her custom colors off her list (1.9.1). Covers that use it keep it.
   const removeCustomColor = (hex) => attempt(async () => {
     applyPalette(await post("/api/palette/custom-colors/remove", { hex }));
@@ -949,7 +957,7 @@ export default function App() {
                 <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={addSlide} onRemoveSlide={removeSlide}
                   canPrevPost={index > 0} canNextPost={index < items.length - 1} onPrevPost={() => goTo(index - 1)} onNextPost={() => goTo(index + 1)} />
                 <div className="randomizeBar">
-                  <button type="button" className="randomizeMain" onClick={randomize}><Icon name="sparkle" size={20} /> Randomize layout</button>
+                  <button type="button" ref={randomizeBtn} className="randomizeMain" onClick={randomize}><Icon name="sparkle" size={20} /> Randomize layout</button>
                   <button type="button" className="colorLock" aria-pressed={colorLock} onClick={() => setColorLock((on) => !on)}>
                     <Icon name={colorLock ? "lock" : "unlock"} size={16} /> Color lock
                   </button>

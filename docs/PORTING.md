@@ -12,6 +12,36 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.29.0: drag on every ratio, the ratio tag and Randomize focus
+
+Arjang, room #1210 and #1213; Quill #1212 and #1216.
+
+1. **Drag re-wraps on every ratio.** The 1.27.0 landscape re-wrap now runs on portrait, square, 3:4, 4:5 and 9:16 too:
+   past the band the box narrows (floor 38%) instead of stopping, Auto lines grow in the same ratio, the width saves with
+   the spot and doesn't auto-restore. The hard edge is the photo's own frame (with the 2 px inset); the safe zone stays
+   a magnet (crossing locks), its insets unchanged. Center reaches 25% and 75%.
+   Note: `autoLines` is no longer landscape-only, so a portrait or square cover whose width she had set under 84% now
+   draws its Auto lines re-wrapped (more rows, about the same size) where it used to shrink the text. 84% covers are as
+   before.
+2. **Ratio tag.** The cover's number reads with its photo's ratio in light text, "003 9:16", on the cover screen
+   (CoverTop.jsx song row). `aspectLabel` in reviewMath.js uses the original's aspectProfileForImage thresholds (<=0.62
+   9:16, <0.775 3:4, <=0.9 4:5, <=1 1:1); landscape reads as the nearest of 4:3, 3:2, 16:9, 21:9. Display only, from the
+   photo's pixels. Not in the library grid.
+3. **Randomize keeps focus.** After a randomize, focus goes back to the Randomize layout button, so Enter or Space runs it
+   again on a computer. Never pulled out of an input, textarea or editable text she moved into. Randomize only.
+
+| Where | Change |
+| --- | --- |
+| client/src/CoverStage.jsx, renderCover.js | re-wrap on every ratio against the photo frame |
+| client/src/reviewMath.js, CoverTop.jsx, styles.css | `aspectLabel`, the tag |
+| client/src/App.jsx | Randomize refocus |
+| scripts/render-test.mjs | vertical re-wrap and ratio checks |
+
+### Data steps (her space, never the repo)
+
+- None. Acceptance (#1212): on a 9:16 cover and a 4:5 or 3:4 cover, drag to center 25% and 75%, the block re-wraps (to
+  38% at the least), stays on the photo, width persists on reload. Tag reads right on a few covers. Re-verify counts.
+
 ## 1.28.0: TikTok Sans Medium by default
 
 Arjang, room #1194 and #1196; Quill #1195 as amended, confirmed #1199. Never override anything hand-set.

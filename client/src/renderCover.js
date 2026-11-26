@@ -15,7 +15,7 @@ export const FONT_CSS = {
 
 /** What the font menu says for each font. */
 export const FONT_LABELS = {
-  tiktok: "TikTok Sans", // the plain TikTok Sans face; new text starts at Bold (1.26.0, text boxes too since 1.27.0)
+  tiktok: "TikTok Sans", // the plain TikTok Sans face; new text starts at Medium (1.28.0)
   avenir: "Avenir",
   serif: "Serif",
   condensed: "Condensed",

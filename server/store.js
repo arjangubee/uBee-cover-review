@@ -134,7 +134,7 @@ export const store = {
       showQuote: false, // quote over image is a toggle, OFF by default
       // Full editor defaults (ported from the original covers schema)
       textColor: "#FFFFFF", textFont: "tiktok", textAlign: "center",
-      fontSize: 58, fontWeight: 700, opacity: 100, // 1.26.0 (Arjang #1094): new covers start in TikTok Sans Bold
+      fontSize: 58, fontWeight: 500, opacity: 100, // 1.28.0 (room #1194): new covers start in TikTok Sans Medium
       horizontalPosition: 50, verticalPosition: 50, lineCount: 0,
       textWidth: 84, textHeight: 100, extraTexts: [], // v1.4: wrap box %, line spacing %, her own text boxes
       widthScale: 30, heightScale: 30, // v1.5: Text width and Text height stretch the text (30 = none)

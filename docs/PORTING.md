@@ -12,6 +12,33 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.28.0: TikTok Sans Medium by default
+
+Arjang, room #1194 and #1196; Quill #1195 as amended, confirmed #1199. Never override anything hand-set.
+
+1. **Defaults to Medium 500**, the original's default: a new cover (store.js), styleDefaults (full.js), a new text box
+   (App.jsx `newBox`) and the draft (renderCover.js `STYLE_DEFAULTS`, already 500). Replaces the 1.26.0 Bold 700.
+2. **Her weight is marked hers.** A style save that sends `fontWeight` sets `fontWeightSet` on the cover, and so does a
+   change to an existing text box's weight. A new box arriving at the default doesn't. From here on, a default change
+   can tell her pick from the default.
+3. **No automatic sweep in this build.** Covers saved before 1.28.0 have no `fontWeightSet`, so a stored 700 or 400 can't
+   be told apart from a pick here. The retroactive step is a data step, below.
+
+| Where | Change |
+| --- | --- |
+| server/store.js, server/full.js | default weight 500; `fontWeightSet` on a weight save |
+| client/src/App.jsx, renderCover.js | a new box at 500 |
+| scripts/smoke.mjs | the v1.8 weight check reads 500 and `fontWeightSet` |
+
+### Data steps (her space, never the repo)
+
+- New cover field `fontWeightSet` (false when missing).
+- Retroactive (Quill #1199): only QUEUED covers still on the default go to 500, main text and each box; decided covers
+  untouched; nothing else on a row moves. Use whatever hand-set marker her space has. Where nothing tells a hand pick
+  from an old default (a 700 from the 1.26.0 default, or a 400 from the older Regular box default), stop and report
+  the counts by weight and ids for Quill's ruling before changing them.
+- Re-verify every count.
+
 ## 1.27.2: the load error stays on screen (hotfix, second pass)
 
 Quill #1208. On top of 1.27.1: a call that fails shows a bar naming it ("The covers list didn't load: <why>.", or setup

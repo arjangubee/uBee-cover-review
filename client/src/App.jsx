@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, post, upload } from "./api.js";
-import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, NoteComposer, RateQuality, Steppers, StoryControls, TitleRow } from "./CoverDetails.jsx";
+import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, NoteComposer, RateQuality, Steppers, StoryControls, SwipeRow, TitleRow } from "./CoverDetails.jsx";
 import CoverEditor from "./CoverEditor.jsx";
 import EditorSheet from "./EditorSheet.jsx";
 import ZoomView from "./ZoomView.jsx";
@@ -84,7 +84,14 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [remixOpen, setRemixOpen] = useState(false); // the remix menu (1.17.0)
   const [remixing, setRemixing] = useState([]); // remixes still being made: each comes next once it's done
-  const [burst, setBurst] = useState(0); // the heart that pops on the cover when she likes it
+  // The swipe (1.34.0, Arjang Nov 26: like Tinder). intent is where the card on the stage is headed, for the swipe row's
+  // buttons: { dir, solid, phase }. enterFrom is a cover Rewind brings back, flying in from the side it left by.
+  const [intent, setIntent] = useState(null);
+  const [enterFrom, setEnterFrom] = useState(null);
+  const stageApi = useRef(null); // the stage's fly(dir) and busy(), for the X and heart buttons
+  const swipes = useRef([]); // her swipes in this list, newest last, for Rewind
+  const leaving = useRef(new Set()); // covers swiped away whose decision hasn't reached the server yet
+  const inFlight = useRef(0); // swipe and rewind calls still on their way
   const [drawnId, setDrawnId] = useState(null); // the cover whose photo is on screen: only that one can be decided
   const [loads, setLoads] = useState(0); // counts finished loads; each one starts the caption fill loop (1.9)
   const [checksReady, setChecksReady] = useState(false); // the 1.13.9 recheck has had its turn: checks can start (1.21.0)
@@ -112,7 +119,8 @@ export default function App() {
   // Now each call settles on its own, the covers list is tried up to 3 times, and a failure stays on screen (loadError)
   // naming the call, with Try again, until a load works. A failed list keeps the covers she had and never reads as empty.
   const [loadError, setLoadError] = useState(null); // { calls: [names], items: true when the covers list failed, why }
-  const load = useCallback(async () => {
+  // keep (1.34.0): the cover on screen stays on screen, wherever the fresh list puts it.
+  const load = useCallback(async ({ keep = false } = {}) => {
     const failed = [];
     let why = "";
     const soft = (path, name) => api(path).catch((e) => {
@@ -141,7 +149,11 @@ export default function App() {
     setPollen(pc);
     applyPalette(pal);
     setCtas(calls?.ctas || []);
-    if (q) setItems(Array.isArray(q.items) ? q.items : []); // a failed list keeps the covers she had
+    if (q) {
+      if (keep === true && pendingId.current == null && currentIdNow.current != null) pendingId.current = currentIdNow.current;
+      // A cover she just swiped away stays away while its decision is still on its way (1.34.0).
+      setItems((Array.isArray(q.items) ? q.items : []).filter((i) => !leaving.current.has(i.id))); // a failed list keeps the covers she had
+    }
     setLoadError(failed.length ? { calls: failed, items: !q, why } : null);
     if (q) setLoads((n) => n + 1);
   }, [list, applyPalette]);
@@ -255,6 +267,12 @@ export default function App() {
   }, [pollenPending, sheet, load]);
 
   const current = items[index] || null;
+  const currentIdNow = useRef(null);
+  currentIdNow.current = current?.id ?? null;
+  const itemsNow = useRef(items);
+  itemsNow.current = items;
+  const indexNow = useRef(index);
+  indexNow.current = index;
   // An editor or a sheet open means she's busy: the update notes above both screens wait for a quiet minute (1.13.10, 1.14).
   const inUse = Boolean(draft) || infoOpen || Boolean(sheet) || remixOpen;
   useEffect(() => { setScreenBusy("covers", inUse); }, [inUse]);
@@ -298,6 +316,9 @@ export default function App() {
   const checkedAs = useRef(new Map()); // id -> what the cover showed when this page checked it: never the same check twice
   const linesModel = useRef(true);
   const quoteOnFor = (item) => Boolean(quoteShown(item, quotesStatus?.quoteOverlay) && quotesStatus?.unlocked);
+  // The cover a swipe uncovers (1.34.0): the next one, or the one before when she's on the last.
+  const under = useMemo(() => { const n = items[index + 1] ?? items[index - 1]; return n ? withLook(n, look) : null; }, [items, index, look]);
+  const underQuoteOn = under ? quoteOnFor(under) : false;
   const shownAs = (item) => JSON.stringify([String(item.quote ?? ""), String(item.song ?? ""), quoteOnFor(item)]);
   const linesFor = (item) => {
     const b = item?.rationale?.basedOn;
@@ -421,6 +442,7 @@ export default function App() {
       const entry = direction === "undo" ? history.current.undo() : history.current.redo();
       bumpHistory();
       if (!entry) return;
+      if (entry.done) await entry.done.catch(() => {}); // a swipe's own calls land first, so this step comes after them
       try {
         const item = await applyChange(entry.itemId, direction === "undo" ? entry.before : entry.after);
         if (item && draftNow.current?.id === item.id) refreshDraft(item);
@@ -465,24 +487,97 @@ export default function App() {
   }
 
   // ---------- Cover actions ----------
-  async function decide(decision) {
-    if (!current || busy) return;
-    if (current.status === decision) { say(decision === "approved" ? "Already approved." : "Already passed."); return; }
-    if (!coverReady) return;
-    setBusy(true);
-    await attempt(async () => {
-      if (decision === "approved" && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        setBurst((n) => n + 1);
-        await new Promise((r) => setTimeout(r, 380)); // the heart lands on this cover before the next one slides in
-      }
-      const pe = pendingEditFor(current); // a note she typed but didn't post goes with the decision
-      delete pending.current[current.id];
-      await record(decision === "approved" ? "Like" : "Pass", current.id,
-        { status: current.status, ...(pe ? { edit: pe.before } : {}) }, { status: decision, ...(pe ? { edit: pe.after } : {}) });
-      say(decision === "approved" ? "Approved. Undo is up top." : "Passed. Undo is up top.");
-    });
-    setBusy(false);
+  // The swipe (1.34.0, Arjang Nov 26: "exactly like Tinder"). Right approves, left passes, by a drag on the cover or the
+  // heart and X buttons, which send the card off the same way. The card leaves the list the moment it flies, and its
+  // decision goes to the server behind it, with a note she typed but didn't post, as one step for Undo up top. One that
+  // fails comes back with a toast. Rewind takes back her last swipe in this list and flies the card back in.
+  const canSwipe = (dir) => {
+    if (!current || busy || draft || enterFrom) return false;
+    if (current.status === (dir > 0 ? "approved" : "rejected")) { say(dir > 0 ? "Already approved." : "Already passed."); return false; }
+    return true;
+  };
+  function settle() {
+    inFlight.current -= 1;
+    if (!inFlight.current) load({ keep: true }).catch(() => {}); // once all are in, the list matches the server again
   }
+  function commitSwipe(dir, id) {
+    const item = itemsNow.current.find((i) => i.id === id);
+    const decision = dir > 0 ? "approved" : "rejected";
+    if (!item || item.status === decision) return false;
+    const pe = pendingEditFor(item); // a note she typed but didn't post goes with the decision
+    delete pending.current[item.id];
+    const entry = { label: dir > 0 ? "Like" : "Pass", itemId: id, swipe: dir, item,
+      before: { status: item.status, ...(pe ? { edit: pe.before } : {}) }, after: { status: decision, ...(pe ? { edit: pe.after } : {}) } };
+    leaving.current.add(id);
+    const left = itemsNow.current.filter((i) => i.id !== id).length;
+    setItems((prev) => prev.filter((i) => i.id !== id));
+    setIndex((i) => Math.max(0, Math.min(i, left - 1))); // the next cover takes its spot, or the one before at the end
+    history.current.push(entry);
+    swipes.current.push(entry);
+    bumpHistory();
+    inFlight.current += 1;
+    entry.done = (async () => {
+      if (pe) await post(`/api/items/${id}/edit`, pe.after);
+      await post(`/api/items/${id}/decide`, { decision });
+    })();
+    entry.done.catch((e) => {
+      history.current.remove(entry);
+      swipes.current = swipes.current.filter((x) => x !== entry);
+      bumpHistory();
+      leaving.current.delete(id);
+      // It didn't happen, so the card comes back on top, from the side it left by.
+      if (!itemsNow.current.some((i) => i.id === id)) bringBack(item, dir);
+      say(`Couldn't ${dir > 0 ? "approve" : "pass"} that cover: ${e.message}`);
+    }).finally(() => { leaving.current.delete(id); settle(); });
+    return true;
+  }
+  // Puts a cover back on top, right where she is, flying in from one side: the cover she was on goes back underneath.
+  function bringBack(item, dir) {
+    const spot = Math.min(indexNow.current, itemsNow.current.filter((i) => i.id !== item.id).length);
+    setItems((prev) => { const rest = prev.filter((i) => i.id !== item.id); const at = Math.min(spot, rest.length); return [...rest.slice(0, at), item, ...rest.slice(at)]; });
+    setIndex(spot);
+    setEnterFrom({ id: item.id, dir });
+  }
+  // Rewind (1.34.0, Tinder's yellow arrow): her last swipe in this list that Undo up top hasn't taken back already.
+  const rewindable = () => [...swipes.current].reverse().find((e) => history.current.includes(e)) || null;
+  const rewinding = useRef(false);
+  async function rewind() {
+    if (rewinding.current || draft || enterFrom || stageApi.current?.busy?.()) return;
+    const entry = rewindable();
+    if (!entry) return;
+    rewinding.current = true;
+    const at = history.current.remove(entry);
+    swipes.current = swipes.current.filter((x) => x !== entry);
+    bumpHistory();
+    const back = { ...entry.item, status: entry.before.status };
+    bringBack(back, entry.swipe);
+    inFlight.current += 1;
+    try {
+      await entry.done?.catch(() => {}); // its own calls land first
+      if (entry.before.edit) await post(`/api/items/${entry.itemId}/edit`, entry.before.edit);
+      await post(`/api/items/${entry.itemId}/decide`, { decision: entry.before.status });
+    } catch (e) {
+      history.current.insert(entry, at);
+      swipes.current.push(entry);
+      bumpHistory();
+      setItems((prev) => prev.filter((i) => i.id !== back.id));
+      setEnterFrom(null);
+      say(`Couldn't rewind that: ${e.message}`);
+    } finally {
+      rewinding.current = false;
+      settle();
+    }
+  }
+  // A rewound cover that never lands on the card (the list moved under it) doesn't hold the deck up.
+  useEffect(() => {
+    if (!enterFrom) return undefined;
+    const t = setTimeout(() => setEnterFrom(null), 4000);
+    return () => clearTimeout(t);
+  }, [enterFrom]);
+  const flyCard = (dir) => { stageApi.current?.fly(dir); };
+  const swipe = view === "cover" && current ? {
+    onSwipe: commitSwipe, canSend: canSwipe, onIntent: setIntent, enterFrom, onEntered: () => setEnterFrom(null),
+  } : null;
   // Skip (1.32.0, room #1248, Quill #1249, the original's skipCover): the whole cover, every photo with it, goes to the very
   // end of the queue, and nothing else about it changes: no verdict, no field, no new row. The next cover comes up; she
   // sees this one again only after every other queued cover. Skipping it again sends it to the end again.
@@ -957,6 +1052,8 @@ export default function App() {
   }
   function switchList(next) {
     if (next === list) return;
+    swipes.current = []; // Rewind brings back swipes from the list she's in; Undo up top still has them
+    setEnterFrom(null);
     closeEditor();
     setIndex(0);
     setList(next);
@@ -1038,10 +1135,13 @@ export default function App() {
               </div>
               <CoverStage item={shown} quoteOn={quoteOn} slides={activeSlides} slide={slide} setSlide={setSlide} story={story && !draft}
                 editing={Boolean(draft)} editSlide={editSlide} activeBox={activeBox} onStartEdit={(box, at) => startEdit(box, at)} onSelectBox={setActiveBox} onMoveBox={moveBox}
-                pickMode={pickMode} onPick={onPick} onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} burst={burst} onDrawn={setDrawnId}
-                onZoom={setZoom} zoomRef={zoomRef} onTapOff={() => sheetDismiss.current?.()} free={free} onFree={freeBox} onMoveText={moveText} onDropText={dropText} />
+                pickMode={pickMode} onPick={onPick} onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} onDrawn={setDrawnId}
+                onZoom={setZoom} zoomRef={zoomRef} onTapOff={() => sheetDismiss.current?.()} free={free} onFree={freeBox} onMoveText={moveText} onDropText={dropText}
+                under={under} underQuoteOn={underQuoteOn} swipe={swipe} swipeRef={stageApi} />
               <div className="behind" inert={draft ? true : undefined}>
-                <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onSkip={list === "queue" ? skip : null} onRemix={() => setRemixOpen(true)} onDownload={download}
+                <SwipeRow item={current} intent={intent} busy={busy || !coverReady} canRewind={Boolean(rewindable())} onRewind={rewind}
+                  onNope={() => flyCard(-1)} onLike={() => flyCard(1)} onSkip={list === "queue" ? skip : null} />
+                <ActionRow item={current} busy={busy || !coverReady} onRemix={() => setRemixOpen(true)} onDownload={download}
                   quote={{ on: quoteOn, locked: !quotesStatus?.unlocked, onTap: tapQuote, onHold: holdQuotes }}
                   onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)}
                   onZoom={zoomable ? () => zoomRef.current?.() : null} />

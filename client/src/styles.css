@@ -108,14 +108,39 @@ img { max-width: 100%; }
 .track::-webkit-scrollbar { display: none; }
 .slideItem { flex: none; display: flex; align-items: center; justify-content: center; height: 100%; scroll-snap-align: center; scroll-snap-stop: always; }
 .slideItem img, .slideItem video { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
-.slideCount { position: absolute; top: 12px; right: 14px; z-index: 2; padding: 4px 10px; border-radius: 999px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* ---------- The swipe (1.34.0, Arjang Nov 26: like Tinder) ---------- */
+/* The cover is a card. A drag moves and tilts it over the cover that comes next, drawn underneath and shown only while a
+   card moves, so a cover of another shape never peeks out around the one at rest. Carousel photos page by a tap on the
+   card, so the track only moves by transform now, never by a native scroll. */
+.swipeCard { position: absolute; inset: 0; z-index: 1; overflow: hidden; }
+.swipeUnder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; }
+.stage.swiping .swipeUnder { opacity: 1; }
+.stage.swiping .swipeCard .coverWrap, .swipeGhost .coverWrap { box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55); }
+/* A sent card flies off as a copy over the stage, so the cover under it can be swiped at once. */
+.swipeGhosts { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.ghostVideo { width: 100%; height: 100%; background: #000; }
+.stage .track { overflow: visible; scroll-snap-type: none; overscroll-behavior-x: auto; }
+/* While it moves, the card goes past the stage's edges and over the rows under it; the page never scrolls sideways. */
+@supports (overflow: clip) {
+  .app { overflow-x: clip; }
+  .stage.moving { overflow: visible; z-index: 20; }
+}
+/* The heart (right) and X (left) on the photo, sized from its width, which the card measures as a drag starts. */
+.swipeStamps { position: absolute; left: 0; top: 0; z-index: 4; pointer-events: none; --mw: 390px; }
+.stamp { position: absolute; top: calc(var(--mw) * 0.07); width: calc(var(--mw) * 0.24); height: calc(var(--mw) * 0.24); opacity: 0;
+  transform: rotate(var(--tilt)) scale(var(--s, 0.8)); filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.3)); }
+.stamp svg { display: block; width: 100%; height: 100%; }
+.stamp.like { left: 9%; --tilt: -15deg; fill: var(--heart); }
+.stamp.nope { right: 9%; --tilt: 15deg; fill: #fff; }
+/* Tinder's bars across the top of a carousel post, one for each photo, the one showing lit. A bar jumps to its photo. */
+.slideBars { position: absolute; top: 6px; left: 8px; right: 8px; z-index: 3; display: flex; gap: 4px; }
+.slideBar { flex: 1; min-width: 0; height: 24px; padding: 0; border: 0; background: none; }
+.slideBar span { display: block; height: 4px; margin-top: 2px; border-radius: 2px; background: rgba(255, 255, 255, 0.4); box-shadow: 0 0 3px rgba(0, 0, 0, 0.4); }
+.slideBar.on span { background: #fff; }
 .toolBtn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; border: 1px solid rgba(255, 255, 255, 0.4); border-radius: 14px;
   background: rgba(0, 0, 0, 0.62); color: #fff; font-size: 16px; font-weight: 500; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .toolBtn:disabled { opacity: 0.45; }
-.likeBurst { position: absolute; left: 50%; top: 50%; z-index: 5; color: #fff; pointer-events: none; filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
-  transform: translate(-50%, -50%) scale(0); animation: likeBurst 0.75s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
-@keyframes likeBurst { 0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0; } 25% { transform: translate(-50%, -50%) scale(1.12); opacity: 1; }
-  45% { transform: translate(-50%, -50%) scale(0.95); } 70% { transform: translate(-50%, -50%) scale(1); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(1); opacity: 0; } }
 .pickHint { position: absolute; top: 12px; left: 50%; z-index: 4; transform: translateX(-50%); margin: 0; padding: 7px 14px; border-radius: 999px; background: var(--blue); color: #fff; font-size: 14px; font-weight: 600; white-space: nowrap; }
 .mosaicBox { position: absolute; z-index: 2; border: 2px dashed #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.6); touch-action: none; cursor: move; }
 .mosaicX { position: absolute; top: -22px; right: -22px; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; background: transparent; color: #fff; }
@@ -125,6 +150,26 @@ img { max-width: 100%; }
 .mosaicHandle::after { content: ""; position: absolute; inset: 11px; border: 2px solid #000; border-radius: 50%; background: #fff; }
 
 /* ---------- Under the cover ---------- */
+/* The swipe row (1.34.0): Rewind, the X, Skip, the heart. It stays above a card that moves over it. While a card moves,
+   the button for where it's going grows and fills (the heart red, the X white) and the rest shrink away. */
+.swipeRow { position: relative; z-index: 25; display: flex; align-items: center; justify-content: center; gap: 20px; margin: 14px 0 2px; }
+.swipeBtn { flex: none; display: grid; place-items: center; width: 50px; height: 50px; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%;
+  background: rgba(28, 28, 30, 0.88); color: #fff; touch-action: manipulation; -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.18s ease, background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease; }
+.swipeBtn.big { width: 64px; height: 64px; }
+.swipeBtn.rewind { color: #f5b748; }
+.swipeBtn.like { color: var(--heart); }
+.swipeBtn.like[aria-pressed="true"] { border-color: var(--heart); }
+.swipeBtn.nope[aria-pressed="true"] { border-color: #fff; }
+.swipeBtn:active:not(:disabled) { transform: scale(0.9); }
+.swipeBtn:disabled { opacity: 0.38; }
+.swipeRow.leading .swipeBtn { transform: scale(0.3); opacity: 0; pointer-events: none; }
+.swipeRow.leading .swipeBtn.lead { transform: scale(1.12); opacity: 1; }
+.swipeBtn.like.lead { background: var(--heart); border-color: var(--heart); color: #fff; }
+.swipeBtn.nope.lead { background: #fff; border-color: #fff; color: #111; }
+.swipeBtn.pop { animation: swipePop 0.42s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes swipePop { 0% { transform: scale(1.12); } 45% { transform: scale(0.9); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .swipeBtn { transition: none; } .swipeBtn.pop { animation: none; } }
 .actionRow { display: flex; gap: 0; margin: 8px -8px 0; }
 .iconBtn.act { width: 44px; height: 44px; }
 .iconBtn.act.liked { color: var(--heart); }

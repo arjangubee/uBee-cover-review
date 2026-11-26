@@ -1,8 +1,9 @@
 {
-  "version": "1.33.0",
+  "version": "1.34.0",
   "date": "2026-11-26",
   "whatsNew": [
-    "Search covers from the magnifier beside the i: a word like wisteria or bike, or a number like 046",
-    "It looks in every list, and tapping a cover opens it"
+    "Swipe a cover right to approve or left to pass, like Tinder, or tap the big heart and X",
+    "Rewind, the arrow on the left, brings back your last swipe",
+    "Tap the right or left side of a carousel post to see its other photos"
   ]
 }

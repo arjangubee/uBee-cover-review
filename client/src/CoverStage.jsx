@@ -1,33 +1,36 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import CoverCanvas from "./CoverCanvas.jsx";
 import Icon from "./icons.jsx";
 import { rewrapWidth, safeZoneFor, textHitBoxes } from "./renderCover.js";
 import { lockAxis, startAxis } from "./safeLock.js";
 import { GUIDE_IDS, SNAP_PX, guidesFor, snap, snapGuidesOn } from "./snapGuides.js";
+import { SWIPE, buzzesMidDrag, flyFor, haptic, progressFor, releaseFor, stampFor, tiltFor, velocityOf } from "./swipe.js";
 
-// The stage: a 4:5 frame like a post. The cover is slide one; her slides follow in a strip she swipes
-// through, like Instagram. While she edits, only the photo she's editing shows (the cover, or since 1.20.0 the carousel
-// photo she was on): tap a text box to pick it, drag it to move it, and on the cover the Face mosaic boxes can be
-// dragged and resized right on the photo. On a computer, a click on the photo away from the text closes the editor.
+// The stage: a 4:5 frame like a post, and the cover on it is a card (1.34.0, Arjang: swipe like Tinder). Drag it right
+// to approve, left to pass: it tilts with the finger, a big heart or X shows on it, and the next cover waits underneath.
+// Her carousel photos sit on the same card: a tap on the right half of the photo shows the next one, the left half the
+// one before, with bars on top, like Tinder. While she edits, only the photo she's editing shows (the cover, or since
+// 1.20.0 the carousel photo she was on): tap a text box to pick it, drag it to move it, and on the cover the Face mosaic
+// boxes can be dragged and resized right on the photo. On a computer, a click on the photo away from the text closes
+// the editor.
 
 const measureCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null;
 const TAP = 8; // a press that moves less than this many pixels is a tap
 const FREE = 3; // a drag past this many pixels lets the box leave the safe rectangle for this session (1.13.8)
 const HOLD_MS = 320; // a press held this long on a text box lifts it for placing (1.20.0, Big Edit item 9)
+const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// The next cover, drawn under the card so a swipe uncovers it. It only shows while a card is moving.
+const UnderCard = memo(function UnderCard({ item, quoteOn, maxW, maxH, story, safe }) {
+  return <CoverCanvas item={item} quoteOn={quoteOn} maxW={maxW} maxH={maxH} story={story} safe={safe} />;
+});
 
 export default function CoverStage({
   item, quoteOn, slides, slide, setSlide, story, editing, editSlide = null, activeBox, onStartEdit, onSelectBox, onMoveBox,
-  pickMode, onPick, onMosaicsChange, burst = 0, onDrawn, onZoom, zoomRef, onTapOff, free = null, onFree, onMoveText, onDropText,
+  pickMode, onPick, onMosaicsChange, onDrawn, onZoom, zoomRef, onTapOff, free = null, onFree, onMoveText, onDropText,
+  under = null, underQuoteOn = false, swipe = null, swipeRef = null,
 }) {
-  const [showBurst, setShowBurst] = useState(false);
-  useEffect(() => {
-    if (!burst) return undefined;
-    setShowBurst(true);
-    const t = setTimeout(() => setShowBurst(false), 800);
-    return () => clearTimeout(t);
-  }, [burst]);
   const stageRef = useRef(null);
-  const trackRef = useRef(null);
   const canvasRef = useRef(null);
   const [stageW, setStageW] = useState(390);
   const total = 1 + slides.length;
@@ -46,28 +49,9 @@ export default function CoverStage({
   }, []);
   const stageH = Math.round((stageW * 5) / 4);
   const slideW = stageW; // every slide pages full width, like a carousel post
-
-  // Steppers and keys move the strip; a swipe moves it natively and reports where it landed.
-  useEffect(() => {
-    const track = trackRef.current;
-    if (!track || single) return;
-    const target = track.children[slide];
-    if (target) track.scrollTo({ left: target.offsetLeft - (track.clientWidth - target.clientWidth) / 2, behavior: "smooth" });
-  }, [slide, single, total]);
-  // Only where the strip comes to rest counts, so a scroll on its way somewhere never moves the counter.
-  const settle = useRef(null);
-  useEffect(() => () => clearTimeout(settle.current), []);
-  function onScroll() {
-    clearTimeout(settle.current);
-    settle.current = setTimeout(() => {
-      const track = trackRef.current;
-      if (!track) return;
-      const mid = track.scrollLeft + track.clientWidth / 2;
-      let best = 0, dist = Infinity;
-      [...track.children].forEach((c, i) => { const d = Math.abs(c.offsetLeft + c.clientWidth / 2 - mid); if (d < dist) { dist = d; best = i; } });
-      setSlide((cur) => (cur === best ? cur : best));
-    }, 140);
-  }
+  // A tap shows the next photo or the one before (1.34.0, like Tinder: a sideways drag is a swipe now). The steppers
+  // under the cover and Shift+arrow keys move it too.
+  const stepSlide = (d) => setSlide((s) => Math.max(0, Math.min(total - 1, s + d)));
 
   // Pointer work on a photo, the cover or a carousel photo (slideAt): tap to edit, drag a box, pick a color, and outside
   // the editor hold a box to lift it and place it (1.20.0, Big Edit item 9).
@@ -196,8 +180,13 @@ export default function CoverStage({
       if (p.moved) return; // a lift let go without moving is still a tap (1.13.6): it opens the editor
       if (pickMode) return sampleColor(p.x, p.y, cssW);
       // A click away from the text closes the editor on a computer (1.20.0, Big Edit item 3). A tap on a phone doesn't:
-      // there her thumb often lands just off the text while she works.
-      if (p.hit == null) { if (editing && p.mouse) onTapOff?.(); return; }
+      // there her thumb often lands just off the text while she works. Outside the editor, a tap away from the text
+      // shows the next carousel photo on the right half and the one before on the left half (1.34.0, like Tinder).
+      if (p.hit == null) {
+        if (editing) { if (p.mouse) onTapOff?.(); return; }
+        if (!single && total > 1) stepSlide(p.x < cssW / 2 ? -1 : 1);
+        return;
+      }
       if (editing) onSelectBox(p.hit);
       else onStartEdit(p.hit, slideAt);
     },
@@ -224,10 +213,313 @@ export default function CoverStage({
     }
   }
 
+  // ---------- The swipe (1.34.0, Arjang: exactly like Tinder) ----------
+  // The card follows her finger and tilts the way a card held at that spot swings. A heart (right) or an X (left) shows
+  // on it, faint at first, then solid and bigger once letting go would send it, with a tap of the phone at that moment.
+  // Let go past that line, or flick it, and the card flies off and the decision is made; short of it, it springs back,
+  // and she can catch it again on the way. What flies off is a copy, so the next cover, drawn underneath the whole time,
+  // is hers to swipe the moment it's uncovered. Everything that moves during a drag is set on the elements directly, so
+  // React never redraws the cover mid-gesture.
+  const cardRef = useRef(null);
+  const stampsRef = useRef(null);
+  const likeRef = useRef(null);
+  const nopeRef = useRef(null);
+  const ghostsRef = useRef(null); // the copies of sent cards, flying off
+  const gesture = useRef(null); // a press on the card that may turn into a swipe
+  const lastGrab = useRef(null); // where the last swipe held the card, to catch it again as it springs back
+  const flight = useRef(null); // the card on its way back, or the cover it's waiting on: { timer, back } or { id, waiting, timer }
+  const modeRef = useRef("idle");
+  const [mode, setModeState] = useState("idle"); // idle | drag | fly | swap | enter
+  const setMode = (m) => { modeRef.current = m; setModeState(m); };
+  const [flying, setFlying] = useState(0); // copies still flying off
+  const [frozenUnder, setFrozenUnder] = useState(null); // { item, quoteOn }: the cover underneath, held still while a card moves
+  const freeze = () => setFrozenUnder({ item: under, quoteOn: underQuoteOn });
+  const [drawnHere, setDrawnHere] = useState(null);
+  const drawnRef = useRef(null);
+  const drawn = useCallback((id) => { drawnRef.current = id; setDrawnHere(id); onDrawn?.(id); }, [onDrawn]);
+  const canSwipe = Boolean(swipe) && !editing && !pickMode;
+  const swipeNow = useRef(swipe);
+  swipeNow.current = swipe;
+  const timers = useRef(new Set());
+  const later = (fn, ms) => { const t = setTimeout(() => { timers.current.delete(t); fn(); }, ms); timers.current.add(t); return t; };
+  useEffect(() => () => { clearTimeout(flight.current?.timer); timers.current.forEach(clearTimeout); }, []);
+
+  function setCard(dx, dy, tilt, ms = 0, ease = "ease") {
+    const el = cardRef.current;
+    if (!el) return;
+    el.style.transition = ms ? `transform ${ms}ms ${ease}` : "none";
+    el.style.transform = dx || dy || tilt ? `translate3d(${dx}px, ${dy}px, 0) rotate(${tilt}deg)` : "";
+  }
+  function paintStamp(el, on, look, ms) {
+    el.style.transition = ms ? `opacity ${ms}ms ease, transform ${ms}ms ease` : "none";
+    el.style.opacity = on ? String(look.opacity) : "0";
+    el.style.setProperty("--s", on ? String(look.scale) : "0.8");
+  }
+  function paintStamps(dir, p, ms = 0) {
+    const look = stampFor(p);
+    if (likeRef.current) paintStamp(likeRef.current, dir === 1, look, ms);
+    if (nopeRef.current) paintStamp(nopeRef.current, dir === -1, look, ms);
+  }
+  // The heart and X sit on the photo itself, whatever its shape: measured while the card is still at rest.
+  function placeStamps() {
+    const card = cardRef.current, box = stampsRef.current;
+    if (!card || !box) return;
+    const media = card.querySelector(single ? ".stageSingle .coverWrap" : ".slideItem.current .coverWrap, .slideItem.current video");
+    const c = card.getBoundingClientRect(), m = media ? media.getBoundingClientRect() : c;
+    Object.assign(box.style, { left: `${m.left - c.left}px`, top: `${m.top - c.top}px`, width: `${m.width}px`, height: `${m.height}px` });
+    box.style.setProperty("--mw", `${m.width}px`);
+  }
+  // Where the card is headed, for the swipe row's buttons. A card flying off hands the row back only if nothing newer
+  // has taken it since.
+  const lastIntent = useRef(null);
+  const intent = (next) => { lastIntent.current = next; swipeNow.current?.onIntent?.(next); };
+
+  function cardDown(e) {
+    if (!canSwipe || gesture.current) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (drawnRef.current !== item.id) return; // the cover isn't on screen yet
+    if (e.target.closest?.("button, a, input, textarea, select, .mosaicBox")) return;
+    if (e.target.closest?.("video") && e.clientY > e.target.getBoundingClientRect().bottom - 56) return; // its play bar
+    const el = cardRef.current, L = lastGrab.current, f = flight.current;
+    if (modeRef.current === "drag" && f?.back && L) {
+      // Caught on its way back: it stops where it is and follows her again from there. The press is the card's alone:
+      // no tap, and no hold that lifts a text box.
+      clearTimeout(f.timer);
+      flight.current = null;
+      if (press.current) { clearTimeout(press.current.timer); press.current = null; }
+      const t = getComputedStyle(el).transform;
+      let x = 0, y = 0;
+      try { const m = new DOMMatrixReadOnly(t && t !== "none" ? t : undefined); x = m.m41; y = m.m42; } catch { /* from the middle */ }
+      setCard(x, y, tiltFor(x, L.w, L.low));
+      gesture.current = { ...L, id: e.pointerId, x0: e.clientX - x, y0: e.clientY - y, on: true, off: false, dx: x, dy: y, lead: 0, solid: false,
+        itemId: item.id, samples: [{ t: e.timeStamp, x: e.clientX, y: e.clientY }] };
+      try { el.setPointerCapture(e.pointerId); } catch { /* the pointer may be gone already */ }
+      return;
+    }
+    if (modeRef.current !== "idle") return;
+    const r = el.getBoundingClientRect();
+    gesture.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, ox: e.clientX - r.left, oy: e.clientY - r.top, w: r.width, h: r.height,
+      low: e.clientY - r.top > r.height / 2, on: false, off: false, dx: 0, dy: 0, lead: 0, solid: false, itemId: item.id,
+      samples: [{ t: e.timeStamp, x: e.clientX, y: e.clientY }] };
+  }
+  function cardMove(e) {
+    const g = gesture.current;
+    if (!g || g.id !== e.pointerId || g.off) return;
+    const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+    if (!g.on) {
+      const p = press.current;
+      if (p?.lifted || p?.drag) { g.off = true; return; } // she's placing a text box
+      if (Math.abs(dx) < SWIPE.slop && Math.abs(dy) < SWIPE.slop) return;
+      if (Math.abs(dx) < Math.abs(dy)) { g.off = true; return; } // more up or down than sideways: the page scrolls
+      g.on = true;
+      if (p) { clearTimeout(p.timer); p.moved = true; } // no lift and no tap: this press is a swipe
+      try { cardRef.current.setPointerCapture(e.pointerId); } catch { /* the pointer may be gone already */ }
+      placeStamps();
+      cardRef.current.style.transformOrigin = `${g.ox}px ${g.oy}px`;
+      lastGrab.current = { ox: g.ox, oy: g.oy, w: g.w, h: g.h, low: g.low };
+      freeze();
+      setMode("drag");
+    }
+    g.dx = dx; g.dy = dy;
+    g.samples.push({ t: e.timeStamp, x: e.clientX, y: e.clientY });
+    if (g.samples.length > 10) g.samples.shift();
+    setCard(dx, dy, tiltFor(dx, g.w, g.low));
+    const dir = Math.sign(dx), p = progressFor(dx, g.w);
+    paintStamps(dir, p);
+    const lead = Math.abs(dx) >= SWIPE.lead ? dir : 0, solid = p >= 1;
+    if (solid && !g.solid && buzzesMidDrag()) haptic(); // the heart or X turns solid and grows: letting go now sends it
+    if (lead !== g.lead || solid !== g.solid) {
+      g.lead = lead; g.solid = solid;
+      intent(lead ? { dir: lead, solid, phase: "drag" } : null);
+    }
+  }
+  function cardUp(e) {
+    const g = gesture.current;
+    if (!g || g.id !== e.pointerId) return;
+    gesture.current = null;
+    if (!g.on) return; // a tap or a scroll: the photo's own press handles it
+    if (press.current) { clearTimeout(press.current.timer); press.current = null; }
+    // A flick's speed is the finger's while it moved; one that stopped before lifting doesn't flick.
+    const last = g.samples[g.samples.length - 1];
+    const v = e.timeStamp - last.t > 80 ? { x: 0, y: 0 } : velocityOf(g.samples);
+    let dir = releaseFor(g.dx, v.x, g.w);
+    if (dir && (g.itemId !== item.id || swipeNow.current?.canSend?.(dir) === false)) dir = 0;
+    if (dir) {
+      if (!buzzesMidDrag()) haptic(); // an iPhone taps as the card goes: it can't mid-drag
+      send(dir, { dx: g.dx, dy: g.dy, vx: v.x, vy: v.y, w: g.w, h: g.h, tilt: tiltFor(g.dx, g.w, g.low) });
+    } else springBack();
+  }
+  function cardCancel(e) {
+    const g = gesture.current;
+    if (!g || g.id !== e.pointerId) return;
+    gesture.current = null;
+    if (!g.on) return;
+    if (press.current) { clearTimeout(press.current.timer); press.current = null; }
+    springBack();
+  }
+  function springBack() {
+    const reduce = reducedMotion();
+    setCard(0, 0, 0, reduce ? 0 : 420, "cubic-bezier(0.2, 1.3, 0.35, 1)");
+    paintStamps(0, 0, reduce ? 0 : 180);
+    intent(null);
+    clearTimeout(flight.current?.timer);
+    flight.current = { back: true, timer: setTimeout(() => {
+      flight.current = null;
+      const el = cardRef.current;
+      if (el) { el.style.transition = ""; el.style.transformOrigin = ""; }
+      setMode("idle");
+      setFrozenUnder(null);
+    }, reduce ? 0 : 430) };
+  }
+  // A copy of the card as it is right now, photo and all, to fly off in its place.
+  function ghostOf(card) {
+    const ghost = card.cloneNode(true);
+    ghost.classList.add("swipeGhost");
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.inert = true;
+    // Canvases come over blank: the one on show gets its picture (the other photos are out of sight, and stay empty).
+    const from = [...card.querySelectorAll("canvas")], to = ghost.querySelectorAll("canvas");
+    const shown = card.querySelector(single ? ".coverCanvas" : ".slideItem.current canvas");
+    const i = from.indexOf(shown), c = from[i], t = to[i];
+    if (c && t && c.width && c.height) {
+      t.width = c.width; t.height = c.height;
+      try { t.getContext("2d").drawImage(c, 0, 0); } catch { /* left blank */ }
+    }
+    ghost.querySelectorAll("video").forEach((v) => v.replaceWith(Object.assign(document.createElement("div"), { className: "ghostVideo" })));
+    return ghost;
+  }
+  // Sends the card off to one side. A copy flies; the card itself goes back to rest, hidden until the next cover is
+  // drawn on it, and the decision goes up at once. The last cover flies off first, since the deck empties after it.
+  function send(dir, g) {
+    const id = item.id, card = cardRef.current, box = ghostsRef.current;
+    const fly = flyFor({ dir, ...g });
+    const ms = reducedMotion() ? 0 : fly.ms;
+    const look = stampFor(Math.max(1.2, progressFor(g.dx, g.w))); // solid the whole way out
+    const flyIntent = { dir, solid: true, phase: "fly" };
+    intent(flyIntent);
+    const ghost = card && box ? ghostOf(card) : null;
+    if (ghost) {
+      box.append(ghost);
+      setFlying((n) => n + 1);
+      void ghost.getBoundingClientRect(); // the browser takes in where it starts, so the throw animates
+      ghost.style.transition = ms ? `transform ${ms}ms cubic-bezier(0.3, 0.6, 0.45, 1)` : "none";
+      ghost.style.transform = `translate3d(${fly.x}px, ${fly.y}px, 0) rotate(${fly.tilt}deg)`;
+      for (const [sel, side] of [[".stamp.like", 1], [".stamp.nope", -1]]) {
+        const st = ghost.querySelector(sel);
+        if (st) paintStamp(st, side === dir, look, ms ? 120 : 0);
+      }
+      later(() => {
+        ghost.remove();
+        setFlying((n) => Math.max(0, n - 1));
+        if (lastIntent.current !== flyIntent) return; // she's already on the next one
+        const pop = { dir, phase: "pop" };
+        intent(pop);
+        later(() => { if (lastIntent.current === pop) intent(null); }, 420);
+      }, ms + 16);
+      card.style.visibility = "hidden";
+      setCard(0, 0, 0);
+      card.style.transformOrigin = "";
+      paintStamps(0, 0);
+    }
+    if (ghost && under) { land(id, dir); return; }
+    // The last cover, or no copy to fly: the card itself goes, and the decision follows it.
+    if (!ghost) {
+      paintStamps(dir, Math.max(1.2, progressFor(g.dx, g.w)), ms ? 120 : 0);
+      setCard(fly.x, fly.y, fly.tilt, ms, "cubic-bezier(0.3, 0.6, 0.45, 1)");
+    }
+    setMode("fly");
+    clearTimeout(flight.current?.timer);
+    flight.current = { id, dir, timer: setTimeout(() => land(id, dir), ms + 16) };
+  }
+  function land(id, dir) {
+    const el = cardRef.current;
+    if (el) { el.style.visibility = "hidden"; setCard(0, 0, 0); el.style.transformOrigin = ""; }
+    paintStamps(0, 0);
+    clearTimeout(flight.current?.timer);
+    flight.current = { id, dir, waiting: true, timer: setTimeout(reveal, 1500) }; // shown again even if the next never draws
+    drawnRef.current = null; // the next cover shows once it's drawn on this card
+    setDrawnHere(null);
+    setMode("swap");
+    const leaves = swipeNow.current?.onSwipe?.(dir, id);
+    if (leaves === false) reveal();
+  }
+  function reveal() {
+    const el = cardRef.current;
+    if (el) el.style.visibility = "";
+    clearTimeout(flight.current?.timer);
+    flight.current = null;
+    setMode("idle");
+    setFrozenUnder(null);
+  }
+  // The cover that took its place is drawn: the card shows again, right where the one underneath already is.
+  useLayoutEffect(() => {
+    const f = flight.current;
+    if (mode === "swap" && f?.waiting && drawnHere === item.id && item.id !== f.id) reveal();
+  }, [mode, drawnHere, item.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A cover that changes under a drag (a reload) ends the drag where it is.
+  useEffect(() => {
+    if (modeRef.current !== "drag" || !gesture.current) return;
+    gesture.current = null;
+    springBack();
+  }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The heart and X buttons send the card the same way (Tinder's buttons), with the same tap of the phone.
+  const fly = (dir) => {
+    if (!canSwipe || modeRef.current !== "idle" || drawnRef.current !== item.id || !cardRef.current) return false;
+    if (swipeNow.current?.canSend?.(dir) === false) return true; // it said why; nothing moves
+    placeStamps();
+    const r = cardRef.current.getBoundingClientRect();
+    cardRef.current.style.transformOrigin = "50% 50%";
+    freeze();
+    haptic();
+    send(dir, { dx: 0, dy: 0, vx: dir * 1.8, vy: 0, w: r.width, h: r.height, tilt: 0 });
+    return true;
+  };
+  if (swipeRef) swipeRef.current = { fly, busy: () => modeRef.current !== "idle" };
+
+  // Rewind (1.34.0): the cover she brings back flies in from the side it left by, over the one she was on, which waits
+  // underneath. It shows once its photo is drawn on this card, so nothing of the cover before it flies in.
+  const enterFrom = swipe?.enterFrom ?? null;
+  useLayoutEffect(() => {
+    if (!enterFrom || enterFrom.id !== item.id || modeRef.current !== "idle" || !cardRef.current) return;
+    const el = cardRef.current;
+    el.style.visibility = "hidden";
+    el.style.transformOrigin = "50% 50%";
+    setCard(enterFrom.dir * (el.clientWidth + el.clientHeight * 0.5 + 40), 0, enterFrom.dir * 16);
+    drawnRef.current = null;
+    setDrawnHere(null);
+    setMode("enter");
+  }, [enterFrom?.id, item.id, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    if (mode !== "enter" || drawnHere !== item.id || !cardRef.current) return undefined;
+    const el = cardRef.current;
+    el.style.visibility = "";
+    const reduce = reducedMotion();
+    void el.getBoundingClientRect(); // the browser takes in where it starts, so the move in animates
+    setCard(0, 0, 0, reduce ? 0 : 380, "cubic-bezier(0.2, 0.9, 0.25, 1)");
+    const t = setTimeout(() => {
+      el.style.transition = ""; el.style.transformOrigin = "";
+      setMode("idle");
+      setFrozenUnder(null);
+      swipeNow.current?.onEntered?.();
+    }, reduce ? 20 : 400);
+    return () => clearTimeout(t);
+  }, [mode, drawnHere, item.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A rewind that never arrives (its cover isn't on this card after all) lets the card go back to normal.
+  useEffect(() => {
+    if (enterFrom || modeRef.current !== "enter") return;
+    const el = cardRef.current;
+    if (el) { el.style.visibility = ""; setCard(0, 0, 0); el.style.transformOrigin = ""; }
+    setMode("idle");
+    setFrozenUnder(null);
+  }, [enterFrom]); // eslint-disable-line react-hooks/exhaustive-deps
+  const below = frozenUnder ?? { item: under, quoteOn: underQuoteOn };
+
   // The magnifier (1.7) flies up whatever she's looking at: the cover, or a photo slide with its own text (1.20.0).
   const shownSlide = !single && slide > 0 ? slides[slide - 1] : null;
   const zoomable = Boolean(onZoom) && !story && shownSlide?.mediaType !== "video";
-  const zoomSource = () => stageRef.current?.querySelector(single ? ".coverCanvas" : ".slideItem.current .coverCanvas, .slideItem.current img") || null;
+  // From the card itself: the cover drawn underneath for the swipe has a canvas too.
+  const zoomSource = () => cardRef.current?.querySelector(single ? ".coverCanvas" : ".slideItem.current .coverCanvas, .slideItem.current img") || null;
   // Its button is in the action row now (1.14.1, Arjang #790 item 2): it opens the zoom through zoomRef.
   useLayoutEffect(() => {
     if (!zoomRef) return undefined;
@@ -238,7 +530,7 @@ export default function CoverStage({
   // slideAt null is the cover; a number is that carousel photo, drawn with the text she put on it (1.20.0).
   const cover = (maxW, maxH, slideAt = null) => (
     <CoverCanvas item={item} quoteOn={quoteOn} maxW={maxW} maxH={maxH} story={story && slideAt === null} safe={safe} free={free} slideAt={slideAt}
-      canvasRef={single || slideAt === null ? canvasRef : undefined} onDrawn={onDrawn}
+      canvasRef={single || slideAt === null ? canvasRef : undefined} onDrawn={slideAt === null ? drawn : undefined}
       className={[editing && "editing", pickMode && "picking"].filter(Boolean).join(" ")}>
       {({ cssW, cssH }) => (
         <>
@@ -262,26 +554,53 @@ export default function CoverStage({
     </CoverCanvas>
   );
 
+  const bars = !single && total > 1;
+  const stageClass = ["stage", mode !== "idle" && "swiping", (mode !== "idle" || flying > 0) && "moving"].filter(Boolean).join(" ");
   return (
-    <div className="stage" ref={stageRef} style={{ height: stageH }}
-      onClick={(e) => { if (editing && (e.target === e.currentTarget || e.target.classList.contains("stageSingle"))) onTapOff?.(); }}>
-      {total > 1 && !single && <span className="slideCount" aria-live="polite">{slide + 1}/{total}</span>}
-      {single ? (
-        <div className="stageSingle">{cover(stageW, stageH, editing ? editSlide : null)}</div>
-      ) : (
-        <div className="track" ref={trackRef} onScroll={onScroll} aria-label="Slides" role="group">
-          <div className={slide === 0 ? "slideItem current" : "slideItem"} style={{ width: slideW }}>{cover(slideW, stageH)}</div>
-          {slides.map((s, i) => (
-            <div key={`${s.mediaUrl}-${i}`} className={slide === i + 1 ? "slideItem current" : "slideItem"} style={{ width: slideW }}>
-              {s.mediaType === "video"
-                ? <video src={s.mediaUrl} muted playsInline controls preload="metadata" aria-label={`Slide ${i + 2}`} />
-                : cover(slideW, stageH, s.at)}
-            </div>
-          ))}
+    <div className={stageClass} ref={stageRef} style={{ height: stageH }}
+      onClick={(e) => { if (editing && (e.target === e.currentTarget || e.target.classList.contains("stageSingle") || e.target.classList.contains("swipeCard"))) onTapOff?.(); }}>
+      {swipe && below.item && (
+        <div className="swipeUnder" aria-hidden="true">
+          <UnderCard key={below.item.id} item={below.item} quoteOn={below.quoteOn} maxW={stageW} maxH={stageH} story={story} safe={safe} />
         </div>
       )}
+      <div className="swipeCard" ref={cardRef} style={canSwipe ? { touchAction: "pan-y pinch-zoom" } : undefined}
+        onPointerDown={cardDown} onPointerMove={cardMove} onPointerUp={cardUp} onPointerCancel={cardCancel}
+        onLostPointerCapture={(e) => { if (e.target === e.currentTarget) cardCancel(e); /* the photo's own one bubbles here too */ }}>
+        {single ? (
+          <div className="stageSingle">{cover(stageW, stageH, editing ? editSlide : null)}</div>
+        ) : (
+          <div className="track" style={{ transform: `translate3d(${-slide * slideW}px, 0, 0)` }} aria-label="Slides" role="group">
+            <div className={slide === 0 ? "slideItem current" : "slideItem"} style={{ width: slideW }} inert={slide === 0 ? undefined : true}>{cover(slideW, stageH)}</div>
+            {slides.map((s, i) => (
+              <div key={`${s.mediaUrl}-${i}`} className={slide === i + 1 ? "slideItem current" : "slideItem"} style={{ width: slideW }} inert={slide === i + 1 ? undefined : true}>
+                {s.mediaType === "video"
+                  ? <video src={s.mediaUrl} muted playsInline controls preload="metadata" aria-label={`Slide ${i + 2}`} />
+                  : cover(slideW, stageH, s.at)}
+              </div>
+            ))}
+          </div>
+        )}
+        {bars && ( /* Tinder's bars across the top: one for each photo, the one showing lit. A bar jumps to its photo. */
+          <div className="slideBars" role="group" aria-label="Photos">
+            {Array.from({ length: total }, (_, i) => (
+              <button key={i} type="button" className={i === slide ? "slideBar on" : "slideBar"} onClick={() => setSlide(i)}
+                aria-label={`Photo ${i + 1} of ${total}`} aria-current={i === slide ? "true" : undefined}><span /></button>
+            ))}
+          </div>
+        )}
+        <div className="swipeStamps" ref={stampsRef} aria-hidden="true">
+          <span className="stamp like" ref={likeRef}>
+            <svg viewBox="0 0 100 100"><path d="M50 90C23 70 4 52 4 30.5 4 15.6 15.3 5 29 5c9.3 0 16.6 5 21 12.6C54.4 10 61.7 5 71 5c13.7 0 25 10.6 25 25.5C96 52 77 70 50 90z" /></svg>
+          </span>
+          <span className="stamp nope" ref={nopeRef}>
+            <svg viewBox="0 0 100 100"><rect x="41" y="1" width="18" height="98" rx="4" transform="rotate(45 50 50)" /><rect x="41" y="1" width="18" height="98" rx="4" transform="rotate(-45 50 50)" /></svg>
+          </span>
+        </div>
+      </div>
+      <div className="swipeGhosts" ref={ghostsRef} aria-hidden="true" />
+      {bars && <span className="srOnly" aria-live="polite">Photo {slide + 1} of {total}</span>}
       {pickMode && <p className="pickHint" role="status">Tap the photo to pick a color</p>}
-      {showBurst && <span key={burst} className="likeBurst" aria-hidden="true"><Icon name="heart" size={110} filled /></span>}
     </div>
   );
 }

@@ -43,12 +43,16 @@ export function rememberCustomColor(hex) {
   store.saveSettings();
 }
 
-/** What the editor needs: the 11, the fonts, her custom colors, her own colors, the lock as she set it, her fonts. */
+/** The colors she saved on purpose with Save Color (1.35.0, Arjang Nov 26), newest first, as many as she likes. */
+export const savedColors = () => (Array.isArray(store.settings.savedColors) ? store.settings.savedColors : []);
+
+/** What the editor needs: the 11, the fonts, her recent and saved colors, her own colors, the lock as she set it, her fonts. */
 export function palettePayload() {
   return {
     palette: PALETTE,
     fonts: [...FONTS, ...customFonts().map((f) => f.id)],
-    customColors: store.settings.customColors || [],
+    customColors: store.settings.customColors || [], // her 5 most recent colors, picked up as she uses them
+    savedColors: savedColors(),
     brandColors: brandColors(),
     lock: { textFont: null, textColor: null }, // 1.26.0: no queue lock
     customFonts: customFonts().map((f) => ({ id: f.id, label: f.label,
@@ -78,6 +82,22 @@ export function registerBrand(app) {
     if (!HEX.test(hex)) return res.status(400).json({ error: "Send the color as #RRGGBB." });
     const list = store.settings.customColors || [];
     if (list.includes(hex)) { store.settings.customColors = list.filter((c) => c !== hex); store.saveSettings(); }
+    res.json(palettePayload());
+  });
+
+  // Save Color (1.35.0, Arjang Nov 26): a color she saves from the wheel goes to the front of her Custom colors, with no
+  // limit on how many. Saving one she already has moves it to the front. Remove takes one away; covers keep it.
+  app.post("/api/palette/saved-colors", (req, res) => {
+    const hex = String(req.body?.hex ?? "").toUpperCase();
+    if (!HEX.test(hex)) return res.status(400).json({ error: "Send the color as #RRGGBB." });
+    store.settings.savedColors = [hex, ...savedColors().filter((c) => c !== hex)];
+    store.saveSettings();
+    res.json(palettePayload());
+  });
+  app.post("/api/palette/saved-colors/remove", (req, res) => {
+    const hex = String(req.body?.hex ?? "").toUpperCase();
+    if (!HEX.test(hex)) return res.status(400).json({ error: "Send the color as #RRGGBB." });
+    if (savedColors().includes(hex)) { store.settings.savedColors = savedColors().filter((c) => c !== hex); store.saveSettings(); }
     res.json(palettePayload());
   });
 

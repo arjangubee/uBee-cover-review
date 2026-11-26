@@ -15,11 +15,12 @@ const ALIGNS = [["left", "L", "Left"], ["center", "C", "Center"], ["right", "R",
 
 export default function CoverEditor({
   draft, activeBox, setActiveBox, setBox, setItem, setImageEdit, palette, brandColors = [], locked = false, fonts, customColors, quotesUnlocked,
-  pickMode, setPickMode, onRemoveBox, onNewBox, onAddMosaic, canAddBox, onRemoveCustomColor, photo = null,
+  pickMode, setPickMode, onRemoveBox, onNewBox, onAddMosaic, canAddBox, savedColors = [], onSaveColor, onRemoveSavedColor, photo = null,
 }) {
-  // Removing her own colors (1.9.1): Remove colors turns each custom swatch into a remove button until Done.
+  // Custom colors (1.35.0, Arjang Nov 26) are the ones she saves on purpose with Save Color, as many as she likes. Remove
+  // colors turns each one into a remove button until Done (1.9.1). Her recent colors stay in the color row, unlabeled.
   const [removing, setRemoving] = useState(false);
-  useEffect(() => { if (!customColors.length) setRemoving(false); }, [customColors.length]);
+  useEffect(() => { if (!savedColors.length) setRemoving(false); }, [savedColors.length]);
   const extras = draft.extraTexts || [];
   // The photo the editor is on (1.20.0, Big Edit item 3): the cover holds the quote and its own boxes; a carousel photo
   // holds only the boxes she put on it, and starts with none.
@@ -80,9 +81,10 @@ export default function CoverEditor({
       {!hasBox && <p className="hint emptyPhoto">No text on this photo yet. Add a text box to write on it.</p>}
 
       {hasBox && (<>
+      {/* Size took Text width's place at the top (1.35.0, Arjang Nov 26). Holding any slider still puts it back to its default. */}
       <div className="twoUp">
-        <Slider label="Text width" value={box.widthScale} min={10} max={50} onChange={(v) => setBox({ widthScale: v })} />
-        <Slider label="Text height" value={box.heightScale} min={10} max={50} onChange={(v) => setBox({ heightScale: v })} />
+        <Slider label="Size" value={box.fontSize} min={24} max={110} def={STYLE_DEFAULTS.fontSize} onChange={(v) => setBox({ fontSize: v })} />
+        <Slider label="Text height" value={box.heightScale} min={10} max={50} def={STYLE_DEFAULTS.heightScale} onChange={(v) => setBox({ heightScale: v })} />
       </div>
 
       <label className="fieldLabel" htmlFor="quoteField">{isMain ? "Quote" : "Text"}</label>
@@ -90,6 +92,33 @@ export default function CoverEditor({
         onChange={(e) => (isMain ? setItem({ quote: e.target.value }) : setBox({ quote: e.target.value }))} />
       {/* The quote's on and off moved to the T icon by the pencil (1.13.9). */}
       {isMain && !quotesUnlocked && <p className="hint">Quotes are locked until they're yours. Take the quote quiz behind the info button.</p>}
+
+      {/* Font and Align sit right under the quote (1.35.0, Arjang Nov 26). */}
+      <div className="fontAlign">
+        <div>
+          <label className="fieldLabel" htmlFor="fontField">Font</label>
+          <div className="selectWrap">
+            <select id="fontField" className="field" value={box.textFont} onChange={(e) => setBox({ textFont: e.target.value })}>
+              {fonts.map((f) => <option key={f} value={f}>{FONT_LABELS[f] || f}</option>)}
+            </select>
+            <Icon name="chevronDown" size={18} className="selectChevron" />
+          </div>
+        </div>
+        <div>
+          <span className="fieldLabel">Align</span>
+          <div className="segmented small" role="group" aria-label="Align">
+            {ALIGNS.map(([v, short, long]) => (
+              <button type="button" key={v} className={box.textAlign === v ? "on" : ""} aria-pressed={box.textAlign === v} aria-label={long} onClick={() => setBox({ textAlign: v })}>{short}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Justified text gets its own width (1.20.0, Big Edit item 6): both sides of the column move in and out together. */}
+      {box.textAlign === "justify" && (
+        <Slider label="Justify width" value={box.textWidth} min={20} max={100} unit="%" inline def={STYLE_DEFAULTS.textWidth} onChange={(v) => setBox({ textWidth: v })} />
+      )}
+
 
       <div className="rowBetween">
         <span className="fieldLabel inline">Lines</span>
@@ -129,15 +158,15 @@ export default function CoverEditor({
           );
         })}
       </div>
-      {wheelOpen && <ColorWheel value={box.textColor} onPick={pickColor} onDone={() => setWheelOpen(false)} />}
+      {wheelOpen && <ColorWheel value={box.textColor} onPick={pickColor} onDone={() => setWheelOpen(false)} saved={savedColors} onSave={onSaveColor} />}
       <details className="customColors">
-        <summary><span>Custom colors</span><span className="countBadge">{customColors.length}</span></summary>
-        {customColors.length ? (
+        <summary><span>Custom colors</span><span className="countBadge">{savedColors.length}</span></summary>
+        {savedColors.length ? (
           <>
             <div className="swatches">
-              {customColors.map((hex) => (removing ? (
+              {savedColors.map((hex) => (removing ? (
                 <button type="button" key={hex} className="swatch removing" style={{ background: hex }}
-                  aria-label={`Remove custom ${hex}`} onClick={() => onRemoveCustomColor?.(hex)}>
+                  aria-label={`Remove custom ${hex}`} onClick={() => onRemoveSavedColor?.(hex)}>
                   <span className="removeDot" aria-hidden="true"><Icon name="close" size={12} /></span>
                 </button>
               ) : (
@@ -151,33 +180,8 @@ export default function CoverEditor({
                 : <button type="button" className="linkBtn muted" onClick={() => setRemoving(true)}>Remove colors</button>}
             </div>
           </>
-        ) : <p className="hint">Colors you pick yourself land here.</p>}
+        ) : <p className="hint">Pick a color on the wheel and tap Save Color. It stays here until you remove it.</p>}
       </details>
-
-      <div className="fontAlign">
-        <div>
-          <label className="fieldLabel" htmlFor="fontField">Font</label>
-          <div className="selectWrap">
-            <select id="fontField" className="field" value={box.textFont} onChange={(e) => setBox({ textFont: e.target.value })}>
-              {fonts.map((f) => <option key={f} value={f}>{FONT_LABELS[f] || f}</option>)}
-            </select>
-            <Icon name="chevronDown" size={18} className="selectChevron" />
-          </div>
-        </div>
-        <div>
-          <span className="fieldLabel">Align</span>
-          <div className="segmented small" role="group" aria-label="Align">
-            {ALIGNS.map(([v, short, long]) => (
-              <button type="button" key={v} className={box.textAlign === v ? "on" : ""} aria-pressed={box.textAlign === v} aria-label={long} onClick={() => setBox({ textAlign: v })}>{short}</button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Justified text gets its own width (1.20.0, Big Edit item 6): both sides of the column move in and out together. */}
-      {box.textAlign === "justify" && (
-        <Slider label="Justify width" value={box.textWidth} min={20} max={100} unit="%" inline onChange={(v) => setBox({ textWidth: v })} />
-      )}
 
       <span className="fieldLabel">Font weight</span>
       <div className="segmented" role="group" aria-label="Font weight">
@@ -198,12 +202,11 @@ export default function CoverEditor({
         </div>
       </div>}
 
-      <Slider label="Size" value={box.fontSize} min={24} max={110} inline onChange={(v) => setBox({ fontSize: v })} />
       {/* The space between lines (1.20.0, Big Edit item 7): the box's line height, 60 to 200% of the text size. */}
-      <Slider label="Line spacing" value={box.textHeight} min={60} max={200} unit="%" inline onChange={(v) => setBox({ textHeight: v })} />
-      <Slider label="Opacity" value={box.opacity} min={25} max={100} unit="%" inline onChange={(v) => setBox({ opacity: v })} />
-      <Slider label="Horizontal" value={box.horizontalPosition} min={0} max={100} unit="%" inline onChange={(v) => setBox({ horizontalPosition: v })} />
-      <Slider label="Vertical" value={box.verticalPosition} min={0} max={100} unit="%" inline onChange={(v) => setBox({ verticalPosition: v })} />
+      <Slider label="Line spacing" value={box.textHeight} min={60} max={200} unit="%" inline def={STYLE_DEFAULTS.textHeight} onChange={(v) => setBox({ textHeight: v })} />
+      <Slider label="Opacity" value={box.opacity} min={25} max={100} unit="%" inline def={STYLE_DEFAULTS.opacity} onChange={(v) => setBox({ opacity: v })} />
+      <Slider label="Horizontal" value={box.horizontalPosition} min={0} max={100} unit="%" inline def={STYLE_DEFAULTS.horizontalPosition} onChange={(v) => setBox({ horizontalPosition: v })} />
+      <Slider label="Vertical" value={box.verticalPosition} min={0} max={100} unit="%" inline def={STYLE_DEFAULTS.verticalPosition} onChange={(v) => setBox({ verticalPosition: v })} />
 
       {!isMain && <button type="button" className="dangerLink" onClick={onRemoveBox}>Remove this text box</button>}
       </>)}
@@ -215,23 +218,62 @@ export default function CoverEditor({
   );
 }
 
-/** A labelled slider: label and value on one line, the track under them (or beside, when inline). */
-function Slider({ label, value, min, max, unit = "", inline = false, onChange }) {
+/** Holding a slider without sliding it puts it back to its default (1.35.0, Arjang Nov 26). A slide or a lift before the
+ *  hold lands is an ordinary slide. A phone may jump the thumb to the finger as it lands, so a change that soon still
+ *  counts as holding; a change after that is her sliding. Returns the pointer handlers, the input's change guard and
+ *  whether it just reset (for a short flash). */
+const HOLD_RESET_MS = 600;
+const LANDING_MS = 150;
+function useHoldReset(def, apply) {
+  const hold = useRef(null);
+  const [flash, setFlash] = useState(false);
+  const stop = () => { if (hold.current) { clearTimeout(hold.current.timer); hold.current = null; } };
+  useEffect(() => () => stop(), []);
+  useEffect(() => {
+    if (!flash) return undefined;
+    const t = setTimeout(() => setFlash(false), 500);
+    return () => clearTimeout(t);
+  }, [flash]);
+  if (def == null) return { handlers: {}, changed: () => {}, flash: false };
+  const handlers = {
+    onPointerDown(e) {
+      stop();
+      const h = { x: e.clientX, y: e.clientY, at: Date.now() };
+      h.timer = setTimeout(() => {
+        hold.current = null;
+        apply(def);
+        setFlash(true);
+        try { navigator.vibrate?.(10); } catch { /* no vibration here */ }
+      }, HOLD_RESET_MS);
+      hold.current = h;
+    },
+    onPointerMove(e) { const h = hold.current; if (h && Math.hypot(e.clientX - h.x, e.clientY - h.y) > 6) stop(); },
+    onPointerUp: stop, onPointerCancel: stop, onPointerLeave: stop,
+  };
+  const changed = () => { const h = hold.current; if (h && Date.now() - h.at > LANDING_MS) stop(); };
+  return { handlers, changed, flash };
+}
+
+/** A labelled slider: label and value on one line, the track under them (or beside, when inline). Hold it to reset. */
+function Slider({ label, value, min, max, unit = "", inline = false, def = null, onChange }) {
   const id = `s-${label.replace(/\s+/g, "-").toLowerCase()}`;
   const v = Math.round(Number(value));
+  const reset = useHoldReset(def, onChange);
   return (
-    <div className={inline ? "slider inline" : "slider"}>
+    <div className={[inline ? "slider inline" : "slider", reset.flash && "justReset"].filter(Boolean).join(" ")}>
       <label htmlFor={id}>{label}</label>
       <output htmlFor={id}>{v}{unit}</output>
-      <input id={id} type="range" min={min} max={max} value={v} onChange={(e) => onChange(Number(e.target.value))}
+      <input id={id} type="range" min={min} max={max} value={v} onChange={(e) => { reset.changed(); onChange(Number(e.target.value)); }}
+        aria-description={def != null ? `Press and hold to reset to ${def}${unit}` : undefined} {...reset.handlers}
         style={{ "--pct": `${Math.min(100, Math.max(0, ((v - min) / (max - min)) * 100))}%` }} />
     </div>
   );
 }
 
 /** The color wheel (1.26.0, Arjang #1092): hue around the ring, white toward the middle, brightness on the slider. The
- *  text follows her finger; the color she lands on joins her recent colors when it saves. */
-function ColorWheel({ value, onPick, onDone }) {
+ *  text follows her finger; the color she lands on joins her recent colors when it saves. Save Color (1.35.0) keeps it
+ *  in her Custom colors too, for good. */
+function ColorWheel({ value, onPick, onDone, saved = [], onSave }) {
   const [hsv, setHsv] = useState(() => hexToHsv(value));
   const wheel = useRef(null), held = useRef(false);
   const hex = hsvToHex(hsv.h, hsv.s, hsv.v);
@@ -241,6 +283,9 @@ function ColorWheel({ value, onPick, onDone }) {
     setHsv(next);
     onPick(hsvToHex(next.h, next.s, next.v));
   };
+  const bright = (pct) => { const next = { ...hsv, v: pct / 100 }; setHsv(next); onPick(hsvToHex(next.h, next.s, next.v)); };
+  const reset = useHoldReset(100, bright);
+  const isSaved = saved.includes(hex.toUpperCase());
   const rad = (hsv.h * Math.PI) / 180;
   return (
     <div className="wheelPop" role="group" aria-label="Color wheel">
@@ -252,10 +297,18 @@ function ColorWheel({ value, onPick, onDone }) {
       </div>
       <div className="wheelSide">
         <span className="wheelNow" style={{ background: hex }} aria-hidden="true" />
-        <input type="range" min="5" max="100" value={Math.round(hsv.v * 100)} aria-label="Brightness"
-          onChange={(e) => { const next = { ...hsv, v: Number(e.target.value) / 100 }; setHsv(next); onPick(hsvToHex(next.h, next.s, next.v)); }} />
+        <input type="range" min="5" max="100" value={Math.round(hsv.v * 100)} aria-label="Brightness" aria-description="Press and hold to reset to full brightness"
+          onChange={(e) => { reset.changed(); bright(Number(e.target.value)); }} {...reset.handlers} />
         <span className="wheelHex">{hex}</span>
-        <button type="button" className="linkBtn" onClick={onDone}>Done</button>
+        <div className="wheelActions">
+          <button type="button" className="linkBtn" onClick={onDone}>Done</button>
+          {onSave && (
+            <button type="button" className={isSaved ? "saveColorBtn saved" : "saveColorBtn"} disabled={isSaved} onClick={() => onSave(hex.toUpperCase())}
+              aria-label={isSaved ? `${hex} is in your custom colors` : `Save ${hex} to your custom colors`}>
+              {isSaved ? <><Icon name="check" size={16} /> Saved</> : "Save Color"}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

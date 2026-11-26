@@ -26,7 +26,7 @@ import { setBusy as setScreenBusy } from "./busy.js";
 const STYLE_KEYS = Object.keys(STYLE_DEFAULTS);
 const MAX_BOXES = 5;
 const LOOK_KEYS = ["textFont", "textColor"]; // the queue's look (1.20.0, Big Edit item 1): one font and one color for every queued cover
-const NO_PALETTE = { palette: [], fonts: [], customColors: [], brandColors: [], lock: { textFont: null, textColor: null }, customFonts: [] };
+const NO_PALETTE = { palette: [], fonts: [], customColors: [], savedColors: [], brandColors: [], lock: { textFont: null, textColor: null }, customFonts: [] };
 
 /** A cover's style with every default filled in, so an edit compares what she actually sees. */
 function effectiveStyle(item) {
@@ -39,7 +39,8 @@ function effectiveStyle(item) {
 const pickStyle = (item, keys) => Object.fromEntries(keys.map((k) => [k, effectiveStyle(item)[k]]));
 /** A cover with one text box at a new spot: index -1 is the quote, 0 and up her own boxes. */
 // m.w is the narrower width a landscape drag re-wrapped the box to (1.27.0, Quill #1145), or null when it kept its width.
-const placed = (m) => ({ horizontalPosition: m.h, verticalPosition: m.v, ...(m.w != null ? { textWidth: m.w } : {}) });
+// m.s is the size a two-finger pinch gave it (1.35.0), or null when the pinch never happened.
+const placed = (m) => ({ horizontalPosition: m.h, verticalPosition: m.v, ...(m.w != null ? { textWidth: m.w } : {}), ...(m.s != null ? { fontSize: m.s } : {}) });
 const placeBox = (item, m) => (m.index === -1 ? { ...item, ...placed(m) }
   : { ...item, extraTexts: (item.extraTexts || []).map((b, i) => (i === m.index ? { ...b, ...placed(m) } : b)) });
 // Resolves when the browser has a free moment (or after a short wait where it can't say), so a pass in the background
@@ -70,7 +71,7 @@ export default function App() {
   const applyPalette = useCallback((p) => {
     if (!p) return;
     registerFonts(p.customFonts); // her own fonts, from her data folder (1.20.0, Big Edit item 4)
-    const next = { palette: p.palette || [], fonts: p.fonts || [], customColors: p.customColors || [], brandColors: p.brandColors || [],
+    const next = { palette: p.palette || [], fonts: p.fonts || [], customColors: p.customColors || [], savedColors: p.savedColors || [], brandColors: p.brandColors || [],
       lock: p.lock || NO_PALETTE.lock, customFonts: p.customFonts || [] };
     paletteNow.current = next;
     setPalette(next);
@@ -798,10 +799,14 @@ export default function App() {
     const before = { style: pickStyle(drawn, Object.keys(patch)) }, after = { style: patch };
     await record("Randomize", current.id, before, after);
   }).finally(refocusRandomize);
-  // Takes one of her custom colors off her list (1.9.1). Covers that use it keep it.
-  const removeCustomColor = (hex) => attempt(async () => {
-    applyPalette(await post("/api/palette/custom-colors/remove", { hex }));
-    say(`Removed ${hex} from your colors.`);
+  // Save Color (1.35.0): the wheel's color joins her Custom colors. Remove takes one off; covers that use it keep it.
+  const saveColor = (hex) => attempt(async () => {
+    applyPalette(await post("/api/palette/saved-colors", { hex }));
+    say(`Saved ${hex} to your custom colors.`);
+  });
+  const removeSavedColor = (hex) => attempt(async () => {
+    applyPalette(await post("/api/palette/saved-colors/remove", { hex }));
+    say(`Removed ${hex} from your custom colors.`);
   });
   const postNote = (note) => attempt(async () => {
     setPending(current.id, "note", null);
@@ -854,7 +859,7 @@ export default function App() {
   const restorePhoto = () => attempt(async () => { patchItem((await post(`/api/items/${current.id}/restore-original`)).item); });
   const searchPhotos = async (q) => (await api(`/api/photos/search?q=${encodeURIComponent(q)}`)).results;
   // Hold and drag (1.20.0, Big Edit item 9): the lifted box follows her thumb, and letting go saves the spot as one step.
-  const moveText = (index, h, v, _at, w = null) => { if (!current) return; movingNow.current = { id: current.id, index, h, v, w }; setMoving(movingNow.current); };
+  const moveText = (index, h, v, _at, w = null, s = null) => { if (!current) return; movingNow.current = { id: current.id, index, h, v, w, s }; setMoving(movingNow.current); };
   const dropText = () => {
     const m = movingNow.current;
     movingNow.current = null;
@@ -862,9 +867,10 @@ export default function App() {
     if (!m || !item || m.id !== item.id) { setMoving(null); return; }
     const was = effectiveStyle(item);
     const change = m.index === -1
-      ? [{ style: { horizontalPosition: was.horizontalPosition, verticalPosition: was.verticalPosition, ...(m.w != null ? { textWidth: was.textWidth } : {}) } }, { style: placed(m) }]
+      ? [{ style: { horizontalPosition: was.horizontalPosition, verticalPosition: was.verticalPosition, ...(m.w != null ? { textWidth: was.textWidth } : {}),
+        ...(m.s != null ? { fontSize: was.fontSize } : {}) } }, { style: placed(m) }]
       : [{ style: { extraTexts: item.extraTexts || [] } }, { style: { extraTexts: placeBox(item, m).extraTexts } }];
-    attempt(() => record("Move text", item.id, ...change)).finally(() => setMoving(null));
+    attempt(() => record(m.s != null ? "Resize text" : "Move text", item.id, ...change)).finally(() => setMoving(null));
   };
   const pan = (key, value) => patchItem({ ...current, [key]: value });
   const panDone = () => attempt(async () => {
@@ -933,8 +939,8 @@ export default function App() {
     return activeBox === -1 ? { ...d, ...patch } : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === activeBox ? { ...b, ...patch } : b)) };
   });
   const setImageEdit = (patch) => setDraft((d) => ({ ...d, imageEdit: { ...(d.imageEdit || {}), ...patch } }));
-  const moveBox = (box, h, v, w = null) => setDraft((d) => (box === -1 ? { ...d, ...placed({ h, v, w }) }
-    : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === box ? { ...b, ...placed({ h, v, w }) } : b)) }));
+  const moveBox = (box, h, v, w = null, s = null) => setDraft((d) => (box === -1 ? { ...d, ...placed({ h, v, w, s }) }
+    : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === box ? { ...b, ...placed({ h, v, w, s }) } : b)) }));
   // The text boxes on the photo the editor is on: up to 5 on each photo (1.20.0).
   const boxesHere = (d) => (d?.extraTexts || []).filter((b) => (editSlide === null ? b.slide == null : b.slide === editSlide)).length;
   function newBox() {
@@ -1184,7 +1190,8 @@ export default function App() {
                   <CoverEditor draft={draft} activeBox={activeBox} setActiveBox={setActiveBox} setBox={setBox} setItem={setDraftItem} setImageEdit={setImageEdit}
                     palette={palette.palette} brandColors={palette.brandColors} locked={draft.status === "queue"} fonts={palette.fonts} customColors={palette.customColors} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
                     pickMode={pickMode} setPickMode={setPickMode} onRemoveBox={removeBox} photo={editSlide}
-                    onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={boxesHere(draft) < MAX_BOXES} onRemoveCustomColor={removeCustomColor} />
+                    onNewBox={newBox} onAddMosaic={addMosaic} canAddBox={boxesHere(draft) < MAX_BOXES}
+                    savedColors={palette.savedColors} onSaveColor={saveColor} onRemoveSavedColor={removeSavedColor} />
                 </EditorSheet>
               )}
             </>

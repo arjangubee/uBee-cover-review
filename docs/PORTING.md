@@ -12,6 +12,36 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.35.0: Save Color, Size up top, hold to reset, pinch to resize
+
+Arjang, Nov 26, from his screenshot of the editor.
+
+1. **Save Color** sits beside Done on the color wheel. It keeps the wheel's color in Custom colors, newest first, with
+   no limit; saving one she already has moves it to the front. Remove colors takes one off, and covers that use it keep
+   it. Custom colors used to show her recent colors: those stay in the color row, unlabeled, as before.
+2. **Size** took Text width's place at the top, beside Text height. Text width left the editor (covers keep their
+   stretch). **Font and Align** moved right under the quote, above Lines.
+3. **Holding a slider** without sliding it puts it back to its default: Size 58, Text height 30, Justify width 84, Line
+   spacing 100, Opacity 100, Horizontal and Vertical 50, and the wheel's brightness 100.
+4. **Two fingers** on a text box pinch it bigger or smaller (24 to 110, or from wherever it already was past those) and
+   move it with them. In the editor the second finger joins a press on a box. On the cover, two fingers on a box lift it
+   at once, and it saves as one step for Undo ("Resize text").
+5. The swipe row hides while the editor is open, and the cover card only lets the page scroll up and down, so a pinch
+   never zooms the page.
+
+| Where | Change |
+| --- | --- |
+| server/brand.js | `settings.savedColors`; `POST /api/palette/saved-colors` and `/api/palette/saved-colors/remove`; `savedColors` in `GET /api/palette` |
+| client/src/CoverEditor.jsx | Size up top, Font and Align under the quote, Save Color, Custom colors from `savedColors`, hold to reset |
+| client/src/CoverStage.jsx | the two-finger pinch |
+| client/src/App.jsx | `saveColor`, `removeSavedColor`; `fontSize` through `moveBox`, `moveText` and `dropText` |
+| client/src/styles.css | Save Color, the reset flash, the swipe row hidden while editing |
+
+### Data steps (her space, never the repo)
+
+- Add `savedColors` to her settings, default `[]`. Nothing else changes: her recent colors (`customColors`) stay as they
+  are. Re-verify counts.
+
 ## 1.34.0: swipe to approve, like Tinder
 
 Arjang, Nov 26, from his screen recording of Tinder: the cover is a card. Client only.

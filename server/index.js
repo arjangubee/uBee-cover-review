@@ -13,6 +13,7 @@ import { composePasses } from "../client/src/reviewMath.js";
 import { ctaFor } from "./captionCtas.js";
 import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
 import { registerRemix } from "./remix.js";
+import { shuffleSong } from "./songPick.js";
 import { registerBrand } from "./brand.js";
 import { SONG_SOURCES, cleanHook, cleanSongFile, matchSongClip, registerSongs } from "./songs.js";
 import { DATA_DIR, libraryDir, spaceFile, store, uploadsDir } from "./store.js";
@@ -211,7 +212,12 @@ app.post("/api/items/:id/edit", (req, res) => {
   if (req.body.regenerateCaption) { item.caption = generateCaption(item, store.settings.voiceProfile); item.captionSource = "placeholder"; }
   // The Comment CTA switch (1.10, renamed in 1.10.1): a keyword on the space's list turns it on, null turns it off.
   if (req.body.cta !== undefined) { if (cta) item.cta = cta.keyword; else delete item.cta; }
-  if (req.body.shuffleSong) Object.assign(item, suggestSong(item, { shuffle: true }));
+  // Shuffle (1.27.0, Quill #1119, Arjang #1092): a song matched to what the cover says, never one the cover has had.
+  if (req.body.shuffleSong) {
+    const s = shuffleSong(item);
+    if (s.error) { store.saveDb(); return res.status(409).json({ error: s.error }); }
+    Object.assign(item, s.fields);
+  }
   if (req.body.shuffleQuote) item.quote = suggestQuote({ ...item, id: item.id + Math.floor(Math.random() * 13) + 1 }, loadQuotes());
   store.saveDb();
   res.json({ item });

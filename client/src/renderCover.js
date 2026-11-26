@@ -15,7 +15,7 @@ export const FONT_CSS = {
 
 /** What the font menu says for each font. */
 export const FONT_LABELS = {
-  tiktok: "TikTok Sans", // the plain TikTok Sans face; new text starts at Regular (1.8)
+  tiktok: "TikTok Sans", // the plain TikTok Sans face; new text starts at Bold (1.26.0, text boxes too since 1.27.0)
   avenir: "Avenir",
   serif: "Serif",
   condensed: "Condensed",
@@ -117,6 +117,32 @@ export function estimatedLineCount(quote) {
   return Math.max(1, Math.min(words, typed > 1 ? typed : Math.round(text.length / 20)));
 }
 
+/** The landscape column width (1.27.0, Quill #1145): a landscape cover's text starts this wide, and a drag off center
+ * narrows it no further than LANDSCAPE_MIN_WIDTH. */
+export const LANDSCAPE_WIDTH = 84, LANDSCAPE_MIN_WIDTH = 38;
+/**
+ * Lines on Auto. On a landscape cover whose box is narrower than the 84% column (a drag off center re-wrapped it, or she
+ * set it narrower), the words take more rows in the same ratio, so the text re-wraps into a taller column at about the
+ * same size instead of shrinking. Portrait and square covers, and the 84% column itself, are as before.
+ */
+export function autoLines(s, width, height) {
+  const n = estimatedLineCount(s.quote);
+  const w = clamp(Number(s.textWidth) || LANDSCAPE_WIDTH, 20, 100);
+  if (!(width > height) || w >= LANDSCAPE_WIDTH || !n) return n;
+  const words = String(s.quote ?? "").split(/\s+/).filter(Boolean).length;
+  return Math.min(words, Math.ceil((n * LANDSCAPE_WIDTH) / w));
+}
+/**
+ * The width a landscape drag re-wraps a box to (1.27.0, Quill #1145): when the center she's pulling to (cx, px) would
+ * put the block's edge past the photo, the box narrows so the block fits around that center, down to 38%. half is the
+ * block's half width at width w0. Answers null while the block still fits at w0, so its width stays hers.
+ */
+export function rewrapWidth(cx, half, w0, left, right) {
+  const room = Math.min(cx - left, right - cx);
+  if (!(half > 0) || room >= half) return null;
+  return Math.max(LANDSCAPE_MIN_WIDTH, Math.min(w0, Math.floor((w0 * Math.max(0, room)) / half)));
+}
+
 /**
  * The Lines picker: the quote's words in exactly `count` rows (fewer when there are fewer words),
  * split so the widest row is as narrow as it can be. Her own line breaks become spaces here.
@@ -168,7 +194,7 @@ export function coverLayout(box, width, height, measureAt, { safe = false } = {}
   let fontPx = previewFontPx(s) * (width / PREVIEW_WIDTH);
   const lineCount = clamp(Math.round(s.lineCount), 0, 99); // no cap: the balancer stops at the word count
   // Lines picks the rows (on Auto, the original's estimate, 1.13.8); the size gives way so the widest row fits the box.
-  const lines = balanceLines(s.quote, lineCount > 0 ? lineCount : estimatedLineCount(s.quote), measureAt(fontPx));
+  const lines = balanceLines(s.quote, lineCount > 0 ? lineCount : autoLines(s, width, height), measureAt(fontPx));
   for (let pass = 0; pass < 3 && lines.length; pass++) {
     const m = measureAt(fontPx);
     const widest = Math.max(...lines.map((l) => m(l)));
@@ -410,7 +436,8 @@ const held = (box, safe, free) => Boolean(safe) && !free?.has(box.main ? -1 : bo
 export function textHitBoxes(item, width, height, measureCtx, quoteOn = Boolean(item.showQuote), { safe = false, free = null, slideAt = null } = {}) {
   return textBoxes(item, quoteOn, slideAt).map((box) => {
     const L = coverLayout(box, width, height, (px) => { measureCtx.font = fontString(box, px); return (t) => measureCtx.measureText(t).width; }, { safe: held(box, safe, free) });
-    return { index: box.main ? -1 : box.extraIndex, ...L.bounds, centerX: L.anchorX, centerY: L.anchorY, halfW: L.halfW, halfH: L.halfH };
+    return { index: box.main ? -1 : box.extraIndex, ...L.bounds, centerX: L.anchorX, centerY: L.anchorY, halfW: L.halfW, halfH: L.halfH,
+      textWidth: clamp(withDefaults(box).textWidth, 20, 100) }; // a landscape drag re-wraps from it (1.27.0)
   });
 }
 

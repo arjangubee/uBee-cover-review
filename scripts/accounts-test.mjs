@@ -264,10 +264,13 @@ try {
       assert(m.saved.join() === SONG("c"), `saved: ${JSON.stringify(m)}`);
       const n1 = await boss.upload("n1.png"), n2 = await boss.upload("n2.png");
       assert(n1.songFile === FILE("c") && n2.songFile === FILE("c"), `new covers take her saved song: ${n1.songFile} ${n2.songFile}`);
+      // 1.27.0 (Quill #1119): Shuffle never repeats a song on a cover; once the list is done it says so, then starts over.
       const seen = [];
-      let item = n1;
-      for (let k = 0; k < 4; k++) { item = (await boss.post(`/api/items/${item.id}/edit`, { shuffleSong: true })).item; seen.push(item.songFile); }
-      assert(seen.join() === [FILE("b"), FILE("c"), FILE("b"), FILE("c")].join(), `Shuffle goes saved first, then the rest, never the hidden one: ${seen.join()}`);
+      for (let k = 0; k < 3; k++) {
+        const r = await boss.post(`/api/items/${n1.id}/edit`, { shuffleSong: true });
+        seen.push(r.item ? r.item.songFile : "done");
+      }
+      assert(seen.join() === [FILE("b"), "done", FILE("c")].join(), `Shuffle never picks the hidden one or repeats on the cover: ${seen.join()}`);
       const p = [await pal.upload("p1.png"), await pal.upload("p2.png"), await pal.upload("p3.png")];
       assert(p.some((x) => x.songFile === FILE("a")), "another account's picks never feel her Hide");
       assert((await pal.get("/api/music")).hidden.length === 0 && (await pal.get("/api/music")).saved.length === 0, "nor see her adjustments");

@@ -11,29 +11,15 @@
 // waiting closes with a note instead of a copy. A copy such a page already made still goes where the page puts it.
 import { captionState } from "./captionDrafts.js";
 import { cleanWhy, normalizeForStockCheck, quoteInStock, recheckSaved, songInPool, verifyItem } from "./full.js";
-import { pickable } from "./music.js";
-import { generateCaption, loadQuotes, loadTrending } from "./services.js";
-import { SONG_SOURCES, cleanHook, cleanSongFile, downloadedSongs, songFields } from "./songs.js";
+import { generateCaption, loadQuotes } from "./services.js";
+import { SONG_SOURCES, cleanHook, cleanSongFile } from "./songs.js";
 import { store } from "./store.js";
-import { words } from "./words.js";
+import { best, noteTried, pickSongFor } from "./songPick.js";
 
 export const PROMPT_MAX = 300;
 
-// The match's words live in words.js since 1.21.0, for the compose check's lines too.
+// The match's words live in words.js since 1.21.0, and the match itself in songPick.js since 1.27.0.
 const same = (a, b) => String(a ?? "").trim().replace(/\s+/g, " ").toLowerCase() === String(b ?? "").trim().replace(/\s+/g, " ").toLowerCase();
-
-/** The best candidate for the weighted texts: the most matched words, then (songs) her saved ones, then a turn that
- * moves with each remix, so a remix with nothing to match still gets a different pick each time. */
-function best(cands, texts, seed) {
-  const parts = texts.map(([weight, text]) => [weight, new Set(words(text))]);
-  const n = cands.length;
-  return cands.map((c, i) => {
-    const own = new Set(words(c.text));
-    let score = 0;
-    for (const [weight, ws] of parts) for (const w of ws) if (own.has(w)) score += weight;
-    return { c, score, turn: (((i - seed) % n) + n) % n };
-  }).sort((a, b) => b.score - a.score || Number(Boolean(b.c.saved)) - Number(Boolean(a.c.saved)) || a.turn - b.turn)[0]?.c ?? null;
-}
 
 function pickQuote(src, prompt, seed) {
   // Her stock, each quote once and never the cover's own, read the way the stock check reads them (1.17.1).
@@ -47,25 +33,10 @@ function pickQuote(src, prompt, seed) {
   return hit ? { quote: hit.text } : { error: "Your quote list has no other quote to pick from." };
 }
 
-// Where a new song comes from, like a new cover's: the songs folder (or Symphony online) first, without her hidden songs
-// and with her saved ones first, then her Spotify library, then trending.
-function songCandidates() {
-  const { saved, rest } = pickable(downloadedSongs());
-  if (saved.length || rest.length) {
-    return [...saved.map((s) => [s, true]), ...rest.map((s) => [s, false])]
-      .map(([s, isSaved]) => ({ text: `${s.artist} - ${s.title}`, saved: isSaved, fields: songFields(s) }));
-  }
-  const listed = (songs, songSource) => songs.map((s) => ({ text: `${s.artist} - ${s.title}`, fields: { song: `${s.artist} - ${s.title}`, songSource,
-    songPreviewUrl: String(s.previewUrl || ""), songSpotifyUrl: String(s.spotifyUrl || ""), songFile: null, songHook: null } }));
-  const lib = store.settings.spotifyLibrary || [];
-  if (lib.length) return listed(lib, "spotify");
-  return listed(loadTrending().songs || [], "trending");
-}
-
+// A new song (1.27.0, Quill #1119): an exact request first, then a pick matched to the prompt, the quote and the photo,
+// never the cover's song or one it has had (songPick.js).
 function pickSong(src, quote, prompt, seed) {
-  const cands = songCandidates().filter((c) => !same(c.text, src.song) && !(src.songFile && c.fields.songFile === src.songFile));
-  const hit = best(cands, [[3, prompt], [2, quote], [1, src.description]], seed);
-  return hit ? { fields: hit.fields } : { error: "There's no other song to pick. Your songs are hidden, or this cover has the only one." };
+  return pickSongFor(src, { prompt, quote, seed });
 }
 
 /** The new cover's quote and song fields, or the reason there's none. Each pick has to pass its part of the compose gate. */
@@ -220,9 +191,11 @@ export function registerRemix(app) {
     delete item.lastRemix; // a new try clears a note an older remix left (1.17)
     const out = pickFor(item, { id: nextRemixId(), quote, song }); // the counter moves, so each remix picks something new
     if (out.error) {
+      if (out.exhausted) noteTried(item, null, out); // every song has had its turn on this cover: the next try starts over
       store.saveDb();
       return res.status(422).json({ error: out.error });
     }
+    if (song.on) noteTried(item, item.song); // the song it had won't come back on this cover (1.27.0)
     const before = ownFields(item);
     const typed = captionState(item, generateCaption(item, store.settings.voiceProfile)) === "human"; // read with the old quote
     Object.assign(item, out.fields, { revision: (item.revision || 1) + 1, why: null, remixedAt: Date.now() });

@@ -1,9 +1,9 @@
 {
-  "version": "1.26.0",
+  "version": "1.27.0",
   "date": "2026-11-25",
   "whatsNew": [
-    "Each cover keeps its own color: changing one no longer changes them all",
-    "Covers get their own color from their photo, and Random picks a fresh color from the wheel",
-    "The color wheel is the first picker, your 5 newest colors sit in the row, and new text starts in TikTok Sans Bold"
+    "Shuffle picks a song that fits the post and never repeats one on the same cover, and a song named in Remix as Title - Artist lands exactly",
+    "On a landscape photo, dragging text toward a side re-wraps it narrower so it can go there",
+    "TikTok Sans now has every weight from Light to Black, and new text boxes start in Bold"
   ]
 }

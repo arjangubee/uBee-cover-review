@@ -37,8 +37,10 @@ function effectiveStyle(item) {
 }
 const pickStyle = (item, keys) => Object.fromEntries(keys.map((k) => [k, effectiveStyle(item)[k]]));
 /** A cover with one text box at a new spot: index -1 is the quote, 0 and up her own boxes. */
-const placeBox = (item, m) => (m.index === -1 ? { ...item, horizontalPosition: m.h, verticalPosition: m.v }
-  : { ...item, extraTexts: (item.extraTexts || []).map((b, i) => (i === m.index ? { ...b, horizontalPosition: m.h, verticalPosition: m.v } : b)) });
+// m.w is the narrower width a landscape drag re-wrapped the box to (1.27.0, Quill #1145), or null when it kept its width.
+const placed = (m) => ({ horizontalPosition: m.h, verticalPosition: m.v, ...(m.w != null ? { textWidth: m.w } : {}) });
+const placeBox = (item, m) => (m.index === -1 ? { ...item, ...placed(m) }
+  : { ...item, extraTexts: (item.extraTexts || []).map((b, i) => (i === m.index ? { ...b, ...placed(m) } : b)) });
 // Resolves when the browser has a free moment (or after a short wait where it can't say), so a pass in the background
 // never competes with her taps.
 const whenIdle = () => new Promise((done) => (typeof window !== "undefined" && window.requestIdleCallback
@@ -634,7 +636,7 @@ export default function App() {
   const restorePhoto = () => attempt(async () => { patchItem((await post(`/api/items/${current.id}/restore-original`)).item); });
   const searchPhotos = async (q) => (await api(`/api/photos/search?q=${encodeURIComponent(q)}`)).results;
   // Hold and drag (1.20.0, Big Edit item 9): the lifted box follows her thumb, and letting go saves the spot as one step.
-  const moveText = (index, h, v) => { if (!current) return; movingNow.current = { id: current.id, index, h, v }; setMoving(movingNow.current); };
+  const moveText = (index, h, v, _at, w = null) => { if (!current) return; movingNow.current = { id: current.id, index, h, v, w }; setMoving(movingNow.current); };
   const dropText = () => {
     const m = movingNow.current;
     movingNow.current = null;
@@ -642,7 +644,7 @@ export default function App() {
     if (!m || !item || m.id !== item.id) { setMoving(null); return; }
     const was = effectiveStyle(item);
     const change = m.index === -1
-      ? [{ style: { horizontalPosition: was.horizontalPosition, verticalPosition: was.verticalPosition } }, { style: { horizontalPosition: m.h, verticalPosition: m.v } }]
+      ? [{ style: { horizontalPosition: was.horizontalPosition, verticalPosition: was.verticalPosition, ...(m.w != null ? { textWidth: was.textWidth } : {}) } }, { style: placed(m) }]
       : [{ style: { extraTexts: item.extraTexts || [] } }, { style: { extraTexts: placeBox(item, m).extraTexts } }];
     attempt(() => record("Move text", item.id, ...change)).finally(() => setMoving(null));
   };
@@ -713,17 +715,18 @@ export default function App() {
     return activeBox === -1 ? { ...d, ...patch } : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === activeBox ? { ...b, ...patch } : b)) };
   });
   const setImageEdit = (patch) => setDraft((d) => ({ ...d, imageEdit: { ...(d.imageEdit || {}), ...patch } }));
-  const moveBox = (box, h, v) => setDraft((d) => (box === -1 ? { ...d, horizontalPosition: h, verticalPosition: v }
-    : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === box ? { ...b, horizontalPosition: h, verticalPosition: v } : b)) }));
+  const moveBox = (box, h, v, w = null) => setDraft((d) => (box === -1 ? { ...d, ...placed({ h, v, w }) }
+    : { ...d, extraTexts: d.extraTexts.map((b, i) => (i === box ? { ...b, ...placed({ h, v, w }) } : b)) }));
   // The text boxes on the photo the editor is on: up to 5 on each photo (1.20.0).
   const boxesHere = (d) => (d?.extraTexts || []).filter((b) => (editSlide === null ? b.slide == null : b.slide === editSlide)).length;
   function newBox() {
     if (!draft || boxesHere(draft) >= MAX_BOXES) return;
     const main = effectiveStyle(draft);
     const at = draft.extraTexts.length;
-    // A new text box starts in TikTok Sans Regular (1.8), with the rest of the cover's look.
+    // A new text box starts in TikTok Sans Bold (1.27.0, Arjang #1094: all fonts start on TikTok Sans Bold), with the rest of
+    // the cover's look.
     const font = (draft.status === "queue" && lookOf(paletteNow.current).textFont) || "tiktok"; // the queue's font, if she picked one (1.20.0)
-    const box = { ...pickStyle(draft, STYLE_KEYS), textFont: font, fontWeight: 400, quote: "Your text", verticalPosition: main.verticalPosition > 55 ? 22 : 78, lineCount: 0,
+    const box = { ...pickStyle(draft, STYLE_KEYS), textFont: font, fontWeight: 700, quote: "Your text", verticalPosition: main.verticalPosition > 55 ? 22 : 78, lineCount: 0,
       ...(editSlide === null ? {} : { slide: editSlide, verticalPosition: 50, horizontalPosition: 50 }) }; // on a carousel photo, its middle
     setDraft((d) => ({ ...d, extraTexts: [...d.extraTexts, box] }));
     setActiveBox(at);

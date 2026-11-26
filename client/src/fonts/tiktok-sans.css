@@ -1,0 +1,11 @@
+/* TikTok Sans 4.000, Arjang's own files (1.27.0, room #1112 and file 110), SIL Open Font License (TikTokSans-OFL.txt).
+   One variable font in place of the four Latin weights from @fontsource: every weight from Light 300 to Black 900, the
+   widths and optical sizes, and every script the font has. It's the `tiktok` font, the one new text starts in. */
+@font-face {
+  font-family: "TikTok Sans";
+  src: url("./TikTokSans-Variable.woff2") format("woff2-variations"), url("./TikTokSans-Variable.woff2") format("woff2");
+  font-weight: 300 900;
+  font-stretch: 75% 150%;
+  font-style: normal;
+  font-display: swap;
+}

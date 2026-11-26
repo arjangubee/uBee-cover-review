@@ -12,6 +12,58 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.27.0: song shuffle, landscape re-wrap and the TikTok Sans files
+
+Arjang #1092, #1094 and #1112; Quill #1119, #1145 and #1163 (the shuffle and drag half of color + shuffle).
+
+Audit first (Quill #1119 asked for it):
+- (a) Where the typed prompt went: Shuffle (the button by play) sent no prompt at all, `{ shuffleSong: true }`, and
+  `suggestSong` took the song a random 1 to 7 places on in the list (or the next saved song), with no look at the cover.
+  That's why the same song kept coming up first. Remix's song prompt went to a word match over the candidates (weight 3),
+  never an exact lookup, so a named song that wasn't the best word match lost.
+- (b) The exact lookup order now: the songs folder (hidden songs too, since she named it), her Spotify library, trending,
+  then the song pool. There's no web search in this app, so "not on any list" is "not found".
+- (c) The per-cover list: `songsTried` on each cover, the songs it has had, by name (lower case, punctuation off).
+
+1. **Exact request first.** A Remix song prompt that names a song, `Title - Artist` or `Artist - Title` (any dash), or
+   `Title by Artist`, is looked up on every list (b) and that song is set as is. A dash request that isn't on any list
+   answers 422 "isn't on your song lists, so nothing changed", and nothing changes: no same-artist stand-in. A `by`
+   prompt that matches nothing is read as a plain prompt, since "by" turns up in plain words too.
+2. **No repeats per cover.** Shuffle and Remix never pick the cover's song or one in its `songsTried`. Each pick adds the
+   song it replaced. When every song has had its turn, Shuffle answers 409 "That's every song on your list for this
+   cover. Shuffle again to start over." and the list empties, so the next try starts over. The list keeps 300 at most.
+3. **Right pool first.** Shuffle picks by what the cover says: her quote (weight 2), the photo's description and the
+   caption (1 each), over her own list as a new cover's song comes (the songs folder without hidden songs, saved songs
+   first; else her Spotify library; else trending). Remix does the same with her prompt at weight 3. There's no genre
+   pool and no built-in edge for any genre in this app. If her space has the original's rock/grunge pool, it gets no
+   edge at medium or low affinity, per #1119.
+4. **Landscape drag re-wraps** (#1145). On a landscape cover, a drag that pulls the block's edge past the photo's edge
+   narrows the box instead of stopping (`rewrapWidth`): the width that fits around the center, down to 38%. Lines on
+   Auto take more rows in the same ratio (`autoLines`), so the text re-wraps into a taller column at about the same size.
+   The block always stays on the photo. On release the width is that cover's own `textWidth`; back toward the middle in
+   a later drag it doesn't widen. Portrait, square, 3:4, 4:5 and 9:16 are as before. Center reaches 25% and 75%.
+5. **The TikTok Sans files** (#1112, file 110). The `tiktok` font is Arjang's own TikTok Sans 4.000: one variable font
+   (client/src/fonts, woff2 made from his TTF, OFL included), every weight from 300 to 900 and every script, in place of
+   the four Latin weights from @fontsource. New text boxes start in Bold too (1.26.0 missed them; they started at 400).
+
+| Where | Change |
+| --- | --- |
+| server/songPick.js | new: exact request, `songsTried`, the cover-matched pick, Shuffle |
+| server/index.js | Shuffle uses `shuffleSong`, 409 when the list is done |
+| server/remix.js | the song pick and the word match come from songPick.js; a remix adds the song it replaced |
+| client/src/renderCover.js | `rewrapWidth`, `autoLines`, hit boxes carry `textWidth` |
+| client/src/CoverStage.jsx, App.jsx | a landscape drag sends the narrowed width, saved with the spot; new text boxes at 700 |
+| client/src/fonts, main.jsx | the TikTok Sans variable font in place of @fontsource |
+
+### Data steps (her space, never the repo)
+
+- None required. New field on covers, read as empty when missing: `songsTried` ([]).
+- Acceptance (#1119): on cover 014, Remix song with "November - Tyler, The Creator" lands November exactly if it's on
+  one of her lists (else it says not found and nothing changes), and 5 plain Shuffles give 5 different songs.
+- Acceptance (#1145, live): on landscape cover 1, drag left to 30% or less and right to 70% or more, text re-wrapped
+  narrower, no glyph clipped; save and reload, position and width stay.
+- Re-verify every count.
+
 ## 1.26.0: each cover's own color
 
 Arjang #1092, #1094 and #1138; Quill #1098, #1140 and #1163 (the color half of color + shuffle).

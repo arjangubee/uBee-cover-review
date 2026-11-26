@@ -7,11 +7,9 @@ import UpdateBanner from "./UpdateBanner.jsx";
 import { useAnyBusy } from "./busy.js";
 import { BUILT_VERSION } from "./release.js";
 import { checkSession, useSession } from "./session.js";
-// TikTok Sans (SIL Open Font License), served from this app so the cover text looks the same everywhere.
-import "@fontsource/tiktok-sans/latin-300.css"; // Light (1.20.0, Big Edit item 5)
-import "@fontsource/tiktok-sans/latin-400.css";
-import "@fontsource/tiktok-sans/latin-500.css";
-import "@fontsource/tiktok-sans/latin-700.css";
+// TikTok Sans (SIL Open Font License), served from this app so the cover text looks the same everywhere. Since 1.27.0 it's
+// Arjang's own TikTok Sans files (room #1112): one variable font with every weight from 300 to 900 and every script.
+import "./fonts/tiktok-sans.css";
 import "./styles.css";
 
 // A logo tap reloads with ?fresh=... (1.24.0): take it back off the address once the new page is here.

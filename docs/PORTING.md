@@ -12,6 +12,14 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.27.2: the load error stays on screen (hotfix, second pass)
+
+Quill #1208. On top of 1.27.1: a call that fails shows a bar naming it ("The covers list didn't load: <why>.", or setup
+status, quotes status, quiz quotes) with Try again, on the cover screen and in all covers, until a load works. No toast
+for it. When the covers list failed and none are on screen, the bar shows in place of "Your queue is clear.", and all
+covers shows no "Nothing to review" line. Port 1.27.1 and 1.27.2 together. Files: client/src/App.jsx, LibraryView.jsx,
+styles.css. Data steps: none. Live check as in 1.27.1, against today's counts (Quill #1208: 258 / 12 / 4 or newer).
+
 ## 1.27.1: Covers never blank on one failed call (hotfix)
 
 Room #1193, #1197 and #1207. Covers read empty (Queue, Approved and Passed) while the data was intact and the list call
@@ -20,8 +28,8 @@ quiz quotes) in one Promise.all with no catch, so any one of them failing in the
 and the only sign was a toast for 2.8 seconds.
 
 1. Each call in the load stands alone. Setup status, quotes status and quiz quotes keep what she had when they fail.
-2. The covers list is tried up to 3 times (0.6 s, then 1.2 s apart). If it still fails, the covers already on screen stay
-   and the error says "Covers didn't load: <why>. Tap the logo to try again."
+2. The covers list is tried up to 3 times (0.6 s, then 1.2 s apart). If it still fails, the covers already on screen stay,
+   and with none on screen the error shows in place of "Your queue is clear." (never an empty queue).
 3. Each failed call logs its path and error to the browser console (`Cover Review: <path> didn't load: ...`), so the next
    report names the call.
 

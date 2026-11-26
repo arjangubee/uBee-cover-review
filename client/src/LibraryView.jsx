@@ -11,7 +11,7 @@ import TileCover from "./TileCover.jsx";
 const TABS = [["queue", "Queue"], ["approved", "Approved"], ["rejected", "Passed"]];
 
 export default function LibraryView({ list, setList, items, counts, pollenOn, onOpen, onSchedule, onUpload, onClose, canClose, onSongs,
-  look = null, quoteOverlay = null, quotesUnlocked = false }) {
+  look = null, quoteOverlay = null, quotesUnlocked = false, loadError = null, listFailed = false }) {
   // Each preview shows its text the way its cover does (1.20.0, Big Edit item 19): the overlay rule, and the queue's look.
   const tile = (item) => {
     const it = withLook(item, look);
@@ -37,7 +37,8 @@ export default function LibraryView({ list, setList, items, counts, pollenOn, on
           </button>
         ))}
       </div>
-      {!items.length && (
+      {loadError /* 1.27.1: a call that didn't load says so and stays until it does, never an empty list */}
+      {!items.length && !listFailed && (
         <div className="emptyState">
           <p>{list === "queue" ? "Nothing to review right now." : list === "approved" ? "No approved covers yet." : "Nothing passed yet."}</p>
           {list === "queue" && <p className="hint">Add photos here, or ask your Muse to bring in your Drive photos. No connectors needed.</p>}

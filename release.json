@@ -1,7 +1,7 @@
 {
-  "version": "1.27.1",
+  "version": "1.27.2",
   "date": "2026-11-25",
   "whatsNew": [
-    "Covers no longer show up empty when one background call fails: the list retries, and an error says what didn't load"
+    "If covers can't load, a bar says which part didn't load, with Try again, instead of an empty queue"
   ]
 }

@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Icon from "./icons.jsx";
 import { hardRefresh } from "./release.js";
-import { displayTitle, parseSong, spotifyEmbedUrl } from "./reviewMath.js";
+import { imageUrlFor, loadImage } from "./CoverCanvas.jsx";
+import { aspectLabel, displayTitle, parseSong, spotifyEmbedUrl } from "./reviewMath.js";
 import { clipNow, clipSource, isSilent, unlockAudio } from "./songs/clipSource.js";
 import { symphonyIdOf } from "./songs/songsData.js";
 
@@ -75,6 +76,14 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs, onPlayer
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(item.song || "");
   const audio = useRef(null);
+  // The photo's ratio beside its number (1.29.0, Quill #1212), from the photo's own pixels.
+  const [ratio, setRatio] = useState("");
+  useEffect(() => {
+    let alive = true;
+    setRatio("");
+    loadImage(imageUrlFor(item)).then((img) => { if (alive) setRatio(aspectLabel(img.naturalWidth, img.naturalHeight)); }).catch(() => {});
+    return () => { alive = false; };
+  }, [item.id, item.imageUrl]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     tap.current += 1;
     setPlaying(false);
@@ -121,7 +130,7 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs, onPlayer
     )}
     <div className="songRow">
       <div className="songMeta">
-        <strong className="songOwner">{displayTitle(item.title)}</strong>
+        <strong className="songOwner">{displayTitle(item.title)}{ratio && <span className="ratioTag"> {ratio}</span>}</strong>
         {editing ? (
           <form className="songEdit" onSubmit={(e) => { e.preventDefault(); onSetSong(text.trim()); setEditing(false); }}>
             <input className="field" value={text} onChange={(e) => { setText(e.target.value); onDraft?.(e.target.value); }} placeholder="Artist - Song" aria-label="Song, as Artist - Song" autoFocus />

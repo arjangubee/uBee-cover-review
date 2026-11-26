@@ -17,6 +17,19 @@ export function displayTitle(title) {
   return t.replace(/\.(jpe?g|png|webp|heic|heif|gif|avif|tiff?)$/i, "");
 }
 
+/** A photo's named ratio (1.29.0, Quill #1212), by the original's aspectProfileForImage thresholds: 9:16 up to 0.62, 3:4
+ * under 0.775, 4:5 up to 0.9, 1:1 up to 1. A landscape photo reads as the nearest of 4:3, 3:2, 16:9 and 21:9. */
+export function aspectLabel(w, h) {
+  if (!(w > 0 && h > 0)) return "";
+  const r = w / h;
+  if (r <= 0.62) return "9:16";
+  if (r < 0.775) return "3:4";
+  if (r <= 0.9) return "4:5";
+  if (r <= 1) return "1:1";
+  return [["4:3", 4 / 3], ["3:2", 3 / 2], ["16:9", 16 / 9], ["21:9", 21 / 9]]
+    .reduce((b, n) => (Math.abs(Math.log(n[1] / r)) < Math.abs(Math.log(b[1] / r)) ? n : b))[0];
+}
+
 /** "Artist - Title" as { artist, title }. A song with no artist is all title. */
 export function parseSong(song) {
   const s = String(song || "").trim();

@@ -4,7 +4,7 @@
 import { LANDSCAPE_MIN_WIDTH, autoLines, rewrapWidth, FONT_CSS, FONT_LABELS, HALF_PRESETS, PREVIEW_WIDTH, STYLE_DEFAULTS, autoLineCount, balanceLines, colorPatch, contrastPixel, coverLayout, drawCover, estimatedLineCount, insideSafeZone, lookOf, mosaicRects, normalizePlacement, presetOn, randomizeLayout, registerFonts, safeZoneFor, textBoxes, textHitBoxes, withLook } from "../client/src/renderCover.js";
 import { createHistory } from "../client/src/undo.js";
 import { globalHide, overlayOf, ownQuote, quoteShown } from "../client/src/quoteOverlay.js";
-import { RANDOM_LAYOUTS, ZOOM_REST, changedFields, displayTitle, parseSong, randomEditorialLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars, zoomPan, zoomSettle, zoomTo } from "../client/src/reviewMath.js";
+import { aspectLabel, RANDOM_LAYOUTS, ZOOM_REST, changedFields, displayTitle, parseSong, randomEditorialLayout, spotifyEmbedUrl, starsFor, storyCrop, valueForStars, zoomPan, zoomSettle, zoomTo } from "../client/src/reviewMath.js";
 import { LOCKED, badgeFor, formatDay, selectable } from "../client/src/pollenView.js";
 import { RELEASE_URL, newer, releaseBanner } from "../client/src/release.js";
 import { canUse, clipAddress, coverSongEdit, hotList, librarySorted, moveText, onCover, partLabel, partsOf, replayPath, searchSongs, sourceFor, statusLine, symphonyIdOf, topGenres } from "../client/src/songs/songsData.js";
@@ -752,8 +752,26 @@ check("v1.27 a landscape drag off center re-wraps the text narrower instead of s
   }
   const n = autoLines({ quote, textWidth: 84 }, W, H), narrow = autoLines({ quote, textWidth: 42 }, W, H);
   assert(n === estimatedLineCount(quote) && narrow === Math.min(quote.split(" ").length, Math.ceil(n * 2)), `re-wraps to more rows: ${n} to ${narrow}`);
-  assert(autoLines({ quote, textWidth: 42 }, 900, 1600) === estimatedLineCount(quote) && autoLines({ quote, textWidth: 42 }, 1000, 1000) === estimatedLineCount(quote),
-    "portrait and square are as before");
+  assert(autoLines({ quote, textWidth: 42 }, 900, 1600) === narrow && autoLines({ quote, textWidth: 42 }, 1000, 1000) === narrow,
+    "portrait and square re-wrap the same way since 1.29.0 (Quill #1212)");
+  assert(autoLines({ quote, textWidth: 84 }, 900, 1600) === n, "the 84% column on portrait is as before");
+});
+check("v1.29 a vertical drag reaches 25% and 75% by re-wrapping, the photo frame the only wall (Quill #1212)", () => {
+  const m = (px) => (t) => t.length * px * 0.5;
+  const quote = "the sea keeps every secret you whisper to it at night";
+  for (const [W, H] of [[900, 1600], [1080, 1350], [1080, 1440]]) {
+    for (const h of [25, 75]) {
+      const w = rewrapWidth((h / 100) * W, 0.42 * W, 84, 0, W);
+      assert(w != null && w >= LANDSCAPE_MIN_WIDTH && w <= 84, `narrower at ${h}% on ${W}x${H}: ${w}`);
+      const L = coverLayout({ quote, horizontalPosition: h, textWidth: w }, W, H, m);
+      assert(Math.abs(L.anchorX / W - h / 100) < 0.02, `center reaches ${h}% on ${W}x${H}: ${(100 * L.anchorX) / W}`);
+      assert(L.bounds.left >= 0 && L.bounds.right <= W, `on the photo at ${h}% on ${W}x${H}`);
+    }
+  }
+});
+check("v1.29 each photo's ratio reads by the original's thresholds, landscape by the nearest standard (Quill #1212)", () => {
+  const cases = [[1080, 1920, "9:16"], [1080, 1440, "3:4"], [1080, 1350, "4:5"], [1000, 1000, "1:1"], [1440, 1080, "4:3"], [1500, 1000, "3:2"], [1920, 1080, "16:9"], [2520, 1080, "21:9"], [0, 10, ""]];
+  for (const [w, h, want] of cases) assert(aspectLabel(w, h) === want, `${w}x${h}: ${aspectLabel(w, h)} not ${want}`);
 });
 
 console.log(failed ? "RENDER TEST FAILED" : "RENDER TEST OK");

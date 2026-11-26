@@ -1,8 +1,9 @@
 {
-  "version": "1.28.0",
+  "version": "1.29.0",
   "date": "2026-11-25",
   "whatsNew": [
-    "Text starts in TikTok Sans Medium again, so it reads solid at small sizes",
-    "A weight you pick on a cover is kept as yours"
+    "Text drags to the sides on every photo shape, re-wrapping narrower instead of stopping",
+    "Each cover's number shows its photo's ratio, like 003 9:16",
+    "After Randomize layout, Enter runs it again on a computer"
   ]
 }

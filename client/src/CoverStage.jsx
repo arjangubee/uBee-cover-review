@@ -110,7 +110,7 @@ export default function CoverStage({
     Object.assign(p, { zone: z, halfW: b.halfW, halfH: b.halfH,
       lockX: startAxis(b.centerX, b.halfW, z.left, z.right), lockY: startAxis(b.centerY, b.halfH, z.top, z.bottom),
       snapOn: snapGuidesOn(), guides: null, gx: null, gy: null, slideAt, cssW, cssH,
-      w0: cssW > cssH ? b.textWidth : null, w: null }); // a landscape box re-wraps narrower to follow a drag (1.27.0)
+      w0: b.textWidth, w: null }); // a box re-wraps narrower to follow a drag: landscape (1.27.0), every ratio (1.29.0)
   }
   const pointer = (cssW, cssH, slideAt = null) => ({
     onPointerDown(e) {
@@ -157,11 +157,12 @@ export default function CoverStage({
         snap(snapPos, p.bounds, p.guides, SNAP_PX, snapOut);
         x = snapOut.x; y = snapOut.y; gx = snapOut.xGuide; gy = snapOut.yGuide;
       }
-      // A landscape drag past where the block's edge meets the photo's edge re-wraps it narrower instead of stopping
-      // (1.27.0, Quill #1145), down to 38%, so the center keeps following her. The block always stays on the photo.
+      // A drag past where the block's edge meets the photo's edge re-wraps it narrower instead of stopping (1.27.0, Quill
+      // #1145; every ratio since 1.29.0, Quill #1212), down to 38%, so the center keeps following her. The photo's own frame
+      // is the hard edge; the safe zone stays a magnet (crossing locks), never a wall.
       let halfW = p.halfW;
       if (p.zone && p.w0) {
-        p.w = rewrapWidth(x, p.halfW, p.w0, p.zone.left, p.zone.right);
+        p.w = rewrapWidth(x, p.halfW, p.w0, 0, p.cssW);
         if (p.w != null) halfW = (p.halfW * p.w) / p.w0;
       }
       if (p.zone) {

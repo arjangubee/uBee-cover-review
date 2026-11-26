@@ -117,18 +117,18 @@ export function estimatedLineCount(quote) {
   return Math.max(1, Math.min(words, typed > 1 ? typed : Math.round(text.length / 20)));
 }
 
-/** The landscape column width (1.27.0, Quill #1145): a landscape cover's text starts this wide, and a drag off center
- * narrows it no further than LANDSCAPE_MIN_WIDTH. */
+/** The column width (1.27.0, Quill #1145): text starts this wide, and a drag off center narrows it no further than
+ * LANDSCAPE_MIN_WIDTH. Landscape only in 1.27.0, every ratio since 1.29.0 (Quill #1212). */
 export const LANDSCAPE_WIDTH = 84, LANDSCAPE_MIN_WIDTH = 38;
 /**
- * Lines on Auto. On a landscape cover whose box is narrower than the 84% column (a drag off center re-wrapped it, or she
- * set it narrower), the words take more rows in the same ratio, so the text re-wraps into a taller column at about the
- * same size instead of shrinking. Portrait and square covers, and the 84% column itself, are as before.
+ * Lines on Auto. On a cover whose box is narrower than the 84% column (a drag off center re-wrapped it, or she set it
+ * narrower), the words take more rows in the same ratio, so the text re-wraps into a taller column at about the same
+ * size instead of shrinking. The 84% column itself is as before. Every ratio since 1.29.0 (Quill #1212).
  */
 export function autoLines(s, width, height) {
   const n = estimatedLineCount(s.quote);
   const w = clamp(Number(s.textWidth) || LANDSCAPE_WIDTH, 20, 100);
-  if (!(width > height) || w >= LANDSCAPE_WIDTH || !n) return n;
+  if (w >= LANDSCAPE_WIDTH || !n) return n;
   const words = String(s.quote ?? "").split(/\s+/).filter(Boolean).length;
   return Math.min(words, Math.ceil((n * LANDSCAPE_WIDTH) / w));
 }

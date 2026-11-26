@@ -1637,6 +1637,20 @@ try {
     await dm("savereview", { id: dmIds.live, revision_text: "Yayyy welcome in", verdict: "edited" });
     assert((await dmItem(dmIds.live)).verdict === "approved", "an unchanged draft counts as approved");
   });
+  await check("v1.30 Dismiss hides a chat for now and their next message brings it back; reply links live in settings (room #1193)", async () => {
+    let r = await dm("dismissitem", { id: dmIds.live });
+    assert(r.item.dismissed === true && (await dmItem(dmIds.live)).dismissed === true, "dismissed, still here");
+    await dm("updatethread", { id: dmIds.live, thread_messages: [{ from: "them", text: "hey again", at: new Date(Date.now() + 1000).toISOString() }] });
+    assert((await dmItem(dmIds.live)).dismissed === false, `their next message brings it back: ${JSON.stringify(await dmItem(dmIds.live)).slice(0, 200)}`);
+    await dm("dismissitem", { id: dmIds.live });
+    r = await dm("dismissitem", { id: dmIds.live, on: false });
+    assert(r.item.dismissed === false, "and it comes back by hand");
+    assert((await dm("getreplylinks")).links.length === 0, "no links until she sets them");
+    await dmFails("savereplylinks", { links: [{ label: "Channel", url: "http://not-secure.example" }] }, 400, "start with https://");
+    const saved = await dm("savereplylinks", { links: [{ label: "Channel", url: "https://example.com/join" }] });
+    assert(saved.links.length === 1 && (await dm("getreplylinks")).links[0].url === "https://example.com/join", "kept in her settings");
+    await dm("savereplylinks", { links: [] });
+  });
   await check("v1.14 Send hands the approved text to her Muse, and only her Muse's report marks it sent", async () => {
     await dmFails("publishitem", { id: dmIds.holdout }, 409, "blind holdout");
     await dmFails("publishitem", { id: dmIds.comment, verdict: "approved" }, 409, "nothing to publish yet");
@@ -1646,6 +1660,10 @@ try {
     const wanted = (await dm("publishwanted")).items;
     assert(wanted.length === 1 && wanted[0].id === dmIds.live && wanted[0].text === sent.text && wanted[0].kind === "dm" && wanted[0].sender === "@test.person" && wanted[0].thread_id === "t-1", `wanted: ${JSON.stringify(wanted)}`);
     assert(wanted[0].incoming_text === "hi there, how do I start?" && !("actual_reply" in wanted[0]), "what to find, and nothing sealed");
+    // 1.30.0 (room #1193 item 6): each line is a part, with the pause to hold before it, longer after a longer part.
+    const parts = wanted[0].parts;
+    assert(parts.length === 2 && parts[0].text === "Yayyy welcome in!!" && parts[0].delay_ms === 0 && parts[1].text === "Lemme know how it lands"
+      && parts[1].delay_ms === Math.max(1500, 1000 + 40 * "Yayyy welcome in!!".length), `parts: ${JSON.stringify(parts)}`);
     await dm("confirmpublish", { id: dmIds.live, ok: false, detail: "thread not found" });
     let item = await dmItem(dmIds.live);
     assert(item.publish_status === "publish_failed" && item.publish_error === "thread not found", `failed: ${JSON.stringify(item).slice(0, 300)}`);

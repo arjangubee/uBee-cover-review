@@ -206,7 +206,7 @@ function toItem(r, voice = currentVoice()) {
     edited_line_index: Number.isInteger(r.editedLineIndex) ? r.editedLineIndex : null,
     pending_edit_line: editStatus !== "none" && Number.isInteger(r.editLineIndex) ? r.editLineIndex : null,
     leftover_text: r.leftoverText ?? null, media_id: r.mediaId ?? null, media_preview_url: r.mediaPreviewUrl ?? null,
-    media_permalink: r.mediaPermalink ?? null, last_activity_at: iso(lastActivityMs(r)),
+    media_permalink: r.mediaPermalink ?? null, last_activity_at: iso(lastActivityMs(r)), dismissed: Boolean(r.dismissedAt),
     work_lines: Array.isArray(r.workLines) ? r.workLines.map((l) => ({ text: l.text, approved: l.approved })) : null,
   };
 }
@@ -311,6 +311,8 @@ function syncInto(r, a) {
     // Their new message after the last one here needs her reply, even on a chat brought in for its history (Quill #1051).
     const before = newestMs(cleanThread(r.threadMessages));
     const last = thread.filter((m) => m.kind !== "reaction").at(-1);
+    // A chat she dismissed comes back to the inbox when they write again after it (1.30.0, room #1193 item 4).
+    if (r.dismissedAt && last && last.from === "them" && last.at && Date.parse(last.at) > r.dismissedAt) delete r.dismissedAt;
     if (facts.needsReply === undefined && last && last.from === "them" && last.at && (before === null || Date.parse(last.at) > before)) {
       r.needsReply = true;
     }
@@ -788,21 +790,63 @@ const actions = {
       })),
     };
   },
-  /** Approved texts her Muse should send now, the order she tapped Send. */
+  // 1.30.0 (room #1193 item 4): Dismiss hides a chat's preview from the inbox for now. Nothing is deleted, and a new
+  // message from them brings it back (syncInto). { id, on: false } brings it back by hand.
+  dismissitem(a) {
+    const r = find(itemId(a.id));
+    if (a.on === false) delete r.dismissedAt;
+    else r.dismissedAt = Date.now();
+    return { ok: true, item: toItem(r) };
+  },
+  // 1.30.0 (room #1193 item 2): the links she pastes into replies, like her private channel, one tap to copy. Kept in her
+  // settings, never in the code. Up to 5, each a label and an https link.
+  getreplylinks() {
+    return { links: replyLinks() };
+  },
+  savereplylinks(a) {
+    const list = Array.isArray(a.links) ? a.links : null;
+    if (!list || list.length > 5) throw new DmError("Send links as a list of up to 5 { label, url }.");
+    const links = list.map((l) => {
+      const label = text(l?.label, "label", { min: 1, max: 40 });
+      const url = text(l?.url, "url", { min: 9, max: 300 });
+      if (!/^https:\/\/[^\s]+$/.test(url)) throw new DmError("Each link has to start with https:// and have no spaces.");
+      return { label, url };
+    });
+    store.settings.dmReplyLinks = links;
+    return { links };
+  },
+  /** Approved texts her Muse should send now, the order she tapped Send. Since 1.30.0 (room #1193 item 6) each comes with
+   *  its parts and the pause to hold before each one, longer after a longer part, so a multi-text send reads typed. */
   publishwanted() {
     const waiting = rows().filter((r) => r.publishStatus === "publishing").sort((x, y) => (x.handedAt || 0) - (y.handedAt || 0) || x.id - y.id);
     return {
       items: waiting.map((r) => ({
         id: r.id, kind: r.kind, sender: r.sender, incoming_text: r.incomingText, context_text: r.contextText ?? null, text: r.revisionText ?? "",
         media_id: r.mediaId ?? null, comment_id: r.commentId ?? null, thread_id: r.threadId ?? null, handed_at: iso(r.handedAt),
+        parts: sendParts(r.revisionText ?? ""),
       })),
     };
   },
 };
 
-const READS = new Set(["listitems", "exporttraining", "getvoiceprofile", "getaccount", "getvoicesource", "draftswanted", "publishwanted", "editswanted",
+/** Her reply links from settings, only well-formed ones. */
+function replyLinks() {
+  const list = Array.isArray(store.settings.dmReplyLinks) ? store.settings.dmReplyLinks : [];
+  return list.filter((l) => l && typeof l.label === "string" && typeof l.url === "string" && /^https:\/\//.test(l.url)).slice(0, 5);
+}
+/** The pause before a part of a multi-text send (1.30.0): a few seconds, longer after a longer part just sent. */
+export function pauseAfter(part) {
+  return Math.min(8000, Math.max(1500, 1000 + 40 * String(part ?? "").length));
+}
+/** A send's parts, one per line, each with the pause to hold before sending it: none before the first. */
+export function sendParts(textToSend) {
+  const lines = String(textToSend ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.map((t, i) => ({ text: t, delay_ms: i === 0 ? 0 : pauseAfter(lines[i - 1]) }));
+}
+
+const READS = new Set(["listitems", "getreplylinks", "exporttraining", "getvoiceprofile", "getaccount", "getvoicesource", "draftswanted", "publishwanted", "editswanted",
   "getsync", "syncwanted"]);
-const SETTINGS = new Set(["savevoiceprofile", "resetvoiceprofile", "savevoicesource"]);
+const SETTINGS = new Set(["savevoiceprofile", "resetvoiceprofile", "savevoicesource", "savereplylinks"]);
 
 export function registerDm(app) {
   app.post("/api/dm/:action", (req, res) => {

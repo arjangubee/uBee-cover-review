@@ -150,10 +150,13 @@ Drafts:
 Sending, only what she tapped Send on:
 1. Check `publishwanted`. Each one has the exact text she approved, who it's for, their message, and the ids you stored.
 2. Send the text word for word through her Instagram connection: no rewording, no emoji, no fixed punctuation. For a DM, send each line that isn't empty as its own message, in order, to that thread. For a comment, reply to that comment.
+   Since 1.30.0 each one also has `parts`: the lines in order, each with `delay_ms`, the pause to hold before sending that part (0 before the first; a few seconds before each next one, longer after a longer part). Hold each pause before its part, so a multi-text send reads like she typed it.
 3. Use the stored ids. Without them, find the thread or comment by the sender and their message. If you can't find exactly one, don't guess.
 4. Never retry a send whose outcome you're unsure of.
 5. Report every one with `confirmpublish`: `{ "id": ..., "ok": true }`, or `{ "id": ..., "ok": false, "detail": "the reason, in plain words" }`. A failed one goes back to her Ready to Publish list to try again.
 6. Send nothing else, and never send on your own.
+
+Reply links (1.30.0): her links for replies, like her private channel, live in her settings, never in the code. `savereplylinks` with `{ "links": [{ "label": "Telegram", "url": "https://..." }] }` (up to 5, https only) sets them, and her reply editors show a one-tap copy button for each. `getreplylinks` reads them.
 
 Labels (1.18.0): a chat's label (Flag, Booked, Lead, Ordered, Paid or Shipped) is saved with her account, so every device
 shows it. `setlabel` with `{ "id": ..., "label": "Booked" }` sets one and `"label": null` clears it. Label a chat only

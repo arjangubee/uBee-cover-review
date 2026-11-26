@@ -14,6 +14,7 @@ import { LOCK_BREAK, LOCK_START, lockAxis, startAxis } from "../client/src/safeL
 import { SNAP_PX, guidesFor, snap } from "../client/src/snapGuides.js";
 import { HOUSE, contrastOf, pickHouseColor, randomWheelColor, seeded as coverSeed } from "../client/src/houseColor.js";
 import { composePasses, driveLinkFor, whyProblem } from "../client/src/reviewMath.js";
+import { searchCovers } from "../client/src/searchCovers.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -485,6 +486,22 @@ check("Why it matches is the 4th check: no reason or a few words is incomplete, 
   assert(whyProblem({ text: "Her open hands in the window light carry the quote's letting go, and the song's slow build lands it." }) === null, "a real reason passes");
   assert(composePasses({ QUOTE_IN_STOCK: true, SONG_IN_POOL: true, STEPS_VERIFIED: true, WHY_WRITTEN: true }), "all four pass");
   assert(!composePasses({ STEPS_VERIFIED: true, WHY_WRITTEN: false }) && !composePasses({ STEPS_VERIFIED: true }) && !composePasses(null), "missing one is incomplete");
+});
+check("search finds a cover by a word in its photo's description and the rest, word forms included, or by its number (1.33.0, Arjang Nov 26)", () => {
+  const items = [
+    { id: 3, status: "queue", title: "b7img003", description: "A woman under purple wisteria at sunset", quote: "q", song: "" },
+    { id: 46, status: "approved", title: "b7img046", description: "She is biking down a quiet street", quote: "", song: "" },
+    { id: 277, status: "rejected", title: "b7img277", description: "Laundry drying on a line", why: { text: "The bike leans on the wall", tags: ["sunsets"] } },
+    { id: 12, status: "queue", title: "photo", description: "A kitchen", caption: "Morning coffee" },
+  ];
+  const ids = (q) => searchCovers(items, q).map((i) => i.id).join(",");
+  assert(ids("wisteria") === "3", `a word in the description: ${ids("wisteria")}`);
+  assert(ids("bike") === "46,277" || ids("bike") === "277,46", `bike finds biking and bike: ${ids("bike")}`);
+  assert(ids("biking") === "46,277" || ids("biking") === "277,46", `biking finds bike too: ${ids("biking")}`);
+  assert(ids("sunset").split(",").sort().join(",") === "277,3", `sunset finds sunsets: ${ids("sunset")}`);
+  assert(ids("LAUNDRY") === "277" && ids("morning coffee") === "12" && ids("purple sunset") === "3", "any case, and every word must match");
+  assert(ids("003") === "3" && ids("46") === "46" && ids("277") === "277", `a number finds that cover, zeros or not: ${ids("003")}`);
+  assert(ids("") === "" && ids("   ") === "" && ids("zebra") === "", "nothing to search, nothing found");
 });
 check("the Drive row links to that exact file in a new tab, and a photo with no Drive id has no link (1.24.0, Arjang #1106)", () => {
   assert(driveLinkFor({ source: "drive", driveId: "1AbC_d-9" }) === "https://drive.google.com/file/d/1AbC_d-9/view", driveLinkFor({ source: "drive", driveId: "1AbC_d-9" }));

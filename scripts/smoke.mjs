@@ -2281,6 +2281,16 @@ try {
     }
     assert((await palette()).brandColors.length === 4, "a refused list changes nothing");
   });
+  await check("v1.33 search answers covers in every list by a word or a number", async () => {
+    const a = await newItem("search-a.png");
+    await postJson(`/api/items/${a.id}/description`, { text: "Purple wisteria over a garden path" });
+    let r = await (await fetch(`${base}/api/items/search?q=wisteria`)).json();
+    assert(r.items.some((i) => i.id === a.id), `a word in the description: ${JSON.stringify(r).slice(0, 200)}`);
+    r = await (await fetch(`${base}/api/items/search?q=${String(a.id).padStart(3, "0")}`)).json();
+    assert(r.items[0]?.id === a.id, "its number, with zeros in front");
+    r = await (await fetch(`${base}/api/items/search?q=`)).json();
+    assert(Array.isArray(r.items) && r.items.length === 0, "an empty search finds nothing");
+  });
   await check("v1.26 no queue lock: each cover keeps its own color and font, the lock is gone from her settings, and the old endpoint is gone", async () => {
     const r = await sendJson("/api/text-lock", { textColor: "#FB0909" });
     assert(r.status === 404, `the queue lock is retired: ${r.status}`);

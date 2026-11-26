@@ -1,7 +1,8 @@
 {
-  "version": "1.32.1",
-  "date": "2026-11-25",
+  "version": "1.33.0",
+  "date": "2026-11-26",
   "whatsNew": [
-    "All slides downloads every slide, videos too, and a slide saves as its own file"
+    "Search covers from the magnifier beside the i: a word like wisteria or bike, or a number like 046",
+    "It looks in every list, and tapping a cover opens it"
   ]
 }

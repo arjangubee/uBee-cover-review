@@ -55,7 +55,7 @@ img { max-width: 100%; }
 .coverCount { flex: 1; min-width: 0; margin: 0 -4px 0 -6px; pointer-events: none; text-align: right; padding-right: 0; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .coverCount.short .word { display: none; }
 .topbar .bee { flex: none; width: 26px; height: 26px; margin: 0 6px 0 0; object-fit: contain; }
-@media (max-width: 389px) { .queuePill .pillWords { display: none; } }
+@media (max-width: 439px) { .queuePill .pillWords { display: none; } } /* 1.33.0: room for the search button on a phone */
 
 /* ---------- Review deck | Story view, and the song row ---------- */
 .modeSwitch { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 4px; }
@@ -583,3 +583,12 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 
 /* 1.31.1: This slide or All slides, under the action row. */
 .downloadAsk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px 2px; }
+
+/* Search covers (1.33.0): a word or a number, every list, tap a cover to open it. */
+.searchSheet .field { width: 100%; margin: 8px 0 12px; }
+.searchResults { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.searchHit { display: grid; grid-template-columns: 56px 1fr; gap: 12px; align-items: center; width: 100%; min-height: 64px; padding: 4px; border: 0; border-radius: 12px; background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
+.searchHit img { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; }
+.searchWords { display: grid; gap: 2px; min-width: 0; }
+.searchId { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.searchLine { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 15px; line-height: 1.35; }

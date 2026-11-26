@@ -10,6 +10,7 @@ import CoverStage from "./CoverStage.jsx";
 import { CoverHeader, ModeSwitch, SongRow } from "./CoverTop.jsx";
 import Icon from "./icons.jsx";
 import InfoSheet from "./InfoSheet.jsx";
+import SearchSheet from "./SearchSheet.jsx";
 import LibraryView from "./LibraryView.jsx";
 import RemixSheet from "./RemixSheet.jsx";
 import { badgeFor, selectable } from "./pollenView.js";
@@ -939,6 +940,21 @@ export default function App() {
     if (at >= 0) setIndex(at);
     setView("cover");
   }
+  // A cover found by search (1.33.0) opens in its own list: the deck switches lists when it has to, then lands on it.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const pendingOpen = useRef(null);
+  useEffect(() => {
+    if (pendingOpen.current == null) return;
+    const at = items.findIndex((i) => i.id === pendingOpen.current);
+    if (at >= 0) { setIndex(at); pendingOpen.current = null; }
+  }, [items]);
+  function openFound(item) {
+    setSearchOpen(false);
+    if (item.status === list) { openFromLibrary(item); return; }
+    pendingOpen.current = item.id;
+    switchList(item.status);
+    setView("cover");
+  }
   function switchList(next) {
     if (next === list) return;
     closeEditor();
@@ -996,7 +1012,7 @@ export default function App() {
         <main className="review" inert={zoom || remixOpen ? true : undefined}>
           <CoverHeader list={list} count={counts?.[list] ?? items.length} position={index + 1} total={items.length}
             canUndo={history.current.canUndo()} canRedo={history.current.canRedo()} locked={Boolean(draft)} away={playerUp}
-            onBack={showLibrary} onInfo={() => setInfoOpen(true)} onUndo={() => step("undo")} onRedo={() => step("redo")} />
+            onBack={showLibrary} onInfo={() => setInfoOpen(true)} onSearch={() => setSearchOpen(true)} onUndo={() => step("undo")} onRedo={() => step("redo")} />
           {!current ? (
             loadError?.items ? (
             <div className="emptyCover">{loadErrorBar}</div>
@@ -1082,6 +1098,7 @@ export default function App() {
         </>
       )}
 
+      {searchOpen && <SearchSheet onPick={openFound} onClose={() => setSearchOpen(false)} />}
       {infoOpen && (
         <InfoSheet status={status} pollen={pollen} quotesStatus={quotesStatus} quizQuotes={quizQuotes} list={list} currentId={current?.id}
           onClose={() => setInfoOpen(false)} onUpload={uploadPhotos}

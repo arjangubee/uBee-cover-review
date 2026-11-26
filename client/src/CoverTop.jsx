@@ -11,7 +11,7 @@ import { symphonyIdOf } from "./songs/songsData.js";
 
 const LIST_WORDS = { queue: "in queue", approved: "approved", rejected: "passed" };
 
-export function CoverHeader({ list, count, position, total, canUndo, canRedo, onBack, onInfo, onUndo, onRedo, locked = false, away = false }) {
+export function CoverHeader({ list, count, position, total, canUndo, canRedo, onBack, onInfo, onSearch, onUndo, onRedo, locked = false, away = false }) {
   // "Cover 12 of 172" when it fits, "12 of 172" when the row is tight.
   const countRef = useRef(null);
   useLayoutEffect(() => {
@@ -36,6 +36,8 @@ export function CoverHeader({ list, count, position, total, canUndo, canRedo, on
         </span>
       </button>
       <button type="button" className="iconBtn info" onClick={onInfo} disabled={locked} aria-label="Setup and help"><Icon name="info" /></button>
+      {/* Search covers by a word or a number (1.33.0, Arjang Nov 26). */}
+      <button type="button" className="iconBtn search" onClick={onSearch} disabled={locked} aria-label="Search covers"><Icon name="search" /></button>
       <span className="coverCount" ref={countRef} aria-live="polite">{total ? <><span className="word">Cover </span>{position} of {total}</> : null}</span>
       {/* Undo and redo work with the editor open too (1.13.5), so they follow the stack, not the editor. */}
       <button type="button" className="iconBtn small" onClick={onUndo} disabled={!canUndo} aria-label="Undo"><Icon name="undo" size={22} /></button>

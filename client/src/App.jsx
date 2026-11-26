@@ -106,22 +106,31 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  // 1.27.1 (room #1193, #1207): one call that fails no longer blanks Covers. Before, the four calls shared one Promise.all
-  // with no catch, so any one failing threw before the list was set and the screen read empty. Now each call stands alone:
-  // the covers list is tried up to 3 times, and if it still fails the covers she had stay on screen and the error names it.
+  // 1.27.1 (room #1193, #1207, Quill #1208): one call that fails never blanks Covers. Before, the four calls shared one
+  // Promise.all with no catch, so any one failing threw before the list was set and the screen read "Your queue is clear."
+  // Now each call settles on its own, the covers list is tried up to 3 times, and a failure stays on screen (loadError)
+  // naming the call, with Try again, until a load works. A failed list keeps the covers she had and never reads as empty.
+  const [loadError, setLoadError] = useState(null); // { calls: [names], items: true when the covers list failed, why }
   const load = useCallback(async () => {
-    const soft = (path) => api(path).catch((e) => { console.error(`Cover Review: ${path} didn't load: ${e.message}`); return null; });
+    const failed = [];
+    let why = "";
+    const soft = (path, name) => api(path).catch((e) => {
+      console.error(`Cover Review: ${path} didn't load: ${e.message}`);
+      if (name) { failed.push(name); why ||= e.message; }
+      return null;
+    });
     const listOf = async () => {
-      for (let tries = 1; ; tries++) {
+      for (let tries = 1; tries <= 3; tries++) {
         try { return await api(`/api/items?status=${list}`); } catch (e) {
-          console.error(`Cover Review: the covers list didn't load (try ${tries}): ${e.message}`);
-          if (tries >= 3) throw new Error(`Covers didn't load: ${e.message}. Tap the logo to try again.`);
+          console.error(`Cover Review: /api/items?status=${list} didn't load (try ${tries}): ${e.message}`);
+          if (tries === 3) { failed.unshift("the covers list"); why = e.message; return null; }
           await new Promise((r) => setTimeout(r, 600 * tries));
         }
       }
+      return null;
     };
     const [s, q, qs, quiz, pc, pal, calls, sym] = await Promise.all([
-      soft("/api/setup/status"), listOf().catch((e) => ({ error: e })), soft("/api/quotes/status"), soft("/api/quiz/quotes"),
+      soft("/api/setup/status", "setup status"), listOf(), soft("/api/quotes/status", "quotes status"), soft("/api/quiz/quotes", "quiz quotes"),
       soft("/api/pollen/channels"), soft("/api/palette"), soft("/api/settings/caption-ctas"), soft("/api/connectors/symphony"),
     ]);
     setSymphony(sym);
@@ -131,10 +140,17 @@ export default function App() {
     setPollen(pc);
     applyPalette(pal);
     setCtas(calls?.ctas || []);
-    if (q.error) throw q.error; // the covers she had stay; the error shows
-    setItems(Array.isArray(q.items) ? q.items : []);
-    setLoads((n) => n + 1);
+    if (q) setItems(Array.isArray(q.items) ? q.items : []); // a failed list keeps the covers she had
+    setLoadError(failed.length ? { calls: failed, items: !q, why } : null);
+    if (q) setLoads((n) => n + 1);
   }, [list, applyPalette]);
+  const retryLoad = () => { load().catch((e) => say(e.message)); };
+  const loadErrorBar = loadError && (
+    <div className="loadError" role="alert">
+      <p>{loadError.calls.join(", ").replace(/^./, (c) => c.toUpperCase())} didn't load{loadError.why ? `: ${loadError.why}` : ""}.</p>
+      <button type="button" className="linkBtn" onClick={retryLoad}>Try again</button>
+    </div>
+  );
   useEffect(() => { load().catch((e) => say(e.message)); }, [load, say]);
 
   // Captions (1.9), the original's fill loop: every caption a model may draft (blank, or the offline placeholder)
@@ -881,7 +897,7 @@ export default function App() {
         <LibraryView list={list} setList={switchList} items={items} counts={counts} pollenOn={Boolean(pollen?.connected)} canClose
           look={look} quoteOverlay={quotesStatus?.quoteOverlay ?? null} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
           onOpen={openFromLibrary} onUpload={uploadPhotos} onClose={() => setView("cover")} onSongs={symphony?.connected ? () => showSongs("library") : null}
-          onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} />
+          onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} loadError={loadErrorBar} listFailed={Boolean(loadError?.items)} />
       ) : (
         <>
         <main className="review" inert={zoom || remixOpen ? true : undefined}>
@@ -889,6 +905,9 @@ export default function App() {
             canUndo={history.current.canUndo()} canRedo={history.current.canRedo()} locked={Boolean(draft)} away={playerUp}
             onBack={showLibrary} onInfo={() => setInfoOpen(true)} onUndo={() => step("undo")} onRedo={() => step("redo")} />
           {!current ? (
+            loadError?.items ? (
+            <div className="emptyCover">{loadErrorBar}</div>
+            ) : (
             <div className="emptyCover">
               <p className="emptyTitle">{list === "queue" ? "Your queue is clear." : list === "approved" ? "No approved covers yet." : "Nothing passed yet."}</p>
               <p className="hint">Add photos, or ask your Muse to bring in your Drive photos. No connectors needed.</p>
@@ -898,8 +917,10 @@ export default function App() {
               </label>
               <button type="button" className="secondaryBtn" onClick={() => setView("library")}>See all covers</button>
             </div>
+            )
           ) : (
             <>
+              {loadErrorBar}
               {/* While the editor sheet is open, the review screen stays behind it, seen but not reachable. */}
               <div className="behind" inert={draft ? true : undefined}>
                 <ModeSwitch story={story} setStory={setStory} away={playerUp} />

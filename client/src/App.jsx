@@ -569,26 +569,33 @@ export default function App() {
   // downloads as before. Closing the share sheet isn't an error.
   const touchDevice = () => typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window)
     && Boolean(window.matchMedia?.("(pointer: coarse)").matches);
-  const saveFile = async (blob, name) => {
+  // 1.31.1 (Quill #1279): one file or a carousel's files. Several go to the share sheet together ("Slides ready").
+  const saveFiles = async (files) => {
     if (touchDevice() && navigator.share && navigator.canShare) {
-      const file = new File([blob], name, { type: blob.type || "image/jpeg" });
-      if (navigator.canShare({ files: [file] })) {
+      const shared = files.map(({ blob, name }) => new File([blob], name, { type: blob.type || "image/jpeg" }));
+      if (navigator.canShare({ files: shared })) {
         try {
-          say("Cover ready. Choose Save Image.");
-          await navigator.share({ files: [file], title: name });
+          say(files.length > 1 ? "Slides ready. Choose Save." : "Cover ready. Choose Save Image.");
+          await navigator.share({ files: shared, title: files[0].name });
         } catch (e) {
           if (e?.name === "AbortError") return; // she closed the sheet
           // A sheet the browser wouldn't open after the cover took a moment to draw: the drawn cover is kept, so the
           // next tap opens the sheet right away.
-          if (e?.name === "NotAllowedError") { say("Cover ready. Tap download again to save it."); return; }
-          anchorSave(blob, name);
+          if (e?.name === "NotAllowedError") { say(`${files.length > 1 ? "Slides" : "Cover"} ready. Tap download again to save.`); return; }
+          for (const f of files) anchorSave(f.blob, f.name);
         }
         return;
       }
     }
-    anchorSave(blob, name);
+    for (const f of files) anchorSave(f.blob, f.name);
   };
-  const download = () => {
+  const saveFile = (blob, name) => saveFiles([{ blob, name }]);
+  // This slide or All slides (1.31.1, Quill #1279, the original's downloadCover scope): with carousel photos, Download
+  // asks which. The cover is slide 1; a video slide isn't drawn, so it's left out.
+  const [downloadAsk, setDownloadAsk] = useState(false);
+  const slidesAhead = useRef({ key: "", files: null });
+  const photoSlides = () => activeSlides.filter((s) => s.mediaType !== "video");
+  const downloadCover = () => {
     const name = `${displayTitle(current.title)}-cover.jpg`;
     if (ahead.current.key === drawnKey && ahead.current.blob) { saveFile(ahead.current.blob, name); return; }
     attempt(async () => { // not drawn yet: draw it now, and keep it for a second tap
@@ -597,6 +604,31 @@ export default function App() {
       await saveFile(blob, name);
     });
   };
+  const slideFile = async (s) => ({ blob: await renderCover(withLook(current, look), { quoteOn, free, slideAt: s.at }),
+    name: `${displayTitle(current.title)}-slide-${activeSlides.indexOf(s) + 2}.jpg` });
+  const downloadThis = () => {
+    setDownloadAsk(false);
+    const s = slide > 0 ? activeSlides[slide - 1] : null;
+    if (!s) { downloadCover(); return; }
+    if (s.mediaType === "video") { say("A video slide can't be saved from here."); return; }
+    attempt(async () => saveFiles([await slideFile(s)]));
+  };
+  const downloadAll = () => {
+    setDownloadAsk(false);
+    const key = `${drawnKey}|${photoSlides().map((s) => s.mediaUrl).join(",")}`;
+    if (slidesAhead.current.key === key && slidesAhead.current.files) { saveFiles(slidesAhead.current.files); return; }
+    attempt(async () => {
+      const cover = { blob: await renderCover(withLook(current, look), { quoteOn, free }), name: `${displayTitle(current.title)}-cover.jpg` };
+      const files = [cover];
+      for (const s of photoSlides()) {
+        try { files.push(await slideFile(s)); } catch { say("One slide couldn't be drawn, so it's left out."); }
+      }
+      slidesAhead.current = { key, files }; // kept, so a second tap opens the sheet at once
+      await saveFiles(files);
+    });
+  };
+  const download = () => { if (photoSlides().length) setDownloadAsk(true); else downloadCover(); };
+  useEffect(() => { setDownloadAsk(false); }, [current?.id]);
   // The T icon (1.13.9, Arjang via Rose #693 and #694, Quill #695 and #696). A tap turns this post's quote off, or back on,
   // for this post only: a cover edit like any other, so undo puts back exactly what it was, mark and all. A hold is
   // global hide, the 1.13.3 setting: it hides every quote or brings them back, and it isn't a step for undo.
@@ -973,6 +1005,13 @@ export default function App() {
                   quote={{ on: quoteOn, locked: !quotesStatus?.unlocked, onTap: tapQuote, onHold: holdQuotes }}
                   onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)}
                   onZoom={zoomable ? () => zoomRef.current?.() : null} />
+                {downloadAsk && ( /* 1.31.1: This slide or All slides, like the original */
+                  <div className="downloadAsk" role="group" aria-label="Download">
+                    <button type="button" className="secondaryBtn" onClick={downloadThis}>This slide</button>
+                    <button type="button" className="secondaryBtn" onClick={downloadAll}>All slides</button>
+                    <button type="button" className="linkBtn" onClick={() => setDownloadAsk(false)}>Cancel</button>
+                  </div>
+                )}
                 {remixing.length > 0 && (
                   <p className="remixMarker" role="status"><span className="loadingDot" aria-hidden="true" />
                     {remixing.length === 1 ? "Your remix is on its way. It comes next." : `${remixing.length} remixes are on their way. They come next.`}</p>

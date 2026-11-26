@@ -12,6 +12,27 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.31.1: This slide or All slides
+
+Quill #1279 (the original's downloadCover scope, part of the #1236 restore). Port 1.31.0 and 1.31.1 together.
+
+1. With carousel photos, Download asks: This slide, All slides or Cancel, under the action row. With none, it downloads
+   the cover as in 1.31.0.
+2. This slide: the cover, or the carousel photo she's on, drawn with its own text (`renderCover(..., { slideAt })`).
+3. All slides: the cover, then each carousel photo in order. On a phone they go to the share sheet together ("Slides
+   ready. Choose Save."); on a computer each downloads. A video slide is left out; a photo that can't be drawn (a link
+   from another site) is left out with a note. The drawn files are kept, so a second tap opens the sheet at once if iOS
+   wouldn't the first time.
+
+| Where | Change |
+| --- | --- |
+| client/src/renderCover.js | `renderCover` draws a carousel photo with `slideAt` |
+| client/src/App.jsx, styles.css | `saveFiles`, the This slide / All slides choice |
+
+### Data steps (her space, never the repo)
+
+- None. Live check on an iPhone: a cover with carousel photos, All slides, Save, all in Photos. Re-verify counts.
+
 ## 1.31.0: Download to Photos on a phone
 
 Arjang, room #1235; Quill #1236 (the original's downloadCover, restored).
@@ -23,7 +44,7 @@ Arjang, room #1235; Quill #1236 (the original's downloadCover, restored).
 3. Closing the sheet (AbortError) is not an error: no message. If the browser won't open the sheet because the cover took
    a moment to draw first (NotAllowedError), the drawn cover is kept and the note says to tap Download again, which opens
    the sheet at once.
-4. The fork has one download, the cover. There's no This slide / All slides download here, so nothing to change there.
+4. This slide / All slides: see 1.31.1.
 
 | Where | Change |
 | --- | --- |

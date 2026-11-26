@@ -2467,6 +2467,47 @@ try {
       await postJson(`/api/settings/caption-ctas`, { ctas: [] });
     }
   });
+  await check("v1.37 Choose From Queue adds other covers' photos as slides, in the order picked, up to 10 photos with the cover", async () => {
+    const main = await newItem("carousel.png");
+    const a = await newItem("from-a.png"), b = await newItem("from-b.png");
+    const r = await postJson(`/api/items/${main.id}/slides/from`, { itemIds: [b.id, a.id] });
+    assert(r.added === 2 && r.item.slides.length === 2, JSON.stringify(r).slice(0, 200));
+    assert(r.item.slides[0].mediaUrl === b.imageUrl && r.item.slides[1].mediaUrl === a.imageUrl, "in the order she picked, the same photo files");
+    assert(r.item.slides.every((s) => s.mediaType === "image" && s.deletedAt === null) && r.item.slides[0].fromItemId === b.id
+      && r.item.slides[0].position === 0 && r.item.slides[1].position === 1, JSON.stringify(r.item.slides));
+    const queued = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.map((i) => i.id);
+    assert(queued.includes(a.id) && queued.includes(b.id), "the covers they came from stay in the queue");
+    const inline = await newItem("inline.png");
+    await postJson(`/api/items/${inline.id}/swap-photo`, { imageUrl: `data:image/png;base64,${PNG_1PX.toString("base64")}` });
+    const copied = (await postJson(`/api/items/${main.id}/slides/from`, { itemIds: [inline.id] })).item.slides[2].mediaUrl;
+    assert(copied.startsWith("/uploads/") && copied.endsWith(".png"), `a photo kept inline is copied in: ${copied}`);
+    const got = await fetch(`${base}${copied}`);
+    assert(got.ok && (await got.arrayBuffer()).byteLength === PNG_1PX.length, "the copy is the photo");
+    const refuse = async (ids, status, why) => {
+      const res = await fetch(`${base}/api/items/${main.id}/slides/from`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemIds: ids }) });
+      assert(res.status === status, `${why}: expected ${status}, got ${res.status}`);
+      return (await res.json()).error;
+    };
+    await refuse([main.id], 400, "the cover itself");
+    await refuse([a.id, a.id], 400, "the same cover twice");
+    await refuse([], 400, "nothing picked");
+    const passed = await newItem("passed.png");
+    await postJson(`/api/items/${passed.id}/decide`, { decision: "rejected" });
+    await refuse([passed.id], 400, "a passed cover");
+    const more = [];
+    for (let i = 0; i < 7; i += 1) more.push(await newItem(`more-${i}.png`));
+    assert(/room for 6/.test(await refuse(more.map((m) => m.id), 409, "more than the room left")), "it says how many fit");
+    const filled = await postJson(`/api/items/${main.id}/slides/from`, { itemIds: more.slice(0, 6).map((m) => m.id) });
+    assert(filled.item.slides.filter((s) => !s.deletedAt).length === 9, "nine photos and the cover make ten");
+    const form = new FormData();
+    form.append("slide", new Blob([PNG_1PX], { type: "image/png" }), "eleventh.png");
+    const plus = await fetch(`${base}/api/items/${main.id}/slides`, { method: "POST", body: form });
+    assert(plus.status === 409 && /10 photos/.test((await plus.json()).error), `the + is full too, got ${plus.status}`);
+    assert(/full/.test(await refuse([more[6].id], 409, "a full carousel")), "a full carousel says so");
+    for (let at = 3; at < 9; at += 1) await postJson(`/api/items/${main.id}/slides/${at}/remove`);
+    const after = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === main.id);
+    assert(after.slides.filter((s) => !s.deletedAt).length === 3, "undo takes them off one by one");
+  });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);
     const root = new URL("../", import.meta.url).pathname;

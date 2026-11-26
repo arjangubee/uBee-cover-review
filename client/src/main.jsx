@@ -33,11 +33,15 @@ const BeelineScreen = lazy(() => import("./beeline/BeelineScreen.jsx"));
 // the version small at the top right, the notes over the switch.
 function Screens() {
   const busy = useAnyBusy();
-  const [screen, setScreen] = useState("covers");
-  const [chatsOpened, setChatsOpened] = useState(false);
-  const [beelineOpened, setBeelineOpened] = useState(false);
+  // 1.30.0 (room #1193 item 3): a reload comes back to the screen she was on, Chats included.
+  const [screen, setScreen] = useState(() => {
+    try { const s = sessionStorage.getItem("cr.screen"); return ["covers", "chats", "beeline"].includes(s) ? s : "covers"; } catch { return "covers"; }
+  });
+  const [chatsOpened, setChatsOpened] = useState(screen === "chats");
+  const [beelineOpened, setBeelineOpened] = useState(screen === "beeline");
   const show = (id) => {
     setScreen(id);
+    try { sessionStorage.setItem("cr.screen", id); } catch { /* a page that can't keep it opens on Covers */ }
     if (id === "chats") setChatsOpened(true);
     if (id === "beeline") setBeelineOpened(true);
   };

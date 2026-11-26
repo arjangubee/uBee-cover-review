@@ -1,9 +1,9 @@
 {
-  "version": "1.29.0",
+  "version": "1.30.0",
   "date": "2026-11-25",
   "whatsNew": [
-    "Text drags to the sides on every photo shape, re-wrapping narrower instead of stopping",
-    "Each cover's number shows its photo's ratio, like 003 9:16",
-    "After Randomize layout, Enter runs it again on a computer"
+    "Tap a comment to reply: it opens in the editor with a draft ready",
+    "Copy your private channel link in one tap from the reply editor, and dismiss chats you're done with for now",
+    "Chats stays on the same chat after a reload, and multi-text sends go out a few seconds apart"
   ]
 }

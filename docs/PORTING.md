@@ -12,6 +12,39 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.30.0: the Chats batch
+
+Arjang, room #1193 items 1 to 6; Quill #1197.
+
+1. **Comments open on a tap.** In a post's comments (CommentRow), a tap (or Enter) on their comment opens the editor.
+   With no draft yet, Muse drafts one right away (`dm_generatedraft`, the comment's own mode); the draft fills the editor
+   when it lands. Draft only: Send is still hers.
+2. **Reply links, one tap to copy.** `getreplylinks` / `savereplylinks` (settings key `dmReplyLinks`, up to 5
+   `{ label, url }`, https only). The comment editor and the chat composer show a "Copy <label> link" button for each. It
+   copies only, never inserts or sends. The link itself is a data step, never in the code.
+3. **A reload keeps her place.** The screen (Covers, Chats, Beeline), the Chats tab, the open chat, the chat view and the
+   open post are kept in sessionStorage for the tab and restored on reload. A chat that's gone falls back as before.
+4. **Dismiss.** An eye-off button on each inbox row hides that preview for now (`dismissitem`, `dismissedAt` on the row,
+   `dismissed` on the item). Nothing is deleted. A new message from them (syncInto, a message from them newer than the
+   dismiss) brings it back; `{ id, on: false }` brings it back by hand.
+5. **Spicy redirect.** No code: it's the voice edit Rose applies once this lands (Quill #1197).
+6. **Multi-text pacing.** `publishwanted` gives each send its `parts`, one per line, each with `delay_ms`: 0 before the
+   first, then 1000 + 40 per character of the part just sent, between 1.5 and 8 seconds. The sender holds each pause
+   (SETUP_FOR_MUSE.md). Single-line sends are as before.
+
+| Where | Change |
+| --- | --- |
+| server/dm.js | `dismissitem`, `getreplylinks`, `savereplylinks`, `parts` on publishwanted, a new message clears a dismiss |
+| client/src/dm/App.jsx, dmApi.js | tap to open a comment and draft, ReplyLinks, the dismiss button, kept place |
+| client/src/main.jsx | the screen kept across a reload |
+| SETUP_FOR_MUSE.md, scripts/smoke.mjs | pacing and reply links; checks for parts, dismiss and links |
+
+### Data steps (her space, never the repo)
+
+- Save her Telegram link with `savereplylinks` as `{ "links": [{ "label": "Telegram", "url": <the link in Rose's #1193> }] }`.
+- Her sender holds each part's `delay_ms` before sending it.
+- New row field `dismissedAt` (absent when not dismissed). Re-verify every count.
+
 ## 1.29.0: drag on every ratio, the ratio tag and Randomize focus
 
 Arjang, room #1210 and #1213; Quill #1212 and #1216.

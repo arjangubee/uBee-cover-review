@@ -318,8 +318,14 @@
 .dm-root .mt-8 {
     margin-top: calc(var(--spacing) * 8);
   }
+.dm-root .mr-2 {
+    margin-right: calc(var(--spacing) * 2);
+  }
 .dm-root .mb-1 {
     margin-bottom: calc(var(--spacing) * 1);
+  }
+.dm-root .mb-1\.5 {
+    margin-bottom: calc(var(--spacing) * 1.5);
   }
 .dm-root .mb-2 {
     margin-bottom: calc(var(--spacing) * 2);
@@ -664,6 +670,9 @@
   }
 .dm-root .gap-y-5 {
     row-gap: calc(var(--spacing) * 5);
+  }
+.dm-root .self-center {
+    align-self: center;
   }
 .dm-root .truncate {
     overflow: hidden;

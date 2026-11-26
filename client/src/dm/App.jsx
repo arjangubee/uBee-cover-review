@@ -786,9 +786,20 @@ function Badge({
 // App shell
 // ---------------------------------------------------------------------------
 
+// 1.30.0 (room #1193 item 3): a reload keeps her on the chat she had open. The open chat, the chat view and the open post
+// are kept for this tab only, and an id that's gone falls back as before.
+function remembered(key, fallback) {
+  try { const v = JSON.parse(sessionStorage.getItem(`dm.${key}`)); return v ?? fallback; } catch { return fallback; }
+}
+function useRemembered(key, fallback) {
+  const [value, setValue] = useState(() => remembered(key, fallback));
+  useEffect(() => { try { sessionStorage.setItem(`dm.${key}`, JSON.stringify(value)); } catch { /* not kept here */ } }, [key, value]);
+  return [value, setValue];
+}
+
 export function App() {
-  const [tab, setTab] = useState("practice");
-  const [selectedId, setSelectedId] = useState(null);
+  const [tab, setTab] = useRemembered("tab", "practice");
+  const [selectedId, setSelectedId] = useRemembered("selected", null);
   const [justRefreshed, setJustRefreshed] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const queryClient = useQueryClient();
@@ -1153,6 +1164,7 @@ function InboxRow({
   isSelected,
   onOpen,
   onMove,
+  onDismiss,
   showFolder,
 }) {
   const handle = handleOf(item);
@@ -1198,6 +1210,7 @@ function InboxRow({
         {inGeneral ? "Move to Inbox" : "Move to General"}
       </div>
       <div
+        className="flex items-center"
         style={{
           transform: `translateX(${dx}px)`,
           transition: drag.current
@@ -1301,6 +1314,17 @@ function InboxRow({
             />
           )}
         </button>
+        {onDismiss && (
+          <button
+            type="button"
+            onClick={() => onDismiss(item)}
+            aria-label={`Dismiss ${handle ? `@${handle}` : "this chat"} for now`}
+            title="Dismiss for now. Their next message brings it back."
+            className="mr-2 flex h-9 w-9 shrink-0 items-center justify-center self-center rounded-full text-[var(--dim)]"
+          >
+            <IconEyeOff size={18} />
+          </button>
+        )}
       </div>
     </li>
   );
@@ -1325,13 +1349,13 @@ function PracticeView({
     "all",
   );
   const [search, setSearch] = useState("");
-  const [chatOpen, setChatOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useRemembered("chatOpen", false);
   // Big Edit #21 and #22.2: Chats opens on Needs Reply, every chat still waiting for her answer, read or not. Needs
   // Reply and Replied each show one all-mail list, every chat labeled where it sits on Instagram. With both off it's the
   // front page, split the way Instagram splits it. They work like Hide following, one at a time.
   const [needsReplyOn, setNeedsReplyOn] = useState(true);
   const [repliedOn, setRepliedOn] = useState(false);
-  const [openPost, setOpenPost] = useState(null);
+  const [openPost, setOpenPost] = useRemembered("openPost", null);
   const toggleNeedsReply = () => {
     setNeedsReplyOn((v) => !v);
     setRepliedOn(false);
@@ -1379,10 +1403,17 @@ function PracticeView({
   };
   const handleMove = (item, section) =>
     sectionMutation.mutate({ id: item.id, section });
+  // 1.30.0 (room #1193 item 4): Dismiss hides a preview for now. Nothing is deleted; their next message brings it back.
+  const dismissMutation = useMutation({
+    mutationFn: async (id) => await api.dm_dismissitem({ id }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["items"] }),
+  });
+  const handleDismiss = (item) => dismissMutation.mutate(item.id);
 
   const baseFiltered = useMemo(
     () =>
       items.filter((i) => {
+        if (i.dismissed) return false;
         if (kindFilter !== "all" && i.kind !== kindFilter) return false;
         if (hideFollowing && i.following) return false;
         const q = search.trim().toLowerCase();
@@ -1651,6 +1682,7 @@ function PracticeView({
             isSelected={selected?.id === item.id && item.kind === "comment"}
             onOpen={handleOpen}
             onMove={handleMove}
+            onDismiss={handleDismiss}
             showFolder={mailView}
           />
         ))}
@@ -1702,6 +1734,7 @@ function PracticeView({
                 }
                 onOpen={handleOpen}
                 onMove={handleMove}
+                onDismiss={handleDismiss}
               />
             ))}
           </ul>
@@ -1720,7 +1753,7 @@ function PracticeView({
             <p className="px-4 pt-0.5 text-xs text-[var(--dim)] sm:px-0">{part.note}</p>
             <ul className="mt-2">
               {part.list.map((item) => (
-                <InboxRow key={item.id} item={item} isSelected={false} onOpen={handleOpen} onMove={handleMove} />
+                <InboxRow key={item.id} item={item} isSelected={false} onOpen={handleOpen} onMove={handleMove} onDismiss={handleDismiss} />
               ))}
             </ul>
           </div>
@@ -1990,6 +2023,45 @@ function PostView({ post, onBack }) {
   );
 }
 
+/** 1.30.0 (room #1193 item 2, Quill #1197): her reply links, like her private channel, kept in her settings. One tap
+ *  copies a link to paste; it never inserts it or sends anything. */
+function ReplyLinks({ className = "" }) {
+  const linksQuery = useQuery({ queryKey: ["replylinks"], queryFn: async () => (await api.dm_getreplylinks({})).links || [], staleTime: 60_000 });
+  const [copied, setCopied] = useState(null);
+  const links = linksQuery.data || [];
+  if (!links.length) return null;
+  const copy = async (url) => {
+    let ok = false;
+    try { await navigator.clipboard.writeText(url); ok = true; } catch {
+      const t = document.createElement("textarea");
+      t.value = url; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
+      document.body.appendChild(t); t.select();
+      try { ok = document.execCommand("copy"); } catch { ok = false; }
+      t.remove();
+    }
+    setCopied(ok ? url : "failed");
+    setTimeout(() => setCopied(null), 1800);
+  };
+  return (
+    <div className={`flex flex-wrap items-center gap-2 ${className}`}>
+      {links.map((l) => (
+        <button
+          key={l.url}
+          type="button"
+          onClick={() => copy(l.url)}
+          aria-label={`Copy your ${l.label} link`}
+          className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+        >
+          <IconLink size={15} />
+          {copied === l.url ? "Copied" : `Copy ${l.label} link`}
+        </button>
+      ))}
+      {copied === "failed" && <span className="text-xs" style={{ color: "var(--danger)" }}>This browser didn&apos;t copy it. Long-press the link to copy.</span>}
+    </div>
+  );
+}
+
 /** One comment and her side of it: her sent reply (each line editable on Instagram), her reply on Instagram, her draft
  *  (tap to edit, kept), Muse drafting, or Reply. */
 function CommentRow({ item }) {
@@ -2061,6 +2133,18 @@ function CommentRow({ item }) {
     onError: (e) => setError(e.message),
   });
   const drafting = draftMutation.isPending || item.draft_wanted;
+  // 1.30.0 (room #1193 item 1, Quill #1197): a tap on the comment opens it in the editor, and with no draft yet, Muse
+  // drafts one right away. Draft only: nothing sends without her Send.
+  const canOpen = !published && !sending && !repliedOnInstagram && !editing;
+  const openComment = () => {
+    if (!canOpen) return;
+    setText(draft);
+    setEditing(true);
+    if (!draft && !drafting) draftMutation.mutate({});
+  };
+  useEffect(() => {
+    if (editing && !text && draft) setText(draft); // the draft that was being written lands in the editor
+  }, [editing, draft]); // eslint-disable-line react-hooks/exhaustive-deps
   const buttonClass = "rounded-full px-3.5 py-1.5 text-sm font-semibold disabled:opacity-60";
   const quietButton = { background: "var(--surface)", border: "1px solid var(--border)" };
 
@@ -2074,7 +2158,14 @@ function CommentRow({ item }) {
             {item.following && <FollowingBadge />}
             <span className="text-xs text-[var(--dim)]">{shortTime(lastActivityIso(item))}</span>
           </p>
-          <p className="mt-0.5 text-[15px] leading-snug whitespace-pre-line">
+          <p
+            className={`mt-0.5 text-[15px] leading-snug whitespace-pre-line ${canOpen ? "cursor-pointer" : ""}`}
+            {...(canOpen ? {
+              role: "button", tabIndex: 0, "aria-label": `Reply to @${handle || "them"}: ${item.incoming_text || "their comment"}`,
+              onClick: openComment,
+              onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openComment(); } },
+            } : {})}
+          >
             {item.incoming_text || "Their words aren't on file."}
           </p>
 
@@ -2162,8 +2253,10 @@ function CommentRow({ item }) {
                 onChange={(e) => setText(e.target.value)}
                 rows={3}
                 autoFocus
+                placeholder={drafting ? "Muse is drafting a reply…" : "Your reply"}
                 className="w-full resize-none rounded-xl bg-[var(--surface-alt)] px-3 py-2 text-[15px] outline-none"
               />
+              <ReplyLinks className="mt-1.5" />
               <div className="mt-1.5 flex gap-2">
                 <button
                   type="button"
@@ -4515,6 +4608,7 @@ function ChatView({
               No reply needed here. This chat is in the build for context.
             </p>
           )}
+          {item.needs_reply && <ReplyLinks className="mx-3 mb-1.5" />}
           {item.needs_reply && (
           <div className="mx-3 flex items-end gap-2 rounded-[26px] bg-[var(--surface-alt)] py-1.5 pr-2 pl-1.5">
             <span

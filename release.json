@@ -1,8 +1,9 @@
 {
-  "version": "1.37.0",
+  "version": "1.38.0",
   "date": "2026-11-26",
   "whatsNew": [
-    "The + on a carousel adds photos from your queue and approved: tap to pick, hold to look",
-    "A carousel holds up to 10 photos"
+    "Schedule Post takes the Overlay Text row's place: pick your channels, then a day and time for a post, a reel or both",
+    "Reels go out as trial reels by default where your Instagram can run them",
+    "Schedule Post is your final approval, and your choices are kept for next time"
   ]
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, post, upload } from "./api.js";
-import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, NoteComposer, RateQuality, Steppers, StoryControls, SwipeRow, TitleRow } from "./CoverDetails.jsx";
+import { ActionRow, BrandFoot, CaptionRow, ComposeCheck, NoteComposer, RateQuality, Steppers, StoryControls, SwipeRow } from "./CoverDetails.jsx";
 import CoverEditor from "./CoverEditor.jsx";
 import EditorSheet from "./EditorSheet.jsx";
 import ZoomView from "./ZoomView.jsx";
@@ -14,10 +14,10 @@ import SearchSheet from "./SearchSheet.jsx";
 import LibraryView from "./LibraryView.jsx";
 import RemixSheet from "./RemixSheet.jsx";
 import QueuePicker, { AddSlideMenu, CAROUSEL_MAX } from "./QueuePicker.jsx";
-import { badgeFor, selectable } from "./pollenView.js";
 import { STYLE_DEFAULTS, canvasMeasureAt, colorPatch, ensureFonts, lookOf, normalizePlacement, randomizeLayout, registerFonts, renderCover, withDefaults, withLook } from "./renderCover.js";
 import { changedFields, displayTitle, valueForStars } from "./reviewMath.js";
 import ScheduleSheet from "./ScheduleSheet.jsx";
+import SchedulePostSheet, { SchedulePostButton } from "./SchedulePostSheet.jsx";
 import { coverSongEdit } from "./songs/songsData.js";
 import SongsView from "./songs/SongsView.jsx";
 import { createHistory } from "./undo.js";
@@ -87,6 +87,7 @@ export default function App() {
   const [remixOpen, setRemixOpen] = useState(false); // the remix menu (1.17.0)
   const [addMenu, setAddMenu] = useState(false); // the carousel's + (1.37.0)
   const [queuePick, setQueuePick] = useState(false); // Choose From Queue (1.37.0)
+  const [postSheet, setPostSheet] = useState(null); // Schedule Post (1.38.0): the cover as she saw it when she opened it
   const [remixing, setRemixing] = useState([]); // remixes still being made: each comes next once it's done
   // The swipe (1.34.0, Arjang Nov 26: like Tinder). intent is where the card on the stage is headed, for the swipe row's
   // buttons: { dir, solid, phase }. enterFrom is a cover Rewind brings back, flying in from the side it left by.
@@ -263,12 +264,12 @@ export default function App() {
   }, [items]);
 
   // While a cover waits for Pollen, keep the Approved grid's badges fresh.
-  const pollenPending = list === "approved" && items.some((i) => ["waiting", "leased"].includes(i.pollen?.status));
+  const pollenPending = list === "approved" && items.some((i) => [i.pollen, i.pollenReel].some((r) => ["waiting", "leased"].includes(r?.status)));
   useEffect(() => {
-    if (!pollenPending || sheet) return undefined;
+    if (!pollenPending || sheet || postSheet) return undefined;
     const t = setInterval(() => load().catch(() => {}), 15000);
     return () => clearInterval(t);
-  }, [pollenPending, sheet, load]);
+  }, [pollenPending, sheet, postSheet, load]);
 
   const current = items[index] || null;
   const currentIdNow = useRef(null);
@@ -278,7 +279,7 @@ export default function App() {
   const indexNow = useRef(index);
   indexNow.current = index;
   // An editor or a sheet open means she's busy: the update notes above both screens wait for a quiet minute (1.13.10, 1.14).
-  const inUse = Boolean(draft) || infoOpen || Boolean(sheet) || remixOpen || addMenu || queuePick;
+  const inUse = Boolean(draft) || infoOpen || Boolean(sheet) || remixOpen || addMenu || queuePick || Boolean(postSheet);
   useEffect(() => { setScreenBusy("covers", inUse); }, [inUse]);
   useEffect(() => () => setScreenBusy("covers", false), []);
   // A queued cover draws with the queue's look (1.20.0, Big Edit items 1 and 2): her last font and color, or her default color.
@@ -754,6 +755,28 @@ export default function App() {
       await saveFiles(files);
     });
   };
+  // Schedule Post (1.38.0). The sheet keeps the cover as she saw it when she tapped, and draws it the way Download does:
+  // the cover as it shows, each carousel photo with its own text. Each drawing is kept on her computer for Pollen.
+  const openPostSheet = () => {
+    if (!current) return;
+    const id = current.id, cover = withLook(current, look), on = quoteOn, held = free, key = drawnKey;
+    const keep = async (path, blob) => {
+      const form = new FormData();
+      form.append("image", blob, "image.jpg");
+      await api(path, { method: "POST", body: form });
+    };
+    setPostSheet({
+      item: current, slides: activeSlides,
+      drawCover: async () => keep(`/api/items/${id}/render`, ahead.current.key === key && ahead.current.blob ? ahead.current.blob
+        : await renderCover(cover, { quoteOn: on, free: held })),
+      drawSlide: async (s) => keep(`/api/items/${id}/render-slide/${s.at}`, await renderCover(cover, { quoteOn: on, free: held, slideAt: s.at })),
+    });
+  };
+  const closePostSheet = () => {
+    setPostSheet(null);
+    load().catch(() => {}); // a cover from the queue is approved once it's scheduled
+    requestAnimationFrame(() => document.querySelector(".schedulePostRow .scheduleBig")?.focus({ preventScroll: true }));
+  };
   // The T icon (1.13.9, Arjang via Rose #693 and #694, Quill #695 and #696). A tap turns this post's quote off, or back on,
   // for this post only: a cover edit like any other, so undo puts back exactly what it was, mark and all. A hold is
   // global hide, the 1.13.3 setting: it hides every quote or brings them back, and it isn't a step for undo.
@@ -1143,7 +1166,7 @@ export default function App() {
 
   useEffect(() => {
     function onKey(e) {
-      if (draft || zoom || infoOpen || sheet || remixOpen || addMenu || queuePick || view !== "cover") return;
+      if (draft || zoom || infoOpen || sheet || remixOpen || addMenu || queuePick || postSheet || view !== "cover") return;
       if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); step(e.shiftKey ? "redo" : "undo"); return; }
       if (e.key === "ArrowRight") { e.preventDefault(); if (e.shiftKey) setSlide((s) => Math.min(activeSlides.length, s + 1)); else goTo(index + 1); }
@@ -1166,7 +1189,7 @@ export default function App() {
           onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} loadError={loadErrorBar} listFailed={Boolean(loadError?.items)} />
       ) : (
         <>
-        <main className="review" inert={zoom || remixOpen || addMenu || queuePick ? true : undefined}>
+        <main className="review" inert={zoom || remixOpen || addMenu || queuePick || postSheet ? true : undefined}>
           <CoverHeader list={list} count={counts?.[list] ?? items.length} position={index + 1} total={items.length}
             canUndo={history.current.canUndo()} canRedo={history.current.canRedo()} locked={Boolean(draft)} away={playerUp}
             onBack={showLibrary} onInfo={() => setInfoOpen(true)} onSearch={() => setSearchOpen(true)} onUndo={() => step("undo")} onRedo={() => step("redo")} />
@@ -1211,10 +1234,6 @@ export default function App() {
                     {remixing.length === 1 ? "Your remix is on its way. It comes next." : `${remixing.length} remixes are on their way. They come next.`}</p>
                 )}
                 {current.lastRemix?.status === "failed" && <p className="problem remixNote">This cover's last remix didn't land. {current.lastRemix.error}</p>}
-                {/* Item 28 (1.21.0): an approved cover's one big Schedule button, or where it stands once it's with Pollen. */}
-                {current.status === "approved" && pollen?.connected && (selectable(current)
-                  ? <button type="button" className="scheduleBig" onClick={() => setSheet({ items: [current], stop: () => {} })}>Schedule</button>
-                  : <p className="pollenState" role="status">{badgeFor(current.pollen)?.text}</p>)}
                 {story && <StoryControls item={current} onPan={pan} onPanDone={panDone} />}
                 <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={() => setAddMenu(true)} onRemoveSlide={removeSlide}
                   canPrevPost={index > 0} canNextPost={index < items.length - 1} onPrevPost={() => goTo(index - 1)} onNextPost={() => goTo(index + 1)} />
@@ -1224,10 +1243,10 @@ export default function App() {
                     <Icon name={colorLock ? "lock" : "unlock"} size={16} /> Color lock
                   </button>
                 </div>
-                {/* Under Randomize layout (1.21.0, Big Edit item 15): the caption, then the overlay text, then the note. */}
+                {/* Under Randomize layout (1.21.0, Big Edit item 15): the caption, then Schedule Post (1.38.0, Arjang Nov 26: in
+                    the Overlay Text row's place, with where the post and the reel stand under it), then the note. */}
                 <CaptionRow item={current} ctas={ctas} onCta={setCta} onCtaLine={setCtaLine} onSave={saveCaption} onRedo={() => regenerate("caption")} onDraft={(v) => setPending(current.id, "caption", v)} />
-                <TitleRow item={current} />
-                {list === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}
+                <SchedulePostButton item={current} onOpen={openPostSheet} />
                 <NoteComposer item={current} onPost={postNote} onDraft={(v) => setPending(current.id, "note", v)} inputRef={noteRef} />
                 <ComposeCheck item={current} lines={linesFor(current)} onRecheck={recheck} busy={busy} />
                 <RateQuality item={current} onRate={rate} onSwap={swapPhoto} onRestore={restorePhoto} searchPhotos={searchPhotos} />
@@ -1277,6 +1296,12 @@ export default function App() {
         <ScheduleSheet items={sheet.items} ctas={ctas} quotesUnlocked={Boolean(quotesStatus?.unlocked)} quoteOverlay={quotesStatus?.quoteOverlay ?? null} api={api} post={post}
           onClose={() => { setSheet(null); load().catch(() => {}); }}
           onDone={() => { sheet.stop(); setSheet(null); load().catch(() => {}); }} />
+      )}
+
+      {postSheet && view === "cover" && (
+        <SchedulePostSheet cover={postSheet} api={api} post={post}
+          onConnect={async (code) => { await post("/api/connectors/pollen", { code }); await load(); }}
+          onClose={closePostSheet} onDone={closePostSheet} />
       )}
 
       {addMenu && current && view === "cover" && (

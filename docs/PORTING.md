@@ -12,6 +12,50 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.38.0: Schedule Post
+
+Arjang, Nov 26, in chat.
+
+1. **The Overlay Text row is gone.** In its place, between Instagram Caption and Add a note, a large **Schedule Post**
+   button, on every cover. Where the post and the reel stand with Pollen shows under it.
+2. A tap opens the **Schedule Post** sheet. At the top, her channels from Pollen as round badges: in color when on,
+   black and white when off. Connected channels start on (Substack starts off). A tap switches one, and the choice is
+   saved at once for next time.
+3. Two options, **Post** and **Reel**, each a card with its own **day and time wheels** (day, hour, minute, AM or PM,
+   in her own time, up to 60 days out, minutes in steps of 5). She ticks one or both. The times, and which she ticked,
+   are saved for next time.
+4. The Reel has **Trial**, on by default when an Instagram channel can run trial reels (the Bee Hive says so per
+   channel), off and greyed when it can't.
+5. A matching **Schedule Post** at the bottom is her final approval. Every check runs first. Then a cover from the
+   queue is approved, the cover is drawn exactly as it shows (the same drawing as Download) and each carousel photo with
+   its own text, and each format goes to the Bee Hive at its own time. A post can't carry the song (no posting API takes
+   one on a photo), so the sheet says the song goes on the reel. The reel needs a song with its hook clip.
+6. Nothing is sent until the Bee Hive says, in `hello`, that Pollen posts at a picked time. Until then the sheet says so.
+
+| Where | Change |
+| --- | --- |
+| server/pollen.js | `schedulePost` and `POST /api/pollen/schedule-post` `{ itemId, channelIds, post: { at } \| null, reel: { at, trial } \| null }`; `POST /api/items/:id/render-slide/:at`; `GET` and `POST /api/pollen/prefs` (`on`, `off`, `trial`, `post`, `reel`, `postTime`, `reelTime`); the reel's request on `item.pollenReel`; channels carry `photo`, `video`, `trial`; `features` in the channels answer; sync covers both |
+| client/src/SchedulePostSheet.jsx | new: the sheet, `SchedulePostButton`, `formatStatus` |
+| client/src/Wheels.jsx | new: `Wheel`, `DateTimeWheels` and the time helpers |
+| client/src/App.jsx | `postSheet` (the cover as she saw it, with how to draw it), `openPostSheet`, `closePostSheet`; the old approved-only Schedule button and the Overlay Text row are gone |
+| client/src/CoverDetails.jsx | `TitleRow` removed |
+| client/src/pollenView.js | `NAMES` and `badgeOf` shared by both sheets; YouTube |
+| client/src/ScheduleSheet.jsx | shows photo channels only |
+| client/src/styles.css | `schedulePostRow`, the `post` classes, the wheels (`dateWheels`, `dt` classes) |
+
+### The Bee Hive contract (what the app sends, and what it needs back)
+
+- `hello`: `features: { schedule_at, reels, slides, songs }`; each channel `photo`, `video` and `trial` (booleans), and
+  `default_on`.
+- `upload_url` with `kind: "slide"` and `index` (a carousel photo, JPEG), and `kind: "song"` with `content_type`.
+- `submit` adds `format` (`post` or `reel`), `scheduled_at` (ISO, UTC), `trial` (reels only), and `slides`
+  (`[{ path, width, height }]`, in order). One request per format, each with its own `client_key`.
+- `status` is unchanged. A reel's answer lands on `item.pollenReel`, a post's on `item.pollen`.
+
+### Data steps (her space, never the repo)
+
+- None to run. Her choices live in `settings.pollenPrefs`. A cover sent before keeps its `pollen` as it was.
+
 ## 1.37.0: Choose From Queue for a carousel
 
 Arjang, Nov 26, in chat.

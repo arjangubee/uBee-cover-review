@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { imageUrlFor, loadImage } from "./CoverCanvas.jsx";
 import Icon from "./icons.jsx";
 import { ctaFor, plainCaption, saysKeyword } from "./captionCall.js";
-import { badgeFor } from "./pollenView.js";
 import { composePasses, driveLinkFor, parseSong, starsFor, whyProblem } from "./reviewMath.js";
 
 // Everything under the cover: the icon row, Slides and Posts, Randomize layout, her note, the caption,
@@ -156,18 +155,6 @@ export function NoteComposer({ item, onPost, onDraft, inputRef }) {
         placeholder="Add a note for the next revision" aria-label="Note for the next revision" />
       <button type="submit" className="linkBtn" disabled={!changed}>Post</button>
     </form>
-  );
-}
-
-export function TitleRow({ item }) {
-  const badge = badgeFor(item.pollen);
-  return (
-    <div className="titleRow">
-      <strong className="titleName">Overlay Text</strong>{/* 1.21.0 (Big Edit item 15): its name, not the photo's file name */}
-      <span className="titleQuote">{item.quote || <em>No quote</em>}</span>
-      <span className="version" title="Version">v{item.revision || 1}</span>
-      {badge && <span className={`state ${badge.tone}`} title={badge.why}>{badge.text}</span>}
-    </div>
   );
 }
 

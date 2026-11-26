@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateCaption, loadQuotes } from "./services.js";
-import { DATA_DIR, currentSpace, libraryDir, spaceFile, store } from "./store.js";
+import { DATA_DIR, currentSpace, libraryDir, spaceFile, store, uploadsDir } from "./store.js";
 import { nextOpacity } from "./styleRules.js";
 import { canDraft, captionPrompt, captionState, draftProblems, needsDescription } from "./captionDrafts.js";
 import { cleanCtas } from "./captionCtas.js";
@@ -151,6 +152,32 @@ function mustItem(req, res) {
   const item = store.getItem(req.params.id);
   if (!item) res.status(404).json({ error: "item not found" });
   return item;
+}
+
+// A carousel holds this many photos, its cover included (1.37.0, Arjang Nov 26: "The maximum in a carousel can be 10").
+export const CAROUSEL_MAX = 10;
+const CAROUSEL_FULL = `A carousel holds ${CAROUSEL_MAX} photos, and this one is full. Remove one to add another.`;
+const PHOTO_TYPES = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic", "image/heif": "heif", "image/gif": "gif" };
+
+// A cover's photo as a carousel slide (1.37.0). A photo this app keeps is shared as it is: its files are never rewritten
+// or deleted. One from Drive or another site, or kept inline, is copied in, so the slide stays when that cover changes.
+async function photoAsSlide(src) {
+  const url = String(src.imageUrl || "");
+  if (url.startsWith("/uploads/") || url.startsWith("/api/library/")) return url;
+  let type = "", buf;
+  const data = url.match(/^data:(image\/[\w.+-]+);base64,(.+)$/);
+  if (data) { type = data[1]; buf = Buffer.from(data[2], "base64"); }
+  else if (/^https?:\/\//i.test(url)) {
+    let r;
+    try { r = await fetch(url, { signal: AbortSignal.timeout(30000) }); } catch { throw new Error(`cover ${src.id}'s photo didn't load`); }
+    type = (r.headers.get("content-type") || "").split(";")[0].trim();
+    if (!r.ok || !type.startsWith("image/")) throw new Error(`cover ${src.id}'s photo didn't load`);
+    buf = Buffer.from(await r.arrayBuffer());
+  } else throw new Error(`cover ${src.id} has no photo`);
+  if (!buf.length || buf.length > 40 * 1024 * 1024) throw new Error(`cover ${src.id}'s photo is empty or too big`);
+  const name = `${Date.now()}-${randomUUID().slice(0, 8)}-cover-${src.id}.${PHOTO_TYPES[type] || "jpg"}`;
+  writeFileSync(join(uploadsDir(), name), buf);
+  return `/uploads/${name}`;
 }
 
 function loadSongPool() {
@@ -509,18 +536,45 @@ export function registerFull(app, upload) {
 
   // Carousel slides: addcarouselslide, removecarouselslide (soft delete),
   // restorecarouselslide, setcarouselorder in the original.
+  // A carousel holds CAROUSEL_MAX photos, its cover included (1.37.0, Arjang Nov 26).
   app.post("/api/items/:id/slides", upload.single("slide"), (req, res) => {
-    const item = mustItem(req, res); if (!item) return;
+    const drop = () => { if (req.file?.path) rmSync(req.file.path, { force: true }); };
+    const item = mustItem(req, res); if (!item) return drop();
     item.slides = item.slides || [];
     const slide = req.file
       ? { mediaUrl: `/uploads/${req.file.filename}`, mediaType: req.file.mimetype.startsWith("video") ? "video" : "image", title: req.file.originalname }
       : { mediaUrl: String(req.body?.mediaUrl || ""), mediaType: "image", title: String(req.body?.title || "slide") };
     if (!slide.mediaUrl) return res.status(400).json({ error: "slide file or mediaUrl is required" });
-    slide.position = item.slides.filter((s) => !s.deletedAt).length;
+    const active = item.slides.filter((s) => !s.deletedAt).length;
+    if (1 + active >= CAROUSEL_MAX) { drop(); return res.status(409).json({ error: CAROUSEL_FULL }); }
+    slide.position = active;
     slide.deletedAt = null;
     item.slides.push(slide);
     store.saveDb();
     res.json({ item });
+  });
+  // Choose From Queue (1.37.0, Arjang Nov 26): photos of covers in the queue and approved join this carousel as its next
+  // slides, in the order she picked them. Each is the photo alone, without that cover's text, and the cover it came from
+  // stays where it is. All of them join, or none do.
+  app.post("/api/items/:id/slides/from", async (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const ids = Array.isArray(req.body?.itemIds) ? req.body.itemIds.map(Number) : [];
+    if (!ids.length || new Set(ids).size !== ids.length) return res.status(400).json({ error: "Pick one or more covers, each once." });
+    const active = (item.slides || []).filter((s) => !s.deletedAt).length;
+    const room = CAROUSEL_MAX - 1 - active;
+    if (ids.length > room) return res.status(409).json({ error: room > 0 ? `A carousel holds ${CAROUSEL_MAX} photos. This one has room for ${room} more.` : CAROUSEL_FULL });
+    const sources = ids.map((id) => store.getItem(id));
+    if (sources.some((s) => !s || s.id === item.id || !["queue", "approved"].includes(s.status) || !s.imageUrl)) {
+      return res.status(400).json({ error: "Pick covers from the queue or approved, other than this one." });
+    }
+    let photos;
+    try { photos = await Promise.all(sources.map(photoAsSlide)); }
+    catch (e) { return res.status(502).json({ error: `A photo didn't come through: ${e.message}. Try again.` }); }
+    item.slides = item.slides || [];
+    photos.forEach((mediaUrl, i) => item.slides.push({ mediaUrl, mediaType: "image", title: String(sources[i].title || "photo"),
+      fromItemId: sources[i].id, position: active + i, deletedAt: null }));
+    store.saveDb();
+    res.json({ item, added: photos.length });
   });
   app.post("/api/items/:id/slides/:index/remove", (req, res) => {
     const item = mustItem(req, res); if (!item) return;

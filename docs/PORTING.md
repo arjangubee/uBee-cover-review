@@ -12,6 +12,35 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.37.0: Choose From Queue for a carousel
+
+Arjang, Nov 26, in chat.
+
+1. The slides stepper's **+** opens a small menu: **Choose From Queue**, then **Photo Library, Camera or File**, which
+   opens the phone's own picker as before. A web page can't add a line to the phone's own menu, so this one comes first.
+   It says how many photos the carousel has, out of 10.
+2. **Choose From Queue** shows the queue's grid of photos, the queue and then approved, every cover but this one,
+   scrolling. A tap picks a photo (a thin white border), a second tap lets it go. Holding a photo shows it whole until
+   she lets go, and never picks it. Add joins them after the carousel's last photo, in the order she tapped them, and
+   the screen goes to the first. One Undo takes them all off.
+3. Each one is the photo alone, without its cover's text. A photo the app keeps is shared as it is; one from Drive or
+   another site, or kept inline, is copied in. The cover it came from stays where it was.
+4. **A carousel holds 10 photos**, its cover included. Past the room left, a pick says so and the rest dim. The server
+   refuses an 11th from the + too.
+
+| Where | Change |
+| --- | --- |
+| server/full.js | `CAROUSEL_MAX` 10; `POST /api/items/:id/slides/from` `{ itemIds }`; `POST /api/items/:id/slides` refuses past 10 (409); `photoAsSlide` |
+| client/src/QueuePicker.jsx | new: `AddSlideMenu` and the picker |
+| client/src/CoverDetails.jsx | the + calls `onAddSlide` with no file; the file input moved to the menu |
+| client/src/App.jsx | `addMenu`, `queuePick`, `addFromQueue`; `ch.slides` (a list) in `applyChange` |
+| client/src/styles.css | the menu and the picker (`qp` classes) |
+
+### Data steps (her space, never the repo)
+
+- None to run. A slide that came from the queue carries `fromItemId`, the cover it came from. Re-verify counts, and
+  check no carousel already has more than 9 photos besides its cover (one that does keeps them; only adding stops).
+
 ## 1.36.0: one-tap Download, Replace Photo, edit the comment CTA
 
 Arjang, Nov 26, in chat.

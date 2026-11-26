@@ -130,19 +130,18 @@ function DownloadButton({ busy, onTap, onHold }) {
 
 // One row (1.13.4, Arjang's #559 item 2, Quill #660): the cover arrows at the two ends, the slides stepper centered
 // between them. Slides and posts move exactly as they did in their own rows.
+// Since 1.37.0 the + opens a small menu (Choose From Queue, or the phone's own picker) instead of the picker itself.
 export function Steppers({ slide, total, onSlide, onAddSlide, onRemoveSlide, canPrevPost, canNextPost, onPrevPost, onNextPost }) {
-  const fileRef = useRef(null);
   return (
     <div className="navRow">
       <button type="button" className="postBtn" aria-label="Previous cover" disabled={!canPrevPost} onClick={onPrevPost}><Icon name="back" size={22} /></button>
       <div className="stepper" role="group" aria-label="Slides">
         <button type="button" aria-label="Previous slide" disabled={slide <= 0} onClick={() => onSlide(slide - 1)}><Icon name="back" size={22} /></button>
-        <button type="button" aria-label="Add a slide" onClick={() => fileRef.current?.click()}><Icon name="plus" size={22} /></button>
+        <button type="button" aria-label="Add a slide" aria-haspopup="dialog" onClick={onAddSlide}><Icon name="plus" size={22} /></button>
         <button type="button" className={slide > 0 ? "danger" : ""} aria-label="Remove this slide" disabled={slide <= 0} onClick={onRemoveSlide}><Icon name="minus" size={22} /></button>
         <button type="button" aria-label="Next slide" disabled={slide >= total - 1} onClick={() => onSlide(slide + 1)}><Icon name="forward" size={22} /></button>
       </div>
       <button type="button" className="postBtn" aria-label="Next cover" disabled={!canNextPost} onClick={onNextPost}><Icon name="forward" size={22} /></button>
-      <input ref={fileRef} type="file" accept="image/*,video/*" hidden onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) onAddSlide(f); }} />
     </div>
   );
 }

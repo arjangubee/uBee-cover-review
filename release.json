@@ -1,9 +1,8 @@
 {
-  "version": "1.36.0",
+  "version": "1.37.0",
   "date": "2026-11-26",
   "whatsNew": [
-    "Download saves what's on screen in one tap, with no share sheet. Hold it on a carousel to save every slide",
-    "Replace Photo in the remix menu puts a new photo behind the same text",
-    "Tap the comment CTA's line to edit it for that cover"
+    "The + on a carousel adds photos from your queue and approved: tap to pick, hold to look",
+    "A carousel holds up to 10 photos"
   ]
 }

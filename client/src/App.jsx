@@ -13,6 +13,7 @@ import InfoSheet from "./InfoSheet.jsx";
 import SearchSheet from "./SearchSheet.jsx";
 import LibraryView from "./LibraryView.jsx";
 import RemixSheet from "./RemixSheet.jsx";
+import QueuePicker, { AddSlideMenu, CAROUSEL_MAX } from "./QueuePicker.jsx";
 import { badgeFor, selectable } from "./pollenView.js";
 import { STYLE_DEFAULTS, canvasMeasureAt, colorPatch, ensureFonts, lookOf, normalizePlacement, randomizeLayout, registerFonts, renderCover, withDefaults, withLook } from "./renderCover.js";
 import { changedFields, displayTitle, valueForStars } from "./reviewMath.js";
@@ -84,6 +85,8 @@ export default function App() {
   const [songsFrom, setSongsFrom] = useState("cover"); // where the Songs screen goes back to: a cover, or all covers
   const [toast, setToast] = useState(null);
   const [remixOpen, setRemixOpen] = useState(false); // the remix menu (1.17.0)
+  const [addMenu, setAddMenu] = useState(false); // the carousel's + (1.37.0)
+  const [queuePick, setQueuePick] = useState(false); // Choose From Queue (1.37.0)
   const [remixing, setRemixing] = useState([]); // remixes still being made: each comes next once it's done
   // The swipe (1.34.0, Arjang Nov 26: like Tinder). intent is where the card on the stage is headed, for the swipe row's
   // buttons: { dir, solid, phase }. enterFrom is a cover Rewind brings back, flying in from the side it left by.
@@ -275,7 +278,7 @@ export default function App() {
   const indexNow = useRef(index);
   indexNow.current = index;
   // An editor or a sheet open means she's busy: the update notes above both screens wait for a quiet minute (1.13.10, 1.14).
-  const inUse = Boolean(draft) || infoOpen || Boolean(sheet) || remixOpen;
+  const inUse = Boolean(draft) || infoOpen || Boolean(sheet) || remixOpen || addMenu || queuePick;
   useEffect(() => { setScreenBusy("covers", inUse); }, [inUse]);
   useEffect(() => () => setScreenBusy("covers", false), []);
   // A queued cover draws with the queue's look (1.20.0, Big Edit items 1 and 2): her last font and color, or her default color.
@@ -412,6 +415,7 @@ export default function App() {
     if (ch.showQuote != null) item = (await post(`/api/items/${itemId}/quote-toggle`, { showQuote: ch.showQuote, set: ch.set !== false })).item;
     if (ch.remix) item = (await post(`/api/items/${itemId}/remix-fields`, { fields: ch.remix })).item; // a remix on the spot (1.21.0)
     if (ch.slide) item = (await post(`/api/items/${itemId}/slides/${ch.slide.at}/${ch.slide.state === "removed" ? "remove" : "restore"}`)).item;
+    for (const sl of ch.slides || []) item = (await post(`/api/items/${itemId}/slides/${sl.at}/${sl.state === "removed" ? "remove" : "restore"}`)).item; // 1.37.0
     if (ch.status) {
       await post(`/api/items/${itemId}/decide`, { decision: ch.status });
       if (ch.status === list) pendingId.current = itemId; // it's back in this list: go to it
@@ -851,6 +855,29 @@ export default function App() {
     bumpHistory();
     setSlide(item.slides.filter((s) => !s.deletedAt).length);
   });
+  // The carousel's + (1.37.0, Arjang Nov 26) opens a small menu: Choose From Queue, or the phone's own picker. Closing
+  // either one puts the focus back on the +.
+  const backToPlus = () => requestAnimationFrame(() => document.querySelector('button[aria-label="Add a slide"]')?.focus({ preventScroll: true }));
+  const closeAddMenu = () => { setAddMenu(false); backToPlus(); };
+  const closeQueuePick = () => { setQueuePick(false); backToPlus(); };
+  // Choose From Queue: the photos she picked join this carousel, in the order she tapped them, as one step for Undo. They
+  // land after its last photo, and the screen goes to the first of them. Answers why they didn't join, for the picker.
+  const addFromQueue = async (ids) => {
+    const src = current;
+    try {
+      const { item } = await post(`/api/items/${src.id}/slides/from`, { itemIds: ids });
+      patchItem(item);
+      const first = item.slides.length - ids.length;
+      const ats = ids.map((_, i) => first + i);
+      history.current.push({ label: ids.length === 1 ? "Add slide" : `Add ${ids.length} slides`, itemId: item.id,
+        before: { slides: ats.map((at) => ({ at, state: "removed" })) }, after: { slides: ats.map((at) => ({ at, state: "active" })) } });
+      bumpHistory();
+      setQueuePick(false);
+      setSlide(item.slides.filter((s) => !s.deletedAt).length - ids.length + 1);
+      say(ids.length === 1 ? "Added 1 photo to the carousel." : `Added ${ids.length} photos to the carousel.`);
+      return null;
+    } catch (e) { return e.message; }
+  };
   const removeSlide = () => attempt(async () => {
     const s = activeSlides[slide - 1];
     if (!s) return;
@@ -1116,7 +1143,7 @@ export default function App() {
 
   useEffect(() => {
     function onKey(e) {
-      if (draft || zoom || infoOpen || sheet || remixOpen || view !== "cover") return;
+      if (draft || zoom || infoOpen || sheet || remixOpen || addMenu || queuePick || view !== "cover") return;
       if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); step(e.shiftKey ? "redo" : "undo"); return; }
       if (e.key === "ArrowRight") { e.preventDefault(); if (e.shiftKey) setSlide((s) => Math.min(activeSlides.length, s + 1)); else goTo(index + 1); }
@@ -1139,7 +1166,7 @@ export default function App() {
           onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} loadError={loadErrorBar} listFailed={Boolean(loadError?.items)} />
       ) : (
         <>
-        <main className="review" inert={zoom || remixOpen ? true : undefined}>
+        <main className="review" inert={zoom || remixOpen || addMenu || queuePick ? true : undefined}>
           <CoverHeader list={list} count={counts?.[list] ?? items.length} position={index + 1} total={items.length}
             canUndo={history.current.canUndo()} canRedo={history.current.canRedo()} locked={Boolean(draft)} away={playerUp}
             onBack={showLibrary} onInfo={() => setInfoOpen(true)} onSearch={() => setSearchOpen(true)} onUndo={() => step("undo")} onRedo={() => step("redo")} />
@@ -1189,7 +1216,7 @@ export default function App() {
                   ? <button type="button" className="scheduleBig" onClick={() => setSheet({ items: [current], stop: () => {} })}>Schedule</button>
                   : <p className="pollenState" role="status">{badgeFor(current.pollen)?.text}</p>)}
                 {story && <StoryControls item={current} onPan={pan} onPanDone={panDone} />}
-                <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={addSlide} onRemoveSlide={removeSlide}
+                <Steppers slide={slide} total={activeSlides.length + 1} onSlide={setSlide} onAddSlide={() => setAddMenu(true)} onRemoveSlide={removeSlide}
                   canPrevPost={index > 0} canNextPost={index < items.length - 1} onPrevPost={() => goTo(index - 1)} onNextPost={() => goTo(index + 1)} />
                 <div className="randomizeBar">
                   <button type="button" ref={randomizeBtn} className="randomizeMain" onClick={randomize}><Icon name="sparkle" size={20} /> Randomize layout</button>
@@ -1250,6 +1277,14 @@ export default function App() {
         <ScheduleSheet items={sheet.items} ctas={ctas} quotesUnlocked={Boolean(quotesStatus?.unlocked)} quoteOverlay={quotesStatus?.quoteOverlay ?? null} api={api} post={post}
           onClose={() => { setSheet(null); load().catch(() => {}); }}
           onDone={() => { sheet.stop(); setSheet(null); load().catch(() => {}); }} />
+      )}
+
+      {addMenu && current && view === "cover" && (
+        <AddSlideMenu room={CAROUSEL_MAX - 1 - activeSlides.length} onFile={addSlide} onClose={closeAddMenu}
+          onQueue={() => { setAddMenu(false); setQueuePick(true); }} />
+      )}
+      {queuePick && current && view === "cover" && (
+        <QueuePicker currentId={current.id} room={CAROUSEL_MAX - 1 - activeSlides.length} onAdd={addFromQueue} onClose={closeQueuePick} />
       )}
 
       {remixOpen && current && view === "cover" && (

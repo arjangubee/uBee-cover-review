@@ -10,15 +10,28 @@ const MIN_LEAD_MS = 5 * 60 * 1000; // the server's floor too
 const NO_TIME = "Pollen can't post at a time you pick yet. It needs an update from uBee first.";
 const NO_REELS = "Pollen can't make reels from a cover yet. It needs an update from uBee first.";
 
+/** Channels Pollen left out of a booking (1.38.1), in her words: which ones, and the photo-a-day reason when it's that. */
+function leftOut(r) {
+  const out = (r.posts || []).filter((p) => ["blocked", "skipped"].includes(p.state));
+  if (!out.length) return null;
+  const list = [...new Set(out.map((p) => NAMES[p.platform] || p.platform))];
+  const photoDay = out.every((p) => /one photo post a day/.test(p.problem || ""));
+  const why = list.length > 1 ? ": they already have a photo post that day" : ": it already has a photo post that day";
+  return { text: ` Not on ${list.join(", ")}${photoDay ? why : ""}.`,
+    why: out.map((p) => `${NAMES[p.platform] || p.platform}: ${p.problem || p.state}`).join("\n") };
+}
+
 /** Where one format of a cover stands with Pollen, with the day and time she picked. */
 export function formatStatus(r) {
   const b = badgeFor(r);
   if (!b) return null;
   const at = r.scheduledAt ? whenLabel(r.scheduledAt) : "";
-  if (r.status === "booked") return { ...b, text: at ? `Booked for ${at}` : b.text };
+  const left = ["booked", "posted"].includes(r.status) ? leftOut(r) : null;
+  const plus = (s) => (left ? { ...s, text: `${s.text}.${left.text}`, why: left.why } : s);
+  if (r.status === "booked") return plus({ ...b, text: at ? `Booked for ${at}` : b.text });
   if (WAITING.includes(r.status)) return { ...b, text: at ? `${b.text}, for ${at}` : b.text };
   if (b.tone === "bad" && r.error) return { ...b, text: `${b.text}: ${r.error}` };
-  return b;
+  return plus(b);
 }
 
 // Schedule Post (1.38.0, Arjang Nov 26). Her channels across the top as badges: in color when they're on, black and

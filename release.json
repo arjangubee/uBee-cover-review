@@ -1,7 +1,8 @@
 {
-  "version": "1.27.2",
+  "version": "1.28.0",
   "date": "2026-11-25",
   "whatsNew": [
-    "If covers can't load, a bar says which part didn't load, with Try again, instead of an empty queue"
+    "Text starts in TikTok Sans Medium again, so it reads solid at small sizes",
+    "A weight you pick on a cover is kept as yours"
   ]
 }

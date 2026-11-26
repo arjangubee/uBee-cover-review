@@ -23,7 +23,7 @@ export { FONTS, PALETTE }; // they live in brand.js since 1.20.0
 export function styleDefaults() {
   return {
     textColor: "#FFFFFF", textFont: "tiktok", textAlign: "center",
-    fontSize: 58, fontWeight: 700, opacity: 100, // 1.26.0 (Arjang #1094): new text starts in TikTok Sans Bold
+    fontSize: 58, fontWeight: 500, opacity: 100, // 1.28.0 (Arjang, room #1194): new text starts in TikTok Sans Medium, the original's default
     horizontalPosition: 50, verticalPosition: 50, lineCount: 0,
     textWidth: 84, textHeight: 100, widthScale: 30, heightScale: 30, extraTexts: [],
     barColor: "#000000", textNegative: false,
@@ -413,9 +413,14 @@ export function registerFull(app, upload) {
     const boxColors = JSON.stringify((item.extraTexts || []).map((x) => x.textColor));
     if (b.textFont && fontOk(b.textFont)) item.textFont = b.textFont;
     if (ALIGNS.includes(b.textAlign)) item.textAlign = b.textAlign;
+    if (b.fontWeight != null) item.fontWeightSet = true; // her own weight on this cover: a default change never moves it (1.28.0)
+    const boxWeights = JSON.stringify((item.extraTexts || []).map((x) => x.fontWeight));
     setNumbers(item, b);
     if (b.extraTexts !== undefined) item.extraTexts = cleanTextBoxes(b.extraTexts, item.extraTexts, (item.slides || []).length);
     if (JSON.stringify((item.extraTexts || []).map((x) => x.textColor)) !== boxColors) item.textColorSet = true;
+    // A box's weight she changed marks the cover too. A new box arrives at the default, which isn't a pick.
+    const wasWeights = JSON.parse(boxWeights);
+    if ((item.extraTexts || []).some((x, i) => i < wasWeights.length && x.fontWeight !== wasWeights[i])) item.fontWeightSet = true;
     if (["#FFFFFF", "#000000"].includes(b.barColor)) item.barColor = b.barColor;
     if (b.textNegative != null) item.textNegative = Boolean(b.textNegative);
     store.saveDb();

@@ -379,13 +379,17 @@ try {
     assert(shuffled.item.song === "Her - Lib Song" && shuffled.item.songSpotifyUrl === link, `${shuffled.item.song} ${shuffled.item.songSpotifyUrl}`);
     await postJson(`/api/connectors/spotify/sync-library`, { tracks: [] });
   });
-  await check("v1.8 new covers and new text boxes start in TikTok Sans Bold since 1.26.0 (Arjang #1094); saved covers keep their weight", async () => {
+  await check("v1.28 new covers and new text boxes start in TikTok Sans Medium (room #1194, #1199); a weight she sets is marked hers and stays", async () => {
     const item = await newItem("regular.png");
-    assert(item.textFont === "tiktok" && item.fontWeight === 700, `${item.textFont} ${item.fontWeight}`);
+    assert(item.textFont === "tiktok" && item.fontWeight === 500 && !item.fontWeightSet, `${item.textFont} ${item.fontWeight} ${item.fontWeightSet}`);
     const styled = await postJson(`/api/items/${item.id}/style`, { extraTexts: [{ quote: "mine" }] });
-    assert(styled.item.extraTexts[0].fontWeight === 700 && styled.item.extraTexts[0].textFont === "tiktok", JSON.stringify(styled.item.extraTexts[0]));
-    const medium = await postJson(`/api/items/${item.id}/style`, { fontWeight: 500 });
-    assert(medium.item.fontWeight === 500, "a saved weight stays");
+    assert(styled.item.extraTexts[0].fontWeight === 500 && styled.item.extraTexts[0].textFont === "tiktok", JSON.stringify(styled.item.extraTexts[0]));
+    assert(!styled.item.fontWeightSet, "a new box at the default isn't her pick");
+    const boxBold = await postJson(`/api/items/${item.id}/style`, { extraTexts: [{ ...styled.item.extraTexts[0], fontWeight: 700 }] });
+    assert(boxBold.item.extraTexts[0].fontWeight === 700 && boxBold.item.fontWeightSet === true, "a box's weight she changed marks the cover");
+    const other = await newItem("regular-2.png");
+    const bold = await postJson(`/api/items/${other.id}/style`, { fontWeight: 700 });
+    assert(bold.item.fontWeight === 700 && bold.item.fontWeightSet === true, "a saved weight stays, marked hers");
   });
   await check("v1.8.1 opacity runs 25 to 100 like the original; a stored value under 25 stays until her opacity changes", async () => {
     assert(nextOpacity(10, 100) === 25 && nextOpacity(120, 100) === 100 && nextOpacity(60, 100) === 60, "new values clamp to 25 to 100");
@@ -2269,7 +2273,7 @@ try {
     const list = (await (await fetch(`${base}/api/items`)).json()).items;
     const A = list.find((i) => i.id === a.id), B = list.find((i) => i.id === b.id);
     assert(A.textColor === "#FB0909" && A.textColorSet === true && B.textColor !== "#FB0909" && !B.textColorSet, "one cover's color stays on that cover");
-    assert(A.fontWeight === 700 && A.textFont === "tiktok", `new text starts in TikTok Sans Bold: ${A.textFont} ${A.fontWeight}`);
+    assert(A.fontWeight === 500 && A.textFont === "tiktok", `new text starts in TikTok Sans Medium: ${A.textFont} ${A.fontWeight}`);
   });
   await check("v1.26 the color pass sets a cover's own color from its photo, never over one she picked, and custom colors keep the 5 newest", async () => {
     const a = await newItem("auto-a.png"), b = await newItem("auto-b.png");

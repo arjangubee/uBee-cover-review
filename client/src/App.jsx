@@ -752,10 +752,10 @@ export default function App() {
     if (!draft || boxesHere(draft) >= MAX_BOXES) return;
     const main = effectiveStyle(draft);
     const at = draft.extraTexts.length;
-    // A new text box starts in TikTok Sans Bold (1.27.0, Arjang #1094: all fonts start on TikTok Sans Bold), with the rest of
-    // the cover's look.
+    // A new text box starts in TikTok Sans Medium (1.28.0, room #1194 and #1199: Medium 500, the original's default), with
+    // the rest of the cover's look.
     const font = (draft.status === "queue" && lookOf(paletteNow.current).textFont) || "tiktok"; // the queue's font, if she picked one (1.20.0)
-    const box = { ...pickStyle(draft, STYLE_KEYS), textFont: font, fontWeight: 700, quote: "Your text", verticalPosition: main.verticalPosition > 55 ? 22 : 78, lineCount: 0,
+    const box = { ...pickStyle(draft, STYLE_KEYS), textFont: font, fontWeight: 500, quote: "Your text", verticalPosition: main.verticalPosition > 55 ? 22 : 78, lineCount: 0,
       ...(editSlide === null ? {} : { slide: editSlide, verticalPosition: 50, horizontalPosition: 50 }) }; // on a carousel photo, its middle
     setDraft((d) => ({ ...d, extraTexts: [...d.extraTexts, box] }));
     setActiveBox(at);

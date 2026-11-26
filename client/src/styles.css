@@ -580,3 +580,6 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 
 /* 1.29.0: the photo's ratio beside its number, light and secondary. */
 .ratioTag { font-weight: 400; color: var(--muted); margin-left: 4px; }
+
+/* 1.31.1: This slide or All slides, under the action row. */
+.downloadAsk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px 2px; }

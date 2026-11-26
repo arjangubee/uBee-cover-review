@@ -445,10 +445,13 @@ export function textHitBoxes(item, width, height, measureCtx, quoteOn = Boolean(
  * The cover as a JPEG Blob, longest side at most maxLong. quoteOn follows the deck: the toggle, and quotes unlocked.
  * It draws what the deck shows (1.13.8): boxes held in the safe rectangle, except any in free (dragged this session).
  */
-export async function renderCover(item, { maxLong = 2160, quoteOn = Boolean(item.showQuote), free = null } = {}) {
+export async function renderCover(item, { maxLong = 2160, quoteOn = Boolean(item.showQuote), free = null, slideAt = null } = {}) {
+  // slideAt (1.31.1): one of her carousel photos, with its own text only, the way the deck draws it.
+  const slide = slideAt === null ? null : (item.slides || [])[slideAt] || null;
+  if (slideAt !== null && (!slide || slide.mediaType === "video")) throw new Error("That slide isn't a photo.");
   const img = new Image();
   img.decoding = "async";
-  img.src = `/api/items/${item.id}/image?v=${encodeURIComponent(String(item.imageUrl || "").slice(-80))}`;
+  img.src = slide ? slide.mediaUrl : `/api/items/${item.id}/image?v=${encodeURIComponent(String(item.imageUrl || "").slice(-80))}`;
   await img.decode();
   const s = Math.min(1, maxLong / Math.max(img.naturalWidth, img.naturalHeight));
   const w = Math.max(1, Math.round(img.naturalWidth * s));
@@ -457,7 +460,7 @@ export async function renderCover(item, { maxLong = 2160, quoteOn = Boolean(item
   canvas.width = w;
   canvas.height = h;
   await ensureFonts(item, quoteOn);
-  drawCover(canvas.getContext("2d"), item, img, w, h, { quoteOn, safe: true, free });
+  drawCover(canvas.getContext("2d"), slide ? { ...item, imageEdit: null } : item, img, w, h, { quoteOn, safe: true, free, slideAt });
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't make the cover image."))), "image/jpeg", 0.92));
 }
 

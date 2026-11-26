@@ -15,6 +15,7 @@ import { SNAP_PX, guidesFor, snap } from "../client/src/snapGuides.js";
 import { HOUSE, contrastOf, pickHouseColor, randomWheelColor, seeded as coverSeed } from "../client/src/houseColor.js";
 import { composePasses, driveLinkFor, whyProblem } from "../client/src/reviewMath.js";
 import { searchCovers } from "../client/src/searchCovers.js";
+import { SWIPE, flyFor, progressFor, releaseFor, stampFor, tiltFor, velocityOf } from "../client/src/swipe.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -789,6 +790,59 @@ check("v1.29 a vertical drag reaches 25% and 75% by re-wrapping, the photo frame
 check("v1.29 each photo's ratio reads by the original's thresholds, landscape by the nearest standard (Quill #1212)", () => {
   const cases = [[1080, 1920, "9:16"], [1080, 1440, "3:4"], [1080, 1350, "4:5"], [1000, 1000, "1:1"], [1440, 1080, "4:3"], [1500, 1000, "3:2"], [1920, 1080, "16:9"], [2520, 1080, "21:9"], [0, 10, ""]];
   for (const [w, h, want] of cases) assert(aspectLabel(w, h) === want, `${w}x${h}: ${aspectLabel(w, h)} not ${want}`);
+});
+
+// ---------- v1.34: the swipe, like Tinder (Arjang Nov 26) ----------
+check("v1.34 the card tilts the way a card held at that spot swings: held low, a drag right turns it left", () => {
+  assert(tiltFor(0, 390, true) === 0 && tiltFor(100, 0, false) === 0, "no drag or no card, no tilt");
+  assert(tiltFor(100, 390, false) > 0 && tiltFor(-100, 390, false) < 0, "held high, it turns the way it goes");
+  assert(tiltFor(100, 390, true) < 0 && tiltFor(-100, 390, true) > 0, "held low, its top trails the finger");
+  assert(Math.abs(tiltFor(390, 390, false) - SWIPE.tilt) < 1e-9, `a full card width is ${SWIPE.tilt} degrees`);
+});
+check("v1.34 the heart or X is faint while the card only leans, then solid and bigger from the commit line on", () => {
+  const w = 400, line = w * SWIPE.commit;
+  assert(stampFor(progressFor(0, w)).opacity === 0, "at rest it's hidden");
+  const faint = stampFor(progressFor(line - 1, w)), solid = stampFor(progressFor(line, w)), far = stampFor(progressFor(line * 2, w));
+  assert(faint.opacity > 0 && faint.opacity < 1 && !faint.solid, `just short of the line it's faint: ${faint.opacity}`);
+  assert(solid.solid && solid.opacity === 1 && solid.scale > faint.scale, "at the line it's solid and bigger");
+  assert(far.scale > solid.scale && far.scale <= 1.5, `past the line it keeps growing, to a point: ${far.scale}`);
+});
+check("v1.34 letting go sends the card past the commit line or on a flick, and springs it back otherwise", () => {
+  const w = 400, line = w * SWIPE.commit;
+  assert(releaseFor(line, 0, w) === 1 && releaseFor(-line, 0, w) === -1, "past the line, slow: it goes");
+  assert(releaseFor(line - 1, 0, w) === 0, "short of the line, slow: it comes back");
+  assert(releaseFor(40, 0.9, w) === 1 && releaseFor(-40, -0.9, w) === -1, "a flick sends it from a shorter drag");
+  assert(releaseFor(10, 0.9, w) === 0, "a flick has to travel a little first");
+  assert(releaseFor(40, -0.9, w) === 0, "a flick back toward the middle doesn't send it");
+  assert(releaseFor(0, 2, w) === 0 && releaseFor(50, 0, 0) === 0, "no drag or no card: nothing goes");
+});
+check("v1.34 a flick's speed is read over its last 100 ms", () => {
+  assert(velocityOf([]).x === 0 && velocityOf([{ t: 0, x: 5, y: 5 }]).x === 0, "one sample has no speed");
+  const v = velocityOf([{ t: 0, x: 0, y: 0 }, { t: 200, x: 10, y: 0 }, { t: 250, x: 40, y: 10 }, { t: 300, x: 70, y: 20 }]);
+  assert(Math.abs(v.x - 0.6) < 1e-9 && Math.abs(v.y - 0.2) < 1e-9, `the last 100 ms only: ${v.x}, ${v.y}`);
+});
+check("v1.34 a sent card leaves the screen with room for its tilt, turns on the way it was turning, in 170 to 340 ms", () => {
+  const f = flyFor({ dir: 1, dx: 120, dy: 10, vx: 0.2, vy: 0, w: 390, h: 488, tilt: -4 });
+  assert(f.x >= 390 + 488 / 2 && f.ms >= 170 && f.ms <= 340, `off screen in time: ${f.x}px in ${f.ms}ms`);
+  assert(f.tilt < -4, `it keeps turning the way it was: ${f.tilt}`);
+  const fast = flyFor({ dir: -1, dx: -60, vx: -3, w: 390, h: 488 }), slow = flyFor({ dir: 1, w: 390, h: 488, vx: 0 });
+  assert(fast.x < -390 && fast.tilt < 0 && fast.ms < slow.ms, `a hard flick goes left at its own speed: ${fast.ms}ms`);
+  assert(slow.ms === 340 && slow.tilt > 0, "a button press throws it at a quick pace, turning the way it goes");
+  const down = flyFor({ dir: 1, dy: 0, vy: 5, w: 390, h: 488 });
+  assert(down.y <= 488 / 2, "a steep flick never sends it further down than half a card");
+});
+check("v1.34 Rewind takes back a swipe still in the history, and puts it back where it was if that fails", () => {
+  const h = createHistory(5);
+  const a = { label: "Like" }, b = { label: "Edit" }, c = { label: "Pass" };
+  [a, b, c].forEach((e) => h.push(e));
+  assert(h.includes(a) && h.includes(c), "both swipes can be taken back");
+  const at = h.remove(a);
+  assert(at === 0 && !h.includes(a) && h.peek("undo") === c, "rewinding the like takes it out and leaves the rest");
+  h.insert(a, at);
+  assert(h.includes(a) && h.undo() === c && h.undo() === b && h.undo() === a, "a failed rewind puts it back in its spot");
+  h.redo();
+  assert(h.remove(b) === -1 && h.peek("redo") === c && h.peek("undo") === a, "an entry waiting on redo is taken out of redo too");
+  assert(h.remove({ label: "never" }) === -1, "one that isn't there changes nothing");
 });
 
 console.log(failed ? "RENDER TEST FAILED" : "RENDER TEST OK");

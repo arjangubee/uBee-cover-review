@@ -12,6 +12,38 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.34.0: swipe to approve, like Tinder
+
+Arjang, Nov 26, from his screen recording of Tinder: the cover is a card. Client only.
+
+1. **Drag** the cover right to approve, left to pass. The card follows the finger and tilts the way a card held at that
+   spot swings (held low, its top trails). A heart (right, red) or an X (left, white) shows on the photo: faint while it
+   only leans, solid and bigger from a quarter of the card's width on, with a tap of the phone at that moment (Android;
+   an iPhone taps as the card goes, since Safari can't tap the phone mid-drag). Letting go past that line, or a flick of
+   0.6 px/ms over at least 24 px, sends it. Short of it, it springs back, and she can catch it again on the way.
+2. **The next cover** is drawn underneath while a card moves. A sent card flies off as a copy, so the next one can be
+   swiped at once. The decision goes to the server behind it (with a note she typed and didn't post, as before) as one
+   step for Undo up top. One that fails flies back in, with a toast.
+3. **The swipe row** under the cover: Rewind, the X, Skip (the queue only) and the heart. The X and the heart throw the
+   card the same way. While a card moves, the button for where it's going grows and fills, and the rest shrink away.
+   Like, dislike and skip left the icon row.
+4. **Rewind** brings back her last swipe in this list that Undo hasn't taken back already, flying in from the side it
+   left by, over the cover she was on.
+5. **Carousel photos** page by a tap on the right or left half of the card, with bars across the top (a bar jumps to its
+   photo). A sideways drag is a swipe now, so the photo strip no longer scrolls on its own.
+
+| Where | Change |
+| --- | --- |
+| client/src/swipe.js | new: the swipe's numbers and math (tilt, stamp, release, flick, throw) and the phone tap |
+| client/src/CoverStage.jsx | the card, the cover underneath, the heart and X, the bars, the flying copy, Rewind's entry |
+| client/src/App.jsx | a swipe's commit, failure and Rewind; the cover underneath; `load({ keep })` keeps the cover on screen |
+| client/src/CoverDetails.jsx | new `SwipeRow`; like, dislike and skip out of `ActionRow` |
+| client/src/undo.js | `includes`, `remove`, `insert` |
+| client/src/styles.css | the card, the heart and X, the bars, the swipe row |
+
+No data change. Live check on a phone: a slow drag turns the heart solid with a tap, a flick sends, a short drag springs
+back, the X and heart throw the card, Rewind brings it back, a carousel pages by tap. Re-verify counts.
+
 ## 1.33.0: search covers
 
 Arjang, Nov 26: a search button right of the "i" at the top. It searches every cover in every list by a word or a number.

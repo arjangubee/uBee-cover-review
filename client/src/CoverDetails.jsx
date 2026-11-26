@@ -8,20 +8,37 @@ import { composePasses, driveLinkFor, parseSong, starsFor, whyProblem } from "./
 // Everything under the cover: the icon row, Slides and Posts, Randomize layout, her note, the caption,
 // the Compose check, Why it matches, Image info and the star ratings.
 
-export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onSkip, onComment, onEdit, onZoom, busy, quote }) {
+// Tinder's row (1.34.0, Arjang Nov 26): Rewind, the X, Skip where Tinder has its star (the queue only), and the heart.
+// The X and the heart send the card off the way a swipe does. While a card moves, the button for where it's going grows
+// and fills, and the rest shrink away; they come back once it's gone.
+export function SwipeRow({ item, intent, busy, canRewind, onRewind, onNope, onLike, onSkip }) {
+  const dir = intent?.dir || 0;
+  const leading = Boolean(dir) && intent.phase !== "pop";
+  const side = (s, name) => ["swipeBtn", "big", name, dir === s && (leading ? "lead" : "pop")].filter(Boolean).join(" ");
   return (
-    // Order from the original, with dislike and repost swapped (Arjang, Nov 18): like, dislike, download, repost, comment,
-    // then the T icon (1.13.9), the magnifier (1.14.1, Arjang #790 item 2) and edit.
-    <div className="actionRow" role="toolbar" aria-label="Cover actions">
-      <button type="button" className={item.status === "approved" ? "iconBtn act liked" : "iconBtn act"} onClick={onLike} disabled={busy} aria-label="Like: approve this cover" aria-pressed={item.status === "approved"}>
-        <Icon name="heart" size={28} filled={item.status === "approved"} />
+    <div className={leading ? "swipeRow leading" : "swipeRow"} role="toolbar" aria-label="Decide">
+      <button type="button" className="swipeBtn rewind" onClick={onRewind} disabled={!canRewind} aria-label="Rewind: bring back the last cover you swiped">
+        <Icon name="undo" size={24} />
       </button>
-      <button type="button" className={item.status === "rejected" ? "iconBtn act passed" : "iconBtn act"} onClick={onDislike} disabled={busy} aria-label="Dislike: pass on this cover" aria-pressed={item.status === "rejected"}>
-        <Icon name="dislike" size={28} filled={item.status === "rejected"} />
+      <button type="button" className={side(-1, "nope")} onClick={onNope} disabled={busy} aria-label="Pass on this cover" aria-pressed={item.status === "rejected"}>
+        <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M5.5 5.5l13 13M18.5 5.5l-13 13" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" /></svg>
       </button>
       {onSkip && ( /* 1.32.0 (room #1248, Quill #1249): the whole cover to the end of the queue, nothing else changes */
-        <button type="button" className="iconBtn act" onClick={onSkip} disabled={busy} aria-label="Skip: move this cover to the end of the queue"><Icon name="skip" size={28} /></button>
+        <button type="button" className="swipeBtn skip" onClick={onSkip} disabled={busy} aria-label="Skip: move this cover to the end of the queue"><Icon name="skip" size={22} /></button>
       )}
+      <button type="button" className={side(1, "like")} onClick={onLike} disabled={busy} aria-label="Approve this cover" aria-pressed={item.status === "approved"}>
+        <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M12 21s-7.6-4.6-9.4-9.5C1.4 8 3.6 4.5 7.1 4.5c2 0 3.7 1.1 4.9 3 1.2-1.9 2.9-3 4.9-3 3.5 0 5.7 3.5 4.5 7C19.6 16.4 12 21 12 21z" fill="currentColor" /></svg>
+      </button>
+    </div>
+  );
+}
+
+export function ActionRow({ item, onRemix, onDownload, onComment, onEdit, onZoom, busy, quote }) {
+  return (
+    // Order from the original, with dislike and repost swapped (Arjang, Nov 18): download, repost, comment, then the T
+    // icon (1.13.9), the magnifier (1.14.1, Arjang #790 item 2) and edit. Like, dislike and skip moved to the swipe row
+    // above it in 1.34.0, as Tinder's heart, X and middle button.
+    <div className="actionRow" role="toolbar" aria-label="Cover actions">
       <button type="button" className="iconBtn act" onClick={onDownload} disabled={busy} aria-label="Download this cover as it will post"><Icon name="download" size={28} /></button>
       <button type="button" className="iconBtn act remixBtn" onClick={onRemix} disabled={busy} aria-label="Remix this cover" aria-haspopup="dialog"><Icon name="repost" size={28} /></button>
       <button type="button" className="iconBtn act" onClick={onComment} aria-label="Write a note for the next revision"><Icon name="comment" size={28} /></button>

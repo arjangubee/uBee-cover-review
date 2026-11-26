@@ -28,5 +28,21 @@ export function createHistory(limit = 50) {
     },
     canUndo: () => done.length > 0,
     canRedo: () => undone.length > 0,
+    /** Whether undo can still take this entry back (1.34.0: Rewind takes back a swipe only while it's there). */
+    includes: (entry) => done.includes(entry),
+    /** Takes an entry out wherever it is: Rewind took it back another way, or it never happened. Answers where it was in
+     *  undo's list, or -1. */
+    remove(entry) {
+      const u = undone.indexOf(entry);
+      if (u >= 0) undone.splice(u, 1);
+      const at = done.indexOf(entry);
+      if (at >= 0) done.splice(at, 1);
+      return at;
+    },
+    /** Puts an entry back at the spot remove answered, when what took it out didn't happen. */
+    insert(entry, at) {
+      done.splice(Math.max(0, Math.min(at, done.length)), 0, entry);
+      if (done.length > limit) done.shift();
+    },
   };
 }

@@ -367,6 +367,8 @@ export async function schedulePost(itemId, body = {}) {
     if (format === "reel") {
       const sc = songCheck(item);
       if (!sc.hasSongClip) throw new HiveError("The reel needs the song's clip, and this cover's song has none. Pick a song with a clip, or schedule the post alone.", 400);
+      // 1.38.1: a clip that's gone (or a Symphony clip Symphony doesn't have right now) says so, whatever the hello says.
+      if (!sc.symphony && !sc.clip) throw new HiveError(`The reel: ${isSymphonyFile(item.songFile) ? MISSING_ONLINE_CLIP : MISSING_CLIP}`, 400);
       if (sc.problem) throw new HiveError(`The reel: ${sc.problem}`, 400);
       song = sc;
     }

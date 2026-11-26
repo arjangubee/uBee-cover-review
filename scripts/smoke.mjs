@@ -1495,6 +1495,19 @@ try {
       await render(noClip.id);
       const reelNoClip = await post("/api/pollen/schedule-post", { itemId: noClip.id, channelIds: [CH_IG], reel: { at: at(24), trial: false } });
       assert(reelNoClip.status === 400 && /song's clip/.test((await reelNoClip.json()).error), "a reel needs the song's clip");
+      // 1.38.1: a song whose clip has gone from the folder says so, before anything is sent.
+      const gone = await approvedItem("sp-gone.png", "clip gone");
+      await postJson(`/api/items/${gone.id}/edit`, { song: "Artist C - Song C" });
+      await render(gone.id);
+      const submitsBefore = hive.submits;
+      rmSync(join(SONGS, "hooks", "artist-c--song-c.m4a"));
+      let goneBody;
+      try {
+        const reelGone = await post("/api/pollen/schedule-post", { itemId: gone.id, channelIds: [CH_IG], reel: { at: at(24), trial: false } });
+        goneBody = { status: reelGone.status, ...(await reelGone.json()) };
+      } finally { writeFileSync(join(SONGS, "hooks", "artist-c--song-c.m4a"), CLIP_C); }
+      assert(goneBody.status === 400 && /isn't in the songs folder/.test(goneBody.error) && hive.submits === submitsBefore,
+        `a missing clip says so and sends nothing: ${JSON.stringify(goneBody)}`);
       const prefs = await postJson(`/api/pollen/prefs`, { on: [CH_SUBSTACK, CH_SUBSTACK], off: [CH_YT], trial: false, postTime: "18:30", reelTime: "25:00", post: true, reel: false });
       assert(prefs.on.join() === CH_SUBSTACK && prefs.off.join() === CH_YT && prefs.trial === false && prefs.postTime === "18:30" && prefs.reelTime === null && prefs.reel === false, JSON.stringify(prefs));
       const kept = await (await fetch(`${base}/api/pollen/channels`)).json();

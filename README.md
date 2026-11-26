@@ -88,7 +88,7 @@ Schedule Post (1.38.0):
 - Two options, Post and Reel, each with its own day and time wheels. Tick one or both. Your times and choices are kept for next time.
 - The Reel's Trial is on by default when your Instagram can run trial reels: Instagram shows it to people who don't follow you first.
 - Pollen makes the reel from the cover, its carousel photos and the song's hook clip, so a reel needs a song with a clip. A photo post can't carry a song through any posting app, so the song goes on the reel. A post carries its carousel photos once Pollen takes them.
-- The matching Schedule Post at the bottom is your final approval: a cover from the queue is approved, drawn exactly as it shows (each carousel photo with its own text), and Pollen books each format at its time. Where each one stands shows under the button.
+- The matching Schedule Post at the bottom is your final approval: a cover from the queue is approved, drawn exactly as it shows (each carousel photo with its own text), and Pollen books each format at its time. Where each one stands shows under the button, with any channel Pollen left out and why (1.38.1), like a day that already has a photo post.
 - Until uBee's Bee Hive and Pollen can post at a time you pick, the sheet says so and sends nothing.
 
 The Schedule with Pollen sheet (1.21.0, from Approved):

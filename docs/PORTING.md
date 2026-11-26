@@ -12,6 +12,27 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.38.1: Schedule Post says what Pollen left out
+
+Follow-up to 1.38.0, from wiring the Bee Hive and Pollen ends.
+
+1. Under the Schedule Post button and in the sheet, a booked post or reel names any channel Pollen left out (its
+   `posts` entries with state `blocked` or `skipped`). When every one of them is the one-photo-a-day rule, it says
+   "it already has a photo post that day" (or "they", for more than one). The raw reasons are in the line's title.
+2. A reel whose song clip has gone from the songs folder (or a Symphony clip Symphony doesn't have right now) is
+   refused with that reason before anything is sent, instead of failing inside the upload.
+3. The Bee Hive's hello now says `schedule_at` and `reels`. `slides` (a carousel on a photo post) and `songs` (a song on
+   a photo post) stay off until Pollen can post them, so a post goes as the cover alone and the reel carries the rest.
+
+| Where | Change |
+| --- | --- |
+| client/src/SchedulePostSheet.jsx | `leftOut`, used by `formatStatus` |
+| server/pollen.js | `schedulePost`: the reel's clip must be there (`MISSING_CLIP` or `MISSING_ONLINE_CLIP`) |
+
+### Data steps (her space, never the repo)
+
+- None.
+
 ## 1.38.0: Schedule Post
 
 Arjang, Nov 26, in chat.

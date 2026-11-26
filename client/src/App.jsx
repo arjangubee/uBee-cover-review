@@ -555,7 +555,7 @@ export default function App() {
     }, 400);
     return () => { alive = false; clearTimeout(t); };
   }, [drawnKey, coverReady, draft]); // eslint-disable-line react-hooks/exhaustive-deps
-  const saveFile = (blob, name) => {
+  const anchorSave = (blob, name) => {
     const url = URL.createObjectURL(blob);
     const a = Object.assign(document.createElement("a"), { href: url, download: name });
     document.body.appendChild(a);
@@ -563,10 +563,39 @@ export default function App() {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   };
+  // 1.31.0 (room #1235, Quill #1236): on a phone the cover goes to the share sheet, the original's downloadCover way, so
+  // Save Image puts it in Photos. iOS and in-app browsers ignore a download link for a drawn file (it lands in Files or
+  // nowhere). No web page can write to Photos without that Save tap. A computer, or a phone that can't share files,
+  // downloads as before. Closing the share sheet isn't an error.
+  const touchDevice = () => typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window)
+    && Boolean(window.matchMedia?.("(pointer: coarse)").matches);
+  const saveFile = async (blob, name) => {
+    if (touchDevice() && navigator.share && navigator.canShare) {
+      const file = new File([blob], name, { type: blob.type || "image/jpeg" });
+      if (navigator.canShare({ files: [file] })) {
+        try {
+          say("Cover ready. Choose Save Image.");
+          await navigator.share({ files: [file], title: name });
+        } catch (e) {
+          if (e?.name === "AbortError") return; // she closed the sheet
+          // A sheet the browser wouldn't open after the cover took a moment to draw: the drawn cover is kept, so the
+          // next tap opens the sheet right away.
+          if (e?.name === "NotAllowedError") { say("Cover ready. Tap download again to save it."); return; }
+          anchorSave(blob, name);
+        }
+        return;
+      }
+    }
+    anchorSave(blob, name);
+  };
   const download = () => {
     const name = `${displayTitle(current.title)}-cover.jpg`;
     if (ahead.current.key === drawnKey && ahead.current.blob) { saveFile(ahead.current.blob, name); return; }
-    attempt(async () => saveFile(await renderCover(withLook(current, look), { quoteOn, free }), name)); // not drawn yet: draw it now
+    attempt(async () => { // not drawn yet: draw it now, and keep it for a second tap
+      const blob = await renderCover(withLook(current, look), { quoteOn, free });
+      ahead.current = { key: drawnKey, blob };
+      await saveFile(blob, name);
+    });
   };
   // The T icon (1.13.9, Arjang via Rose #693 and #694, Quill #695 and #696). A tap turns this post's quote off, or back on,
   // for this post only: a cover edit like any other, so undo puts back exactly what it was, mark and all. A hold is

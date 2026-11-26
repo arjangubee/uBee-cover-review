@@ -12,6 +12,28 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.31.0: Download to Photos on a phone
+
+Arjang, room #1235; Quill #1236 (the original's downloadCover, restored).
+
+1. On a touch device with `navigator.share` and `navigator.canShare({ files })`, Download hands the drawn cover (JPEG) to
+   the share sheet with the note "Cover ready. Choose Save Image." Save Image puts it in Photos. No web page can skip
+   that tap.
+2. Otherwise (a computer, or a phone that can't share files) it downloads as before, by link.
+3. Closing the sheet (AbortError) is not an error: no message. If the browser won't open the sheet because the cover took
+   a moment to draw first (NotAllowedError), the drawn cover is kept and the note says to tap Download again, which opens
+   the sheet at once.
+4. The fork has one download, the cover. There's no This slide / All slides download here, so nothing to change there.
+
+| Where | Change |
+| --- | --- |
+| client/src/App.jsx | `saveFile`: share sheet on a phone, link download otherwise; a drawn cover kept for the next tap |
+
+### Data steps (her space, never the repo)
+
+- None. Live check on an iPhone: Download, the sheet opens, Save Image, the cover is in Photos. On a computer it
+  downloads as before. Re-verify counts.
+
 ## 1.30.0: the Chats batch
 
 Arjang, room #1193 items 1 to 6; Quill #1197.

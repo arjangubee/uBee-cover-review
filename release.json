@@ -1,9 +1,7 @@
 {
-  "version": "1.30.0",
+  "version": "1.31.0",
   "date": "2026-11-25",
   "whatsNew": [
-    "Tap a comment to reply: it opens in the editor with a draft ready",
-    "Copy your private channel link in one tap from the reply editor, and dismiss chats you're done with for now",
-    "Chats stays on the same chat after a reload, and multi-text sends go out a few seconds apart"
+    "On your phone, Download opens the share sheet: tap Save Image and the cover goes straight to Photos"
   ]
 }

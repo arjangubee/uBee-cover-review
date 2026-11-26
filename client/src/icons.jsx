@@ -3,6 +3,7 @@
 const PATHS = {
   back: <path d="M15 5l-7 7 7 7" />,
   forward: <path d="M9 5l7 7-7 7" />,
+  skip: <><path d="M5 5.5l7 6.5-7 6.5z" /><path d="M12 5.5l7 6.5-7 6.5z" /><path d="M20.5 5v14" /></>, // 1.32.0: Skip to the end
   arrowLeft: <><path d="M20 12H5" /><path d="M10 7l-5 5 5 5" /></>,
   arrowRight: <><path d="M4 12h15" /><path d="M14 7l5 5-5 5" /></>,
   info: <><circle cx="12" cy="12" r="9.25" /><path d="M12 11v6" /><circle cx="12" cy="7.6" r="0.6" fill="currentColor" /></>,

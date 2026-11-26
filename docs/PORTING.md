@@ -12,6 +12,29 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.32.0: Skip
+
+Arjang, room #1248; Quill #1249 (the original's skipCover, restored).
+
+1. A Skip button right of dislike, on the queue only. One tap sends the whole cover (all its photos) to the very end
+   of the queue and the next cover comes up. Nothing else changes: no verdict, no field, no new row, it stays queued.
+2. `POST /api/items/<id>/skip` (queued covers only, else 409): sets `skippedAt` and a review time after every queued
+   cover's (`reviewOrderAt`, the original's mechanism).
+3. The queue list: covers that pass, then covers waiting, then skipped covers, in the order they were skipped. So a skip
+   is literally last, after the waiting covers too, as Quill ruled. Skipping it again sends it to the end again.
+4. A decision (approve, pass, or back to the queue) clears `skippedAt`.
+
+| Where | Change |
+| --- | --- |
+| server/index.js | the skip route, the skipped group last, a decision clears it |
+| client/src/App.jsx, CoverDetails.jsx, icons.jsx | the Skip button and icon, the list moves it to the end |
+| scripts/smoke.mjs | the skip check |
+
+### Data steps (her space, never the repo)
+
+- New cover field `skippedAt` (absent when not skipped). Her space needs a nullable column for it.
+- Verify (#1249): skip a cover mid-queue, it shows last in the full list (after the waiting covers), every field
+  byte-identical, queue count the same. Re-verify counts.
 ## 1.31.1: This slide or All slides
 
 Quill #1279 (the original's downloadCover scope, part of the #1236 restore). Port 1.31.0 and 1.31.1 together.

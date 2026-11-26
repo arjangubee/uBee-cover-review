@@ -8,7 +8,7 @@ import { composePasses, driveLinkFor, parseSong, starsFor, whyProblem } from "./
 // Everything under the cover: the icon row, Slides and Posts, Randomize layout, her note, the caption,
 // the Compose check, Why it matches, Image info and the star ratings.
 
-export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onComment, onEdit, onZoom, busy, quote }) {
+export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onSkip, onComment, onEdit, onZoom, busy, quote }) {
   return (
     // Order from the original, with dislike and repost swapped (Arjang, Nov 18): like, dislike, download, repost, comment,
     // then the T icon (1.13.9), the magnifier (1.14.1, Arjang #790 item 2) and edit.
@@ -19,6 +19,9 @@ export function ActionRow({ item, onLike, onRemix, onDownload, onDislike, onComm
       <button type="button" className={item.status === "rejected" ? "iconBtn act passed" : "iconBtn act"} onClick={onDislike} disabled={busy} aria-label="Dislike: pass on this cover" aria-pressed={item.status === "rejected"}>
         <Icon name="dislike" size={28} filled={item.status === "rejected"} />
       </button>
+      {onSkip && ( /* 1.32.0 (room #1248, Quill #1249): the whole cover to the end of the queue, nothing else changes */
+        <button type="button" className="iconBtn act" onClick={onSkip} disabled={busy} aria-label="Skip: move this cover to the end of the queue"><Icon name="skip" size={28} /></button>
+      )}
       <button type="button" className="iconBtn act" onClick={onDownload} disabled={busy} aria-label="Download this cover as it will post"><Icon name="download" size={28} /></button>
       <button type="button" className="iconBtn act remixBtn" onClick={onRemix} disabled={busy} aria-label="Remix this cover" aria-haspopup="dialog"><Icon name="repost" size={28} /></button>
       <button type="button" className="iconBtn act" onClick={onComment} aria-label="Write a note for the next revision"><Icon name="comment" size={28} /></button>

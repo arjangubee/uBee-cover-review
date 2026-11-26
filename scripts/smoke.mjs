@@ -2293,6 +2293,30 @@ try {
     assert(A.textColor === "#FB0909" && A.textColorSet === true && B.textColor !== "#FB0909" && !B.textColorSet, "one cover's color stays on that cover");
     assert(A.fontWeight === 500 && A.textFont === "tiktok", `new text starts in TikTok Sans Medium: ${A.textFont} ${A.fontWeight}`);
   });
+  await check("v1.32 Skip sends a queued cover to the very end, past waiting covers too, and changes nothing else (room #1248, Quill #1249)", async () => {
+    const a = await newItem("skip-a.png"), b = await newItem("skip-b.png");
+    const before = (await (await fetch(`${base}/api/items`)).json()).items;
+    const was = before.find((i) => i.id === a.id);
+    const r = await postJson(`/api/items/${a.id}/skip`, {});
+    assert(r.item.status === "queue" && typeof r.item.skippedAt === "number", `still queued, marked: ${JSON.stringify(r.item).slice(0, 200)}`);
+    let list = (await (await fetch(`${base}/api/items`)).json()).items;
+    assert(list.length === before.length && list.at(-1).id === a.id, `last of ${list.length}: ${list.at(-1)?.id}`);
+    const now = list.at(-1);
+    for (const k of ["quote", "song", "caption", "textColor", "fontWeight", "description", "why", "slides", "imageUrl"]) {
+      assert(JSON.stringify(now[k]) === JSON.stringify(was[k]), `${k} unchanged`);
+    }
+    await postJson(`/api/items/${b.id}/skip`, {});
+    list = (await (await fetch(`${base}/api/items`)).json()).items;
+    assert(list.at(-2).id === a.id && list.at(-1).id === b.id, "a second skip goes after the first");
+    await postJson(`/api/items/${a.id}/skip`, {});
+    list = (await (await fetch(`${base}/api/items`)).json()).items;
+    assert(list.at(-1).id === a.id, "skipping again sends it to the end again");
+    const decided = await postJson(`/api/items/${b.id}/decide`, { decision: "approved" });
+    assert(decided.item.skippedAt === undefined, "a decision clears the mark");
+    const refused = await fetch(`${base}/api/items/${b.id}/skip`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    assert(refused.status === 409, `only a queued cover: ${refused.status}`);
+    await postJson(`/api/items/${b.id}/decide`, { decision: "queue" });
+  });
   await check("v1.26 the color pass sets a cover's own color from its photo, never over one she picked, and custom colors keep the 5 newest", async () => {
     const a = await newItem("auto-a.png"), b = await newItem("auto-b.png");
     await postJson(`/api/items/${b.id}/style`, { textColor: "#123456" });

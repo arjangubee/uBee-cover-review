@@ -153,8 +153,21 @@ app.get("/api/items", (req, res) => {
   // The queue reads in review order (1.20.1): a Drive batch sits at the front, in the order it was sent. A cover leads
   // only once its compose check passes (1.25.0, Arjang #1104): the rest wait behind, in their own order. The deck checks
   // the cover she's on and the next one ahead of time (1.21.0), and a rule change rechecks saved checks (1.13.9).
-  const queue = store.queueInOrder();
-  res.json({ items: [...queue.filter((i) => composePasses(i.beacons)), ...queue.filter((i) => !composePasses(i.beacons))] });
+  // A skipped cover (1.32.0) sits after all of them, literally last, skips in the order they were made.
+  const queue = store.queueInOrder(), skipped = queue.filter((i) => i.skippedAt), rest = queue.filter((i) => !i.skippedAt);
+  res.json({ items: [...rest.filter((i) => composePasses(i.beacons)), ...rest.filter((i) => !composePasses(i.beacons)), ...skipped] });
+});
+// Skip (1.32.0, room #1248, Quill #1249, the original's skipCover): a queued cover goes to the very end of the queue. Only
+// its place moves: skippedAt marks it and its review time goes after every queued cover's. A decision clears the mark.
+app.post("/api/items/:id/skip", (req, res) => {
+  const item = store.getItem(req.params.id);
+  if (!item) return res.status(404).json({ error: "item not found" });
+  if (item.status !== "queue") return res.status(409).json({ error: "Only a cover in the queue can be skipped." });
+  const times = store.db.items.filter((i) => i.status === "queue" && typeof i.reviewOrderAt === "number").map((i) => i.reviewOrderAt);
+  item.reviewOrderAt = Math.max(Date.now(), ...times) + 1;
+  item.skippedAt = Date.now();
+  store.saveDb();
+  res.json({ item });
 });
 app.post("/api/items/upload", upload.array("photos", 200), (req, res) => {
   const quotes = loadQuotes();
@@ -176,6 +189,7 @@ app.post("/api/items/:id/decide", (req, res) => {
   if (!["approved", "rejected", "queue"].includes(decision)) return res.status(400).json({ error: "decision must be approved, rejected or queue" });
   item.status = decision;
   item.decidedAt = decision === "queue" ? null : Date.now();
+  delete item.skippedAt; // a decided cover, or one sent back to the queue, isn't skipped any more (1.32.0)
   if (rating != null) item.rating = Math.max(1, Math.min(10, Number(rating)));
   if (note != null) item.note = String(note);
   store.saveDb();

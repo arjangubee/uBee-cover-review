@@ -482,6 +482,20 @@ export default function App() {
     });
     setBusy(false);
   }
+  // Skip (1.32.0, room #1248, Quill #1249, the original's skipCover): the whole cover, every photo with it, goes to the very
+  // end of the queue, and nothing else about it changes: no verdict, no field, no new row. The next cover comes up; she
+  // sees this one again only after every other queued cover. Skipping it again sends it to the end again.
+  async function skip() {
+    if (!current || busy || current.status !== "queue") return;
+    const id = current.id;
+    setBusy(true);
+    await attempt(async () => {
+      const { item } = await post(`/api/items/${id}/skip`, {});
+      setItems((prev) => { const was = prev.find((i) => i.id === id); return [...prev.filter((i) => i.id !== id), { ...was, ...item }]; });
+      say("Skipped. It's at the end of the queue.");
+    });
+    setBusy(false);
+  }
   // The remix menu (1.17.0; Rose #796 and #797, Quill #798). Since 1.21.0 (Big Edit item 16) Submit remixes the cover she's
   // on, right away, as one step for Undo. One that can't pick changes nothing, and the sheet stays open to say why.
   // A remix a page from before 1.21.0 started is still made in the background: once it's done, the page puts it right
@@ -1001,7 +1015,7 @@ export default function App() {
                 pickMode={pickMode} onPick={onPick} onMosaicsChange={(mosaics) => setImageEdit({ mosaics })} burst={burst} onDrawn={setDrawnId}
                 onZoom={setZoom} zoomRef={zoomRef} onTapOff={() => sheetDismiss.current?.()} free={free} onFree={freeBox} onMoveText={moveText} onDropText={dropText} />
               <div className="behind" inert={draft ? true : undefined}>
-                <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onRemix={() => setRemixOpen(true)} onDownload={download}
+                <ActionRow item={current} busy={busy || !coverReady} onLike={() => decide("approved")} onDislike={() => decide("rejected")} onSkip={list === "queue" ? skip : null} onRemix={() => setRemixOpen(true)} onDownload={download}
                   quote={{ on: quoteOn, locked: !quotesStatus?.unlocked, onTap: tapQuote, onHold: holdQuotes }}
                   onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)}
                   onZoom={zoomable ? () => zoomRef.current?.() : null} />

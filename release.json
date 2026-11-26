@@ -1,8 +1,7 @@
 {
-  "version": "1.31.1",
+  "version": "1.32.0",
   "date": "2026-11-25",
   "whatsNew": [
-    "On your phone, Download opens the share sheet: tap Save Image and the cover goes straight to Photos",
-    "A cover with carousel photos asks: This slide or All slides"
+    "Skip, next to dislike, sends a cover to the end of the queue without changing anything about it"
   ]
 }

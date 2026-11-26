@@ -12,6 +12,28 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.32.1: slides download as their own files (completes the download build)
+
+Quill #1290, the original's downloadCover (App.tsx ~5287-5310 and ~5453-5465). Port 1.31.0, 1.31.1 and 1.32.1's
+download change together; Skip (1.32.0) after.
+
+1. "All slides" is all of them, videos too: the drawn cover, then each slide in order.
+2. A slide is fetched raw, as stored, like the original: a photo is its own file, a video its mp4 (the type from the
+   file, else mp4 or jpg). No drawing and no text for a slide without text.
+3. One fork difference, kept on purpose: a carousel photo with text boxes of its own (1.20.0, Big Edit item 3, which the
+   original's slides don't have) is drawn with that text, so the download matches how it posts.
+4. A slide that can't be fetched (or drawn, for one with text) stops the download and names the slide. Nothing is
+   silently left out. "This slide" on a video slide saves its mp4.
+5. Download asks This slide / All slides whenever there are slides, videos included.
+
+| Where | Change |
+| --- | --- |
+| client/src/App.jsx | `slideFile`: raw fetch, or drawn when the photo has its own text; videos in; a failure stops it |
+
+### Data steps (her space, never the repo)
+
+- None. Live check: a cover with a photo slide and a video slide, All slides, every file saved. Re-verify counts.
+
 ## 1.32.0: Skip
 
 Arjang, room #1248; Quill #1249 (the original's skipCover, restored).
@@ -42,9 +64,8 @@ Quill #1279 (the original's downloadCover scope, part of the #1236 restore). Por
 1. With carousel photos, Download asks: This slide, All slides or Cancel, under the action row. With none, it downloads
    the cover as in 1.31.0.
 2. This slide: the cover, or the carousel photo she's on, drawn with its own text (`renderCover(..., { slideAt })`).
-3. All slides: the cover, then each carousel photo in order. On a phone they go to the share sheet together ("Slides
-   ready. Choose Save."); on a computer each downloads. A video slide is left out; a photo that can't be drawn (a link
-   from another site) is left out with a note. The drawn files are kept, so a second tap opens the sheet at once if iOS
+3. All slides: the cover, then each slide in order (videos too since 1.32.1). On a phone they go to the share sheet
+   together ("Slides ready. Choose Save."); on a computer each downloads. See 1.32.1 for how a slide is saved. The drawn files are kept, so a second tap opens the sheet at once if iOS
    wouldn't the first time.
 
 | Where | Change |

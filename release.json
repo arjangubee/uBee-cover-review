@@ -1,7 +1,7 @@
 {
-  "version": "1.32.0",
+  "version": "1.32.1",
   "date": "2026-11-25",
   "whatsNew": [
-    "Skip, next to dislike, sends a cover to the end of the queue without changing anything about it"
+    "All slides downloads every slide, videos too, and a slide saves as its own file"
   ]
 }

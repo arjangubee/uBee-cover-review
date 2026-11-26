@@ -604,11 +604,13 @@ export default function App() {
     for (const f of files) anchorSave(f.blob, f.name);
   };
   const saveFile = (blob, name) => saveFiles([{ blob, name }]);
-  // This slide or All slides (1.31.1, Quill #1279, the original's downloadCover scope): with carousel photos, Download
-  // asks which. The cover is slide 1; a video slide isn't drawn, so it's left out.
+  // This slide or All slides (1.31.1, Quill #1279; 1.32.1, Quill #1290: the original's downloadCover scope): with
+  // carousel slides, Download asks which. The cover is drawn. A slide is its own file as stored, fetched raw like the
+  // original (a video is its mp4), with one fork difference: a carousel photo can carry text of its own here (1.20.0,
+  // Big Edit item 3, which the original's slides don't have), and that photo is drawn with its text, the way it posts.
+  // "All slides" means all of them, videos too. A slide that can't be fetched stops the download and says which.
   const [downloadAsk, setDownloadAsk] = useState(false);
   const slidesAhead = useRef({ key: "", files: null });
-  const photoSlides = () => activeSlides.filter((s) => s.mediaType !== "video");
   const downloadCover = () => {
     const name = `${displayTitle(current.title)}-cover.jpg`;
     if (ahead.current.key === drawnKey && ahead.current.blob) { saveFile(ahead.current.blob, name); return; }
@@ -618,30 +620,38 @@ export default function App() {
       await saveFile(blob, name);
     });
   };
-  const slideFile = async (s) => ({ blob: await renderCover(withLook(current, look), { quoteOn, free, slideAt: s.at }),
-    name: `${displayTitle(current.title)}-slide-${activeSlides.indexOf(s) + 2}.jpg` });
+  const slideHasText = (s) => (current.extraTexts || []).some((b) => b.slide === s.at && String(b.quote ?? "").trim());
+  const EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic", "image/gif": "gif", "video/mp4": "mp4", "video/quicktime": "mov" };
+  const slideFile = async (s) => {
+    const n = activeSlides.indexOf(s) + 2, base = `${displayTitle(current.title)}-slide-${n}`;
+    if (s.mediaType !== "video" && slideHasText(s)) {
+      try { return { blob: await renderCover(withLook(current, look), { quoteOn, free, slideAt: s.at }), name: `${base}.jpg` }; }
+      catch { throw new Error(`Slide ${n} couldn't be drawn with its text.`); }
+    }
+    let res;
+    try { res = await fetch(s.mediaUrl); } catch { res = null; }
+    if (!res?.ok) throw new Error(`Slide ${n} didn't download. Try again.`);
+    const blob = await res.blob();
+    return { blob, name: `${base}.${EXT[blob.type] || (s.mediaType === "video" ? "mp4" : "jpg")}` };
+  };
   const downloadThis = () => {
     setDownloadAsk(false);
     const s = slide > 0 ? activeSlides[slide - 1] : null;
     if (!s) { downloadCover(); return; }
-    if (s.mediaType === "video") { say("A video slide can't be saved from here."); return; }
     attempt(async () => saveFiles([await slideFile(s)]));
   };
   const downloadAll = () => {
     setDownloadAsk(false);
-    const key = `${drawnKey}|${photoSlides().map((s) => s.mediaUrl).join(",")}`;
+    const key = `${drawnKey}|${activeSlides.map((s) => s.mediaUrl).join(",")}`;
     if (slidesAhead.current.key === key && slidesAhead.current.files) { saveFiles(slidesAhead.current.files); return; }
     attempt(async () => {
-      const cover = { blob: await renderCover(withLook(current, look), { quoteOn, free }), name: `${displayTitle(current.title)}-cover.jpg` };
-      const files = [cover];
-      for (const s of photoSlides()) {
-        try { files.push(await slideFile(s)); } catch { say("One slide couldn't be drawn, so it's left out."); }
-      }
+      const files = [{ blob: await renderCover(withLook(current, look), { quoteOn, free }), name: `${displayTitle(current.title)}-cover.jpg` }];
+      for (const s of activeSlides) files.push(await slideFile(s)); // in order; one that fails stops it and says which
       slidesAhead.current = { key, files }; // kept, so a second tap opens the sheet at once
       await saveFiles(files);
     });
   };
-  const download = () => { if (photoSlides().length) setDownloadAsk(true); else downloadCover(); };
+  const download = () => { if (activeSlides.length) setDownloadAsk(true); else downloadCover(); };
   useEffect(() => { setDownloadAsk(false); }, [current?.id]);
   // The T icon (1.13.9, Arjang via Rose #693 and #694, Quill #695 and #696). A tap turns this post's quote off, or back on,
   // for this post only: a cover edit like any other, so undo puts back exactly what it was, mark and all. A hold is

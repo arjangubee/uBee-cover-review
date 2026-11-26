@@ -10,6 +10,7 @@ import { registerDm } from "./dm.js";
 import { registerMusic } from "./music.js";
 import { getImportStatus, registerFull } from "./full.js";
 import { composePasses } from "../client/src/reviewMath.js";
+import { searchCovers } from "../client/src/searchCovers.js";
 import { ctaFor } from "./captionCtas.js";
 import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
 import { registerRemix } from "./remix.js";
@@ -168,6 +169,10 @@ app.post("/api/items/:id/skip", (req, res) => {
   item.skippedAt = Date.now();
   store.saveDb();
   res.json({ item });
+});
+// Search every cover, in every list, by a word or a number (1.33.0, Arjang Nov 26).
+app.get("/api/items/search", (req, res) => {
+  res.json({ items: searchCovers(store.db.items, String(req.query.q ?? "").slice(0, 200)) });
 });
 app.post("/api/items/upload", upload.array("photos", 200), (req, res) => {
   const quotes = loadQuotes();

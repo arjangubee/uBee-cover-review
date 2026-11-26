@@ -12,6 +12,27 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.33.0: search covers
+
+Arjang, Nov 26: a search button right of the "i" at the top. It searches every cover in every list by a word or a number.
+
+1. **A word** is looked for in the photo's description first, then its title, quote, song, caption, why and note, in
+   any case and in its simple forms (bike finds biking, sunset finds sunsets). Every word typed must be there. Covers
+   whose description has the word come first, then the queue before approved and passed.
+2. **A number** finds the cover with that number, with or without zeros in front (003 finds 3), and a title with that
+   number in it.
+3. **Tapping a cover** opens it, in its own list: the deck switches to that list when it has to and lands on it.
+4. On a phone narrower than 440px the queue pill shows just its count, to make room; its label still reads it out.
+
+| Where | Change |
+| --- | --- |
+| client/src/searchCovers.js | new: `searchScore`, `searchCovers`, shared with the server |
+| client/src/SearchSheet.jsx | new: the search sheet |
+| client/src/CoverTop.jsx, App.jsx, styles.css | the button, the sheet, opening a found cover in its list |
+| server/index.js | `GET /api/items/search?q=` |
+
+No data change.
+
 ## 1.32.1: slides download as their own files (completes the download build)
 
 Quill #1290, the original's downloadCover (App.tsx ~5287-5310 and ~5453-5465). Port 1.31.0, 1.31.1 and 1.32.1's

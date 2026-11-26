@@ -206,11 +206,6 @@ img { max-width: 100%; }
 .linkBtn { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 4px; border: 0; background: none; color: var(--link); font-size: 16px; font-weight: 700; }
 .linkBtn:disabled { color: #24507c; }
 .linkBtn.muted { color: var(--muted); }
-.titleRow { display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 6px 14px; padding: 16px 0; border-bottom: 1px solid var(--line); }
-.titleName { font-size: 16px; font-weight: 700; line-height: 1.35; max-width: 9.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.titleQuote { color: var(--text-2); font-size: 16px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.version { color: var(--muted); font-size: 15px; line-height: 1.35; }
-.titleRow .state { grid-column: 1 / -1; }
 .captionRow { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line); }
 .captionLabel { color: var(--text-2); font-size: 15px; font-weight: 700; line-height: 1.45; white-space: nowrap; }
 /* The Comment CTA switch (1.10, renamed in 1.10.1): under the label, off by default; her call leads the caption only when it's on. */
@@ -576,9 +571,34 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 .scheduleHint { margin: 4px 0 14px; }
 .scheduleBig { display: block; width: 100%; min-height: 56px; margin: 12px 0 4px; border: 0; border-radius: 16px; background: var(--accent); color: #101010; font-size: 18px; font-weight: 800; box-shadow: 0 6px 24px rgba(197, 253, 41, 0.3); cursor: pointer; }
 .scheduleBig:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
-.pollenState { margin: 12px 0 4px; padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: 16px; color: var(--text-2); font-size: 16px; font-weight: 700; text-align: center; }
 .sheet .pollenPost { min-height: 56px; border: 0; border-radius: 16px; background: var(--accent); color: #101010; font-size: 18px; font-weight: 800; box-shadow: 0 6px 24px rgba(197, 253, 41, 0.3); }
 .sheet .pollenPost:disabled { opacity: 0.45; box-shadow: none; }
+
+/* Schedule Post (1.38.0, Arjang Nov 26): the big button in the Overlay Text row's place, with where the post and the reel
+   stand under it, and its sheet: her channels on top, a Post card and a Reel card with their own day and time wheels, and a
+   matching big Schedule Post at the bottom. The cards are the remix menu's option cards. */
+.schedulePostRow { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.schedulePostRow .scheduleBig { margin: 0; }
+.postStatus { margin: 8px 0 0; font-size: 14px; line-height: 1.4; text-align: center; }
+.postOptions { margin-top: 16px; }
+.postOption + .postOption { margin-top: 12px; }
+.postWhen { margin-left: auto; color: var(--text-2); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.postNote { margin: 8px 0 0; }
+.postResult { margin: 10px 0 2px; font-size: 14px; line-height: 1.4; }
+.postConnect { display: grid; gap: 12px; margin-top: 12px; }
+.trialSwitch { margin: 6px 0 0; }
+/* Day and time wheels: five rows show, the band in the middle is the pick, and each column snaps like a phone's picker. */
+.dateWheels { position: relative; display: grid; grid-template-columns: minmax(0, 2.3fr) repeat(3, minmax(0, 1fr)); gap: 2px; margin: 6px 0 4px; }
+.dateWheels::before { content: ""; position: absolute; top: 72px; left: 0; right: 0; height: 36px; border-radius: 10px; background: rgba(255, 255, 255, 0.09); pointer-events: none; }
+.dtWheel { position: relative; min-width: 0; border-radius: 10px; } /* positioned, so the rows sit over the band */
+.dtWheel:has(.dtScroll:focus-visible) { outline: 2px solid var(--ring); outline-offset: 2px; }
+.dtScroll { height: 180px; overflow-y: auto; overscroll-behavior: contain; scroll-snap-type: y mandatory; scrollbar-width: none; outline: none;
+  -webkit-mask-image: linear-gradient(transparent, #000 32%, #000 68%, transparent); mask-image: linear-gradient(transparent, #000 32%, #000 68%, transparent); }
+.dtScroll::-webkit-scrollbar { display: none; }
+.dtPad { height: 72px; }
+.dtRow { display: grid; place-items: center; height: 36px; scroll-snap-align: center; color: var(--muted); font-size: 18px; font-variant-numeric: tabular-nums;
+  white-space: nowrap; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.dtRow.on { color: #fff; font-weight: 700; }
 
 /* Sign-in (1.15.0): one field and Continue, on the app's own black, sized for a phone first. */
 .signIn { display: grid; min-height: 100vh; min-height: 100dvh; place-items: center; padding: 24px 16px calc(var(--host-bar) + 24px); }

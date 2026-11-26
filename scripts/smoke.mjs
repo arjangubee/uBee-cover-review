@@ -50,7 +50,8 @@ const TINY_JPEG = Buffer.from("/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYwLjMxLjEwM
 const CH_IG = "11111111-1111-4111-8111-111111111111";
 const CH_SUBSTACK = "22222222-2222-4222-8222-222222222222";
 const hive = { code: "smoke-pollen-code-0123456789-abcdefghijklmnop", revoked: false, dropSubmitOnce: false,
-  uploads: {}, uploadTypes: {}, requests: [], submits: 0, songs: false, postNow: false };
+  uploads: {}, uploadTypes: {}, requests: [], submits: 0, songs: false, postNow: false, scheduleAt: false };
+const CH_YT = "33333333-3333-4333-8333-333333333333";
 const hiveServer = http.createServer(async (req, res) => {
   const chunks = [];
   for await (const c of req) chunks.push(c);
@@ -67,13 +68,21 @@ const hiveServer = http.createServer(async (req, res) => {
   if (hive.revoked || req.headers.authorization !== `Bearer ${hive.code}`) return send(401, { error: "That Pollen code doesn't work anymore. Ask uBee for a new one." });
   const body = JSON.parse(raw.toString() || "{}");
   if (body.action === "hello") {
-    const features = { ...(hive.songs ? { songs: true } : {}), ...(hive.postNow ? { post_now: true } : {}) };
+    const features = { ...(hive.songs ? { songs: true } : {}), ...(hive.postNow ? { post_now: true } : {}),
+      ...(hive.scheduleAt ? { schedule_at: true, reels: true, slides: true } : {}) };
+    // 1.38.0: a Bee Hive that takes times also says which channels take reels, and which can run a trial reel.
+    const reels = hive.scheduleAt;
     return send(200, { ok: true, creator: { id: "cr-1", display_name: "Test Creator" }, ...(Object.keys(features).length ? { features } : {}), channels: [
-      { id: CH_IG, platform: "instagram", handle: "@smoke_ig", photo: true, ready: true, default_on: true },
-      { id: CH_SUBSTACK, platform: "substack", handle: "smoke", photo: true, ready: true, default_on: false }] });
+      { id: CH_IG, platform: "instagram", handle: "@smoke_ig", photo: true, ready: true, default_on: true, ...(reels ? { video: true, trial: true } : {}) },
+      { id: CH_SUBSTACK, platform: "substack", handle: "smoke", photo: true, ready: true, default_on: false, ...(reels ? { video: false } : {}) },
+      ...(reels ? [{ id: CH_YT, platform: "youtube", handle: "smoke-yt", photo: false, video: true, ready: true, default_on: true }] : [])] });
   }
   if (body.action === "upload_url") {
     if (!/^[A-Za-z0-9_-]{8,80}$/.test(body.client_key || "")) return send(400, { error: "bad client_key" });
+    if (body.kind === "slide") {
+      if (!hive.scheduleAt || !Number.isInteger(body.index)) return send(400, { error: "unknown kind" });
+      return send(200, { ok: true, path: `cr-1/${body.client_key}-slide-${body.index}.jpg`, signed_url: `${hiveBase}/upload/cr-1/${body.client_key}-slide-${body.index}.jpg?token=t0k`, token: "t0k" });
+    }
     if (body.kind === "song") {
       if (!hive.songs) return send(400, { error: "unknown kind" });
       const ext = { "audio/mp4": "m4a", "audio/mpeg": "mp3" }[body.content_type] || "bin";
@@ -89,7 +98,8 @@ const hiveServer = http.createServer(async (req, res) => {
     if (!r) {
       r = { id: `${String(hive.requests.length + 1).padStart(8, "0")}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`, client_key: body.client_key, caption: body.caption,
         channel_ids: body.channel_ids, width: body.width, height: body.height, has_slides: body.has_slides, status: "waiting", booked_day: null, posts: [], error: null,
-        ...(body.song ? { song: body.song } : {}), ...(body.post_now ? { post_now: true } : {}) };
+        ...(body.song ? { song: body.song } : {}), ...(body.post_now ? { post_now: true } : {}),
+        ...(body.format ? { format: body.format, scheduled_at: body.scheduled_at, trial: body.trial ?? null, slides: body.slides || [] } : {}) };
       hive.requests.push(r);
     }
     if (hive.dropSubmitOnce) { hive.dropSubmitOnce = false; return req.socket.destroy(); }
@@ -1418,6 +1428,83 @@ try {
       hive.songs = false;
       await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
       await fetch(`${base}/api/connectors/symphony`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: null }) });
+    }
+  });
+  await check("v1.38 Schedule Post waits for a Bee Hive that takes times, and says so before sending anything", async () => {
+    const cover = await approvedItem("sp-old.png", "golden hour");
+    await render(cover.id);
+    const before = hive.submits;
+    const r = await post("/api/pollen/schedule-post", { itemId: cover.id, channelIds: [CH_IG], post: { at: new Date(Date.now() + 86400000).toISOString() } });
+    assert(r.status === 409 && /time you pick/.test((await r.json()).error) && hive.submits === before, `refused: ${r.status}`);
+    const ch = await (await fetch(`${base}/api/pollen/channels`)).json();
+    assert(ch.features && ch.features.scheduleAt === false && ch.channels.every((c) => c.photo === true && c.video === false), JSON.stringify(ch).slice(0, 300));
+  });
+  await check("v1.38 Schedule Post sends a post and a reel, each at its time, approving a cover from the queue as the final step", async () => {
+    hive.scheduleAt = true;
+    hive.songs = true;
+    await postJson(`/api/songs/folder`, { folder: SONGS });
+    try {
+      const ch = await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
+      assert(ch.features.scheduleAt && ch.features.reels && ch.features.slides, JSON.stringify(ch.features));
+      const yt = ch.channels.find((c) => c.id === CH_YT), ig = ch.channels.find((c) => c.id === CH_IG);
+      assert(yt && yt.photo === false && yt.video === true && ig.video === true && ig.trial === true, `channels say what they take: ${JSON.stringify(ch.channels)}`);
+      const form = new FormData();
+      form.append("photos", new Blob([PNG_1PX], { type: "image/png" }), "sp-queue.png");
+      const item = (await (await fetch(`${base}/api/items/upload`, { method: "POST", body: form })).json()).created[0];
+      await postJson(`/api/items/${item.id}/edit`, { caption: "slow light", song: "Artist A - Song A" });
+      const slideForm = new FormData();
+      slideForm.append("slide", new Blob([PNG_1PX], { type: "image/png" }), "sp-slide.png");
+      await fetch(`${base}/api/items/${item.id}/slides`, { method: "POST", body: slideForm });
+      await render(item.id);
+      const at = (h) => new Date(Date.now() + h * 3600000).toISOString();
+      const send = (body) => post("/api/pollen/schedule-post", { itemId: item.id, channelIds: [CH_IG, CH_YT], ...body });
+      const notDrawn = await send({ post: { at: at(24) } });
+      assert(notDrawn.status === 409 && /photos weren't drawn/.test((await notDrawn.json()).error), `the carousel's photos are drawn first: ${notDrawn.status}`);
+      const sf = new FormData();
+      sf.append("image", new Blob([TINY_JPEG], { type: "image/jpeg" }), "slide.jpg");
+      const sr = await (await fetch(`${base}/api/items/${item.id}/render-slide/0`, { method: "POST", body: sf })).json();
+      assert(sr.ok && sr.render.width > 0, JSON.stringify(sr));
+      const past = await send({ post: { at: at(-1) } });
+      assert(past.status === 400 && /5 minutes from now/.test((await past.json()).error), "a time in the past is refused");
+      const none = await send({});
+      assert(none.status === 400 && /Post, Reel or both/.test((await none.json()).error), "nothing picked is refused");
+      const ytOnlyPost = await post("/api/pollen/schedule-post", { itemId: item.id, channelIds: [CH_YT], post: { at: at(24) } });
+      assert(ytOnlyPost.status === 400 && /photo post/.test((await ytOnlyPost.json()).error), "a post needs a photo channel");
+      const queued = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === item.id);
+      assert(queued, "a refused send leaves the cover in the queue");
+      const before = hive.submits;
+      const out = await (await send({ post: { at: at(26) }, reel: { at: at(27), trial: true } })).json();
+      assert(out.ok && out.approved === true && out.item.status === "approved", `her final approval: ${JSON.stringify(out).slice(0, 300)}`);
+      assert(out.results.post.status === "waiting" && out.results.reel.status === "waiting" && hive.submits === before + 2, JSON.stringify(out.results));
+      const fresh = (await (await fetch(`${base}/api/items?status=approved`)).json()).items.find((i) => i.id === item.id);
+      const rp = hive.requests.find((x) => x.client_key === fresh.pollen.clientKey), rr = hive.requests.find((x) => x.client_key === fresh.pollenReel.clientKey);
+      assert(rp.format === "post" && rp.trial === null && rp.channel_ids.join() === CH_IG && Math.abs(Date.parse(rp.scheduled_at) - Date.parse(at(26))) < 120000, `the post: ${JSON.stringify(rp)}`);
+      assert(rp.slides.length === 1 && hive.uploads[rp.slides[0].path] && !rp.song, `the post carries its photos, not the song: ${JSON.stringify(rp)}`);
+      assert(rr.format === "reel" && rr.trial === true && rr.channel_ids.join() === [CH_IG, CH_YT].join() && rr.song && rr.song.title === "Song A" && hive.uploads[rr.song.path]
+        && rr.slides.length === 1, `the reel: ${JSON.stringify(rr)}`);
+      assert(fresh.pollen.format === "post" && fresh.pollenReel.format === "reel" && fresh.pollenReel.trial === true, "each format is kept on the cover");
+      const again = await send({ post: { at: at(30) } });
+      assert(again.status === 409 && /already with Pollen/.test((await again.json()).error) && hive.submits === before + 2, "a post with Pollen isn't sent twice");
+      hive.requests.find((x) => x.id === fresh.pollenReel.requestId).status = "booked";
+      hive.requests.find((x) => x.id === fresh.pollenReel.requestId).booked_day = "2026-12-01";
+      await post("/api/pollen/sync", {});
+      const synced = (await (await fetch(`${base}/api/items?status=approved`)).json()).items.find((i) => i.id === item.id);
+      assert(synced.pollenReel.status === "booked" && synced.pollenReel.bookedDay === "2026-12-01" && synced.pollen.status === "waiting", "sync fills in each format on its own");
+      const noClip = await approvedItem("sp-noclip.png", "no clip here");
+      await postJson(`/api/items/${noClip.id}/edit`, { song: "Someone - Else" });
+      await render(noClip.id);
+      const reelNoClip = await post("/api/pollen/schedule-post", { itemId: noClip.id, channelIds: [CH_IG], reel: { at: at(24), trial: false } });
+      assert(reelNoClip.status === 400 && /song's clip/.test((await reelNoClip.json()).error), "a reel needs the song's clip");
+      const prefs = await postJson(`/api/pollen/prefs`, { on: [CH_SUBSTACK, CH_SUBSTACK], off: [CH_YT], trial: false, postTime: "18:30", reelTime: "25:00", post: true, reel: false });
+      assert(prefs.on.join() === CH_SUBSTACK && prefs.off.join() === CH_YT && prefs.trial === false && prefs.postTime === "18:30" && prefs.reelTime === null && prefs.reel === false, JSON.stringify(prefs));
+      const kept = await (await fetch(`${base}/api/pollen/channels`)).json();
+      assert(kept.prefs.on.join() === CH_SUBSTACK && kept.prefs.off.join() === CH_YT && kept.prefs.postTime === "18:30", "her choices come back with her channels");
+      await postJson(`/api/pollen/prefs`, { on: [], off: [], trial: true });
+    } finally {
+      hive.scheduleAt = false;
+      hive.songs = false;
+      await postJson(`/api/songs/folder`, { folder: null });
+      await (await fetch(`${base}/api/pollen/channels?refresh=1`)).json();
     }
   });
   await check("v1.21 Post now waits until the Bee Hive says Pollen can post right away, and Schedule goes as before", async () => {

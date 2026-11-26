@@ -1,5 +1,14 @@
 // How a cover's Pollen status reads in the Approved grid and the Schedule sheet.
 
+export const NAMES = { instagram: "Instagram", facebook: "Facebook", threads: "Threads", x: "X", tiktok: "TikTok", pinterest: "Pinterest",
+  telegram: "Telegram", discord: "Discord", tumblr: "Tumblr", substack: "Substack", youtube: "YouTube" };
+// Each channel's badge (1.21.0, Big Edit item 28): its letters on the platform's own color, black and white until she
+// taps it on. Letters, not the platforms' logos, so nothing here copies their artwork. Shared by both schedule sheets.
+const BADGES = { instagram: ["IG", "#E1306C"], facebook: ["f", "#1877F2"], threads: ["@", "#FFFFFF", "#000"], x: ["X", "#FFFFFF", "#000"],
+  tiktok: ["TT", "#FE2C55"], pinterest: ["P", "#E60023"], telegram: ["TG", "#26A5E4"], discord: ["DC", "#5865F2"], tumblr: ["t", "#36465D"],
+  substack: ["S", "#FF6719"], youtube: ["YT", "#FF0000"] };
+export const badgeOf = (platform) => BADGES[platform] || [String(platform || "?").slice(0, 2).toUpperCase(), "#8E8E93"];
+
 export const LOCKED = ["waiting", "leased", "booked", "posted"]; // already with Pollen: can't be picked again
 
 /** "2026-11-24" -> "Tue Nov 24". The day is a calendar day, so it's read in UTC and never shifts a day. */

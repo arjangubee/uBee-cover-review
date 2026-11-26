@@ -1,19 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { postedCaption } from "./captionCall.js";
-import { badgeFor } from "./pollenView.js";
+import { NAMES, badgeFor, badgeOf } from "./pollenView.js";
 import { renderCover } from "./renderCover.js";
 import { quoteShown } from "./quoteOverlay.js";
 
 const ASLEEP_MS = 90 * 1000; // no answer after this long: uBee's computer is probably asleep
 const POLL_MS = 5000;
-const NAMES = { instagram: "Instagram", facebook: "Facebook", threads: "Threads", x: "X", tiktok: "TikTok", pinterest: "Pinterest",
-  telegram: "Telegram", discord: "Discord", tumblr: "Tumblr", substack: "Substack" };
-// Each channel's badge (1.21.0, Big Edit item 28): its letters on the platform's own color, black and white until she
-// taps it on. Letters, not the platforms' logos, so nothing here copies their artwork.
-const BADGES = { instagram: ["IG", "#E1306C"], facebook: ["f", "#1877F2"], threads: ["@", "#FFFFFF", "#000"], x: ["X", "#FFFFFF", "#000"],
-  tiktok: ["TT", "#FE2C55"], pinterest: ["P", "#E60023"], telegram: ["TG", "#26A5E4"], discord: ["DC", "#5865F2"], tumblr: ["t", "#36465D"],
-  substack: ["S", "#FF6719"] };
-const badgeOf = (platform) => BADGES[platform] || [String(platform || "?").slice(0, 2).toUpperCase(), "#8E8E93"];
 const WAITING = ["waiting", "leased"];
 
 // The Schedule sheet: her channels, every picked cover drawn exactly as it will post, caption problems before anything is
@@ -38,9 +30,10 @@ export default function ScheduleSheet({ items, ctas = [], quotesUnlocked, quoteO
     api("/api/pollen/channels?refresh=1").then((ch) => {
       if (!alive) return;
       if (!ch.connected) { setMessage(ch.message || "Pollen isn't connected yet."); setChannels([]); return; }
-      setChannels(ch.channels);
+      const photo = ch.channels.filter((c) => c.photo !== false); // 1.38.0: a reel-only channel (YouTube) takes no photo post
+      setChannels(photo);
       setCanPostNow(Boolean(ch.postNow));
-      setOn(Object.fromEntries(ch.channels.map((c) => [c.id, Boolean(c.default_on && c.ready)])));
+      setOn(Object.fromEntries(photo.map((c) => [c.id, Boolean(c.default_on && c.ready)])));
       if (ch.stale && ch.message) setMessage(ch.message);
     }).catch((e) => { if (alive) { setMessage(e.message); setChannels([]); } });
 

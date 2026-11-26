@@ -1,9 +1,9 @@
 {
-  "version": "1.35.0",
+  "version": "1.36.0",
   "date": "2026-11-26",
   "whatsNew": [
-    "Save Color on the color wheel keeps a color in Custom colors, as many as you like",
-    "Size is at the top of the editor, and Font and Align sit right under the quote",
-    "Hold a slider to reset it, and pinch text with two fingers to resize it"
+    "Download saves what's on screen in one tap, with no share sheet. Hold it on a carousel to save every slide",
+    "Replace Photo in the remix menu puts a new photo behind the same text",
+    "Tap the comment CTA's line to edit it for that cover"
   ]
 }

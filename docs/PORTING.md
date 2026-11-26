@@ -12,6 +12,42 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.36.0: one-tap Download, Replace Photo, edit the comment CTA
+
+Arjang, Nov 26, in chat.
+
+1. **Download** saves what's on screen in one tap, straight to the device: no share sheet, and no "This slide or All
+   slides" question. On the cover it's the cover; on a carousel photo it's that photo, fetched ahead like the cover.
+   On a carousel, a press and hold of a second lights the icon, and letting go saves every file of the post, in order.
+   Sliding off before letting go saves nothing. Shift+Enter is the hold from a keyboard. On an iPhone, Safari puts a
+   download in Files (Downloads): no web page can put a file in Photos without the share sheet.
+2. **Replace Photo** in the remix menu, under New quote and New song: it opens her photos, and the one she picks goes
+   behind the same text at once, on the cover or the carousel photo she's on. The quote, font, color, places, song and
+   caption stay exactly as they are. Face mosaics belonged to the old photo, so they come off with it. Undo puts the old
+   photo and its mosaics back, as one step. A video is refused: it takes a photo.
+3. **The comment CTA's line** is a button while the switch is on: a tap opens it to edit, for that cover alone. It has to
+   keep its keyword and pass the rules her saved lines follow. "Use my saved line" goes back. What posts is her line for
+   that cover. Switching to another keyword uses that keyword's saved line, and switching back brings her line back.
+4. Tips in Setup and help describe the swipe and the one-tap Download (Rose's flag on #1325).
+
+| Where | Change |
+| --- | --- |
+| server/full.js | `POST /api/items/:id/photo`: a `photo` file (multipart, with `slide` for a carousel photo), or `{ mediaUrl, mediaType, title, slide }` for undo and redo |
+| server/index.js | `ctaLine` on `POST /api/items/:id/edit`: `{ keyword, line }` or null |
+| server/captionCtas.js | `cleanCtaLine` |
+| client/src/captionCall.js | `saysKeyword`; `ctaFor` answers the cover's own line while its keyword is on (so `postedCaption` sends it) |
+| client/src/App.jsx | one-tap `download` and `downloadAll`, `replacePhoto`, `setCtaLine`, `ch.photo` in `applyChange` |
+| client/src/CoverDetails.jsx | `DownloadButton` (tap and hold), `CtaLine` |
+| client/src/RemixSheet.jsx | Replace Photo |
+| client/src/api.js | `upload` takes text fields |
+| client/src/InfoSheet.jsx, icons.jsx, styles.css | the tips, the `photo` icon, the styles |
+
+### Data steps (her space, never the repo)
+
+- None to run. A cover gets `ctaLine` (`{ keyword, line }`) only when she edits its CTA; a missing field means her saved
+  line. Replace Photo writes the cover's `imageUrl` (keeping `originalImageUrl` as the first photo, as photo swap does)
+  or the slide's `mediaUrl`, `mediaType` and `title`. Re-verify counts.
+
 ## 1.35.0: Save Color, Size up top, hold to reset, pinch to resize
 
 Arjang, Nov 26, from his screenshot of the editor.

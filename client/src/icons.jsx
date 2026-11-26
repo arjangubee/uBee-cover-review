@@ -30,6 +30,7 @@ const PATHS = {
   close: <><path d="M6 6l12 12" /><path d="M18 6L6 18" /></>,
   grid: <><rect x="4" y="4" width="6.5" height="6.5" rx="1" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1" /></>,
   photoAdd: <><rect x="3.5" y="5" width="14" height="14" rx="2.5" /><path d="M3.5 15.5l4-4 3.5 3.5 2-2 4.5 4.5" /><path d="M19.5 3v5.5" /><path d="M16.75 5.75h5.5" /></>,
+  photo: <><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" /><path d="M3.5 16l4.5-4.5 4 4 2.5-2.5 6 6" /><circle cx="15.5" cy="9" r="1.6" /></>, // 1.36.0: Replace Photo
   chevronDown: <path d="M6 9.5l6 6 6-6" />,
   copy: <><rect x="8.5" y="8.5" width="11" height="11" rx="2" /><path d="M15.5 8.5V6.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2" /></>,
   refresh: <><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" /><path d="M19.8 4.2v4.6h-4.6" /></>,

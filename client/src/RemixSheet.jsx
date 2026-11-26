@@ -10,12 +10,14 @@ const OPTIONS = [
 // The remix menu (1.17.0; Rose #796 and #797, Quill #798). New quote and New song, each a button with a small prompt box
 // under it. Typing in a box ticks its button. Unticking keeps the words but leaves them out. Submit needs one ticked.
 // Since 1.21.0 Submit changes this cover right away (Big Edit item 16). A remix that can't pick keeps the sheet open with
-// the reason, until she changes what's ticked or typed.
-export default function RemixSheet({ quotesLocked, onSubmit, onClose }) {
+// the reason, until she changes what's ticked or typed. Replace Photo (1.36.0, Arjang Nov 26) sits under them: it opens her
+// photos, and the one she picks goes behind the same text right away (the cover photo, or the carousel photo she's on).
+export default function RemixSheet({ quotesLocked, onSubmit, onClose, onReplacePhoto, slideNumber = null }) {
   const [parts, setParts] = useState({ quote: { on: false, prompt: "" }, song: { on: false, prompt: "" } });
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState(null);
   const first = useRef(null);
+  const photoInput = useRef(null);
   useEffect(() => { first.current?.focus(); }, []);
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape" && !sending) { e.preventDefault(); onClose(); } };
@@ -57,6 +59,17 @@ export default function RemixSheet({ quotesLocked, onSubmit, onClose }) {
             </div>
           );
         })}
+        {onReplacePhoto && (
+          <div className="remixPhoto">
+            <button type="button" className="replacePhotoBtn" disabled={sending} onClick={() => photoInput.current?.click()}
+              aria-describedby="replacePhotoHint">
+              <Icon name="photo" size={22} /> Replace Photo
+            </button>
+            <p className="hint" id="replacePhotoHint">{slideNumber ? `Puts a new photo in slide ${slideNumber}.` : "Puts a new photo behind the cover."} The text stays exactly the same.</p>
+            <input ref={photoInput} type="file" accept="image/*" hidden
+              onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) { onClose(); onReplacePhoto(f); } }} />
+          </div>
+        )}
         {problem && <p className="problem remixProblem" role="alert">That remix didn't work. {problem}</p>}
         <div className="remixActions">
           <button type="button" className="secondaryBtn" onClick={onClose} disabled={sending}>Cancel</button>

@@ -226,6 +226,10 @@ img { max-width: 100%; }
 .callKey[aria-pressed="true"] { border-color: var(--green-solid); color: #fff; }
 .captionBody { display: grid; gap: 6px; min-width: 0; }
 .captionCall { color: var(--text-2); font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; }
+/* 1.36.0: with the switch on, the comment CTA is a button that opens its line to edit, for this cover only. */
+.captionCall.editable { padding: 0; border: 0; background: none; text-align: left; text-decoration: underline dotted var(--off); text-underline-offset: 4px; }
+.ctaEdit { display: grid; gap: 4px; }
+.ctaEdit .problem { margin: 0; }
 .captionText { flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: #fff; font-size: 16px; line-height: 1.4; text-align: left; overflow-wrap: anywhere; }
 .captionEdit { display: grid; gap: 4px; }
 .rowEnd { display: flex; justify-content: flex-end; gap: 12px; }
@@ -517,6 +521,13 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 .remixPrompt:disabled { opacity: 0.5; }
 .remixSheet .remixLocked { margin: 8px 0 0; }
 .remixSheet .remixProblem { margin: 16px 0 0; } /* 1.21.0: why a remix on the spot didn't work */
+/* Replace Photo (1.36.0): under the two options, a card of its own. A tap opens her photos and changes the cover at once. */
+.remixPhoto { margin-top: 12px; padding: 4px 12px 2px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--surface); }
+.replacePhotoBtn { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 2px; border: 0; border-radius: 10px;
+  background: none; color: #fff; font-size: 17px; font-weight: 700; text-align: left; }
+.replacePhotoBtn:active:not(:disabled) { transform: scale(0.99); }
+.replacePhotoBtn:disabled { color: var(--off); }
+.remixSheet .remixPhoto .hint { margin: 0 0 10px; }
 .remixActions { display: flex; gap: 10px; margin-top: 22px; }
 .remixActions > button { flex: 1; }
 /* While a remix is made: a quiet line under the icons, where she asked for it. */
@@ -635,8 +646,11 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 /* 1.29.0: the photo's ratio beside its number, light and secondary. */
 .ratioTag { font-weight: 400; color: var(--muted); margin-left: 4px; }
 
-/* 1.31.1: This slide or All slides, under the action row. */
-.downloadAsk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px 2px; }
+/* Download (1.36.0): one tap saves what's on screen. On a carousel, a hold lights the icon in the brand color: let go to
+   save every slide. Like the T icon, the hold is a gesture of its own, so it never selects or opens a callout. */
+.downloadBtn { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; transition: color 0.15s, transform 0.15s; }
+.downloadBtn.held { color: var(--accent); transform: scale(1.12); }
+@media (prefers-reduced-motion: reduce) { .downloadBtn { transition: none; } .downloadBtn.held { transform: none; } }
 
 /* Search covers (1.33.0): a word or a number, every list, tap a cover to open it. */
 .searchSheet .field { width: 100%; margin: 8px 0 12px; }

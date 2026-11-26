@@ -2401,6 +2401,72 @@ try {
     }
     for (const hex of hexes) await postJson(`/api/palette/saved-colors/remove`, { hex });
   });
+  await check("v1.36 Replace Photo puts a new photo behind the same text, on the cover or a carousel photo, and undo puts the old one back", async () => {
+    const item = await newItem("replace.png");
+    const before = (await postJson(`/api/items/${item.id}/edit`, { quote: "slow mornings" })).item;
+    const NEW_PHOTO = Buffer.concat([PNG_1PX, Buffer.from([0])]); // a photo the cover can tell apart from the first
+    const form = new FormData();
+    form.append("photo", new Blob([NEW_PHOTO], { type: "image/png" }), "new.png");
+    const r = await (await fetch(`${base}/api/items/${item.id}/photo`, { method: "POST", body: form })).json();
+    assert(r.item?.imageUrl?.startsWith("/uploads/") && r.item.imageUrl !== before.imageUrl && r.photo?.mediaUrl === r.item.imageUrl, JSON.stringify(r).slice(0, 300));
+    for (const key of ["quote", "caption", "song", "title", "textColor", "fontFamily", "extraTexts", "cta", "status"]) {
+      assert(JSON.stringify(r.item[key]) === JSON.stringify(before[key]), `${key} stays the same: ${JSON.stringify(r.item[key])} vs ${JSON.stringify(before[key])}`);
+    }
+    const img = await fetch(`${base}/api/items/${item.id}/image`);
+    assert(img.ok && (await img.arrayBuffer()).byteLength === NEW_PHOTO.length, "the cover draws from the new photo");
+    const back = await postJson(`/api/items/${item.id}/photo`, { mediaUrl: before.imageUrl });
+    assert(back.item.imageUrl === before.imageUrl && back.item.quote === before.quote, "undo sends the old photo back, text untouched");
+    const slideForm = new FormData();
+    slideForm.append("slide", new Blob([PNG_1PX], { type: "image/png" }), "s1.png");
+    const was = (await (await fetch(`${base}/api/items/${item.id}/slides`, { method: "POST", body: slideForm })).json()).item.slides[0];
+    const sf = new FormData();
+    sf.append("slide", "0");
+    sf.append("photo", new Blob([NEW_PHOTO], { type: "image/png" }), "s2.png");
+    const rs = await (await fetch(`${base}/api/items/${item.id}/photo`, { method: "POST", body: sf })).json();
+    assert(rs.item.slides[0].mediaUrl !== was.mediaUrl && rs.item.imageUrl === before.imageUrl && rs.photo.slide === 0, `a carousel photo changes, the cover doesn't: ${JSON.stringify(rs.photo)}`);
+    const sb = await postJson(`/api/items/${item.id}/photo`, { slide: 0, mediaUrl: was.mediaUrl, mediaType: was.mediaType, title: was.title });
+    assert(sb.item.slides[0].mediaUrl === was.mediaUrl && sb.item.slides[0].title === was.title, "undo on a carousel photo");
+    const vf = new FormData();
+    vf.append("photo", new Blob([Buffer.from("not a photo")], { type: "video/mp4" }), "clip.mp4");
+    const video = await fetch(`${base}/api/items/${item.id}/photo`, { method: "POST", body: vf });
+    assert(video.status === 400 && /photo/.test((await video.json()).error), `a video is refused, got ${video.status}`);
+    const odd = await fetch(`${base}/api/items/${item.id}/photo`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mediaUrl: "file:///etc/hosts" }) });
+    assert(odd.status === 400, `an address that isn't a photo's is refused, got ${odd.status}`);
+    const missing = await fetch(`${base}/api/items/${item.id}/photo`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slide: 9, mediaUrl: was.mediaUrl }) });
+    assert(missing.status === 404, `a slide that isn't there answers 404, got ${missing.status}`);
+    assert((await postJson(`/api/items/${item.id}/photo`, { mediaUrl: before.imageUrl })).item.imageUrl === before.imageUrl, "a refused try changed nothing");
+  });
+  await check("v1.36 the comment CTA's line can be edited for one cover, keeps its keyword, and is what posts", async () => {
+    await postJson(`/api/settings/caption-ctas`, { ctas: CALLS });
+    try {
+      const item = await newItem("cta-line.png");
+      const edit = (body) => fetch(`${base}/api/items/${item.id}/edit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      await postJson(`/api/items/${item.id}/edit`, { cta: "SLOW", caption: "golden hour" });
+      const own = "Comment SLOW and the practice is yours!!";
+      const set = await postJson(`/api/items/${item.id}/edit`, { ctaLine: { keyword: "slow", line: `  ${own} ` } });
+      assert(set.item.ctaLine?.keyword === "SLOW" && set.item.ctaLine.line === own, JSON.stringify(set.item.ctaLine));
+      assert(postedCaption(set.item, CALLS) === `${own} golden hour`, `what posts: ${postedCaption(set.item, CALLS)}`);
+      const checked = await postJson(`/api/pollen/check`, { itemIds: [item.id] });
+      assert(checked.items[0].caption === `${own} golden hour`, `Pollen gets her line: ${checked.items[0].caption}`);
+      const lost = await edit({ ctaLine: { keyword: "SLOW", line: "Comment below and I'll send it!!" } });
+      assert(lost.status === 400 && /SLOW/.test((await lost.json()).error), `a line without the keyword is refused, got ${lost.status}`);
+      const unknown = await edit({ ctaLine: { keyword: "NOPE", line: "Comment NOPE now!!" } });
+      assert(unknown.status === 400 && /comment CTA/.test((await unknown.json()).error), `a keyword that isn't on her list is refused, got ${unknown.status}`);
+      const kept = (await postJson(`/api/items/${item.id}/edit`, { note: "hi" })).item;
+      assert(kept.ctaLine?.line === own, "a refused line, and other edits, leave hers alone");
+      const switched = (await postJson(`/api/items/${item.id}/edit`, { cta: "EFFORT" })).item;
+      assert(postedCaption(switched, CALLS) === `${CALLS[1].line} golden hour`, "another keyword goes out with its own saved line");
+      const backOn = (await postJson(`/api/items/${item.id}/edit`, { cta: "SLOW" })).item;
+      assert(postedCaption(backOn, CALLS) === `${own} golden hour`, "her line for SLOW comes back with it");
+      const same = (await postJson(`/api/items/${item.id}/edit`, { ctaLine: { keyword: "SLOW", line: CALLS[0].line } })).item;
+      assert(!("ctaLine" in same), "her saved line word for word isn't a line of its own");
+      await postJson(`/api/items/${item.id}/edit`, { ctaLine: { keyword: "SLOW", line: own } });
+      const reset = (await postJson(`/api/items/${item.id}/edit`, { ctaLine: null })).item;
+      assert(!("ctaLine" in reset) && postedCaption(reset, CALLS) === `${CALLS[0].line} golden hour`, "null goes back to her saved line");
+    } finally {
+      await postJson(`/api/settings/caption-ctas`, { ctas: [] });
+    }
+  });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);
     const root = new URL("../", import.meta.url).pathname;

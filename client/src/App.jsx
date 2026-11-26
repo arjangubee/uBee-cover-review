@@ -405,6 +405,7 @@ export default function App() {
     if (ch.style) item = (await post(`/api/items/${itemId}/style`, ch.style)).item;
     if (ch.style?.textColor) applyPalette(await api("/api/palette")); // a new color shows in her recent colors (1.26.0)
     if (ch.edit) item = (await post(`/api/items/${itemId}/edit`, ch.edit)).item;
+    if (ch.photo) item = (await post(`/api/items/${itemId}/photo`, ch.photo)).item; // Replace Photo, undo and redo (1.36.0)
     if (ch.imageEdit) item = (await post(`/api/items/${itemId}/image-edit`, ch.imageEdit)).item;
     if (ch.rate) item = (await post(`/api/items/${itemId}/rate`, ch.rate)).item;
     // The T icon's tap, undo and redo (1.13.9): this post's own quote, with its mark; set false takes the mark back off.
@@ -652,9 +653,12 @@ export default function App() {
   }, [remixing.length, settleRemixes]);
   // A remix from before this page opened: one that's done goes next, one still being made is waited for.
   useEffect(() => { if (loads === 1) settleRemixes(); }, [loads]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Download (1.21.0, Big Edit items 10 and 18): one tap saves the cover, on a phone too, with no share sheet. The cover is
-  // drawn ahead while she looks at it (as the deck shows it, held boxes and all, with the queue's look), so the save
-  // starts inside her tap: Safari, and a page shown inside another app, let only a tap save a file.
+  // Download (1.21.0, Big Edit items 10 and 18; one tap again in 1.36.0, Arjang Nov 26: "automatically download to device
+  // in one tap with no option to send to anyone"). A tap saves what's on screen, the cover or the carousel photo she's on,
+  // straight to the device: no share sheet, no question. Holding it on a carousel saves every file of the post. What's
+  // on screen is drawn ahead while she looks at it (as the deck shows it, held boxes and all, with the queue's look), so
+  // the save starts inside her tap: Safari, and a page shown inside another app, let only a tap save a file. On an
+  // iPhone the file goes to Files, in Downloads: no web page can put it in Photos without the share sheet.
   const ahead = useRef({ key: null, blob: null });
   const drawnKey = current ? JSON.stringify([withLook(current, look), quoteOn, [...free]]) : null;
   useEffect(() => {
@@ -674,47 +678,27 @@ export default function App() {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   };
-  // 1.31.0 (room #1235, Quill #1236): on a phone the cover goes to the share sheet, the original's downloadCover way, so
-  // Save Image puts it in Photos. iOS and in-app browsers ignore a download link for a drawn file (it lands in Files or
-  // nowhere). No web page can write to Photos without that Save tap. A computer, or a phone that can't share files,
-  // downloads as before. Closing the share sheet isn't an error.
-  const touchDevice = () => typeof window !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window)
-    && Boolean(window.matchMedia?.("(pointer: coarse)").matches);
-  // 1.31.1 (Quill #1279): one file or a carousel's files. Several go to the share sheet together ("Slides ready").
+  // One file, or a carousel's files one after another, so the browser keeps every one. The first starts inside the tap.
   const saveFiles = async (files) => {
-    if (touchDevice() && navigator.share && navigator.canShare) {
-      const shared = files.map(({ blob, name }) => new File([blob], name, { type: blob.type || "image/jpeg" }));
-      if (navigator.canShare({ files: shared })) {
-        try {
-          say(files.length > 1 ? "Slides ready. Choose Save." : "Cover ready. Choose Save Image.");
-          await navigator.share({ files: shared, title: files[0].name });
-        } catch (e) {
-          if (e?.name === "AbortError") return; // she closed the sheet
-          // A sheet the browser wouldn't open after the cover took a moment to draw: the drawn cover is kept, so the
-          // next tap opens the sheet right away.
-          if (e?.name === "NotAllowedError") { say(`${files.length > 1 ? "Slides" : "Cover"} ready. Tap download again to save.`); return; }
-          for (const f of files) anchorSave(f.blob, f.name);
-        }
-        return;
-      }
+    for (let i = 0; i < files.length; i += 1) {
+      if (i) await new Promise((r) => setTimeout(r, 350));
+      anchorSave(files[i].blob, files[i].name);
     }
-    for (const f of files) anchorSave(f.blob, f.name);
   };
-  const saveFile = (blob, name) => saveFiles([{ blob, name }]);
-  // This slide or All slides (1.31.1, Quill #1279; 1.32.1, Quill #1290: the original's downloadCover scope): with
-  // carousel slides, Download asks which. The cover is drawn. A slide is its own file as stored, fetched raw like the
-  // original (a video is its mp4), with one fork difference: a carousel photo can carry text of its own here (1.20.0,
-  // Big Edit item 3, which the original's slides don't have), and that photo is drawn with its text, the way it posts.
-  // "All slides" means all of them, videos too. A slide that can't be fetched stops the download and says which.
-  const [downloadAsk, setDownloadAsk] = useState(false);
+  // The scope is the original's downloadCover (1.31.1, Quill #1279; 1.32.1, Quill #1290): the cover is drawn, and a
+  // slide is its own file as stored, fetched raw like the original (a video is its mp4), with one fork difference: a
+  // carousel photo can carry text of its own here (1.20.0, Big Edit item 3), and that photo is drawn with its text, the
+  // way it posts. Every file means all of them, videos too. A slide that can't be fetched stops it and says which.
   const slidesAhead = useRef({ key: "", files: null });
+  const slideAhead = useRef({ key: null, file: null });
   const downloadCover = () => {
     const name = `${displayTitle(current.title)}-cover.jpg`;
-    if (ahead.current.key === drawnKey && ahead.current.blob) { saveFile(ahead.current.blob, name); return; }
+    if (ahead.current.key === drawnKey && ahead.current.blob) { saveFiles([{ blob: ahead.current.blob, name }]); say("Downloading the cover."); return; }
     attempt(async () => { // not drawn yet: draw it now, and keep it for a second tap
       const blob = await renderCover(withLook(current, look), { quoteOn, free });
       ahead.current = { key: drawnKey, blob };
-      await saveFile(blob, name);
+      await saveFiles([{ blob, name }]);
+      say("Downloading the cover.");
     });
   };
   const slideHasText = (s) => (current.extraTexts || []).some((b) => b.slide === s.at && String(b.quote ?? "").trim());
@@ -731,25 +715,41 @@ export default function App() {
     const blob = await res.blob();
     return { blob, name: `${base}.${EXT[blob.type] || (s.mediaType === "video" ? "mp4" : "jpg")}` };
   };
-  const downloadThis = () => {
-    setDownloadAsk(false);
-    const s = slide > 0 ? activeSlides[slide - 1] : null;
-    if (!s) { downloadCover(); return; }
-    attempt(async () => saveFiles([await slideFile(s)]));
+  // The carousel photo she's on is fetched (or drawn) ahead too, like the cover. A video waits for the tap.
+  const onSlide = slide > 0 ? activeSlides[slide - 1] || null : null;
+  const slideKey = onSlide ? `${drawnKey}|${onSlide.at}|${onSlide.mediaUrl}` : null;
+  useEffect(() => {
+    const s = onSlide;
+    if (!s || s.mediaType === "video" || draft || slideAhead.current.key === slideKey) return undefined;
+    let alive = true;
+    const key = slideKey;
+    const t = setTimeout(() => { slideFile(s).then((file) => { if (alive) slideAhead.current = { key, file }; }).catch(() => {}); }, 400);
+    return () => { alive = false; clearTimeout(t); };
+  }, [slideKey, draft]); // eslint-disable-line react-hooks/exhaustive-deps
+  const download = () => {
+    if (!onSlide) { downloadCover(); return; }
+    const n = activeSlides.indexOf(onSlide) + 2, key = slideKey;
+    if (slideAhead.current.key === key && slideAhead.current.file) { saveFiles([slideAhead.current.file]); say(`Downloading slide ${n}.`); return; }
+    const s = onSlide;
+    attempt(async () => {
+      const file = await slideFile(s);
+      slideAhead.current = { key, file };
+      await saveFiles([file]);
+      say(`Downloading slide ${n}.`);
+    });
   };
   const downloadAll = () => {
-    setDownloadAsk(false);
     const key = `${drawnKey}|${activeSlides.map((s) => s.mediaUrl).join(",")}`;
-    if (slidesAhead.current.key === key && slidesAhead.current.files) { saveFiles(slidesAhead.current.files); return; }
+    const count = activeSlides.length + 1;
+    if (slidesAhead.current.key === key && slidesAhead.current.files) { saveFiles(slidesAhead.current.files); say(`Downloading all ${count} files.`); return; }
     attempt(async () => {
       const files = [{ blob: await renderCover(withLook(current, look), { quoteOn, free }), name: `${displayTitle(current.title)}-cover.jpg` }];
       for (const s of activeSlides) files.push(await slideFile(s)); // in order; one that fails stops it and says which
-      slidesAhead.current = { key, files }; // kept, so a second tap opens the sheet at once
+      slidesAhead.current = { key, files }; // kept, so a second hold saves at once
+      say(`Downloading all ${count} files.`);
       await saveFiles(files);
     });
   };
-  const download = () => { if (activeSlides.length) setDownloadAsk(true); else downloadCover(); };
-  useEffect(() => { setDownloadAsk(false); }, [current?.id]);
   // The T icon (1.13.9, Arjang via Rose #693 and #694, Quill #695 and #696). A tap turns this post's quote off, or back on,
   // for this post only: a cover edit like any other, so undo puts back exactly what it was, mark and all. A hold is
   // global hide, the 1.13.3 setting: it hides every quote or brings them back, and it isn't a step for undo.
@@ -818,6 +818,12 @@ export default function App() {
   const saveCaption = (caption) => attempt(() => { setPending(current.id, "caption", null); return record("Caption", current.id, { edit: captionOf(current) }, { edit: { caption } }); });
   // The Comment CTA switch (1.10, renamed in 1.10.1): a keyword turns it on, null turns it off; undo steps back like any edit.
   const setCta = (keyword) => attempt(() => record("Comment CTA", current.id, { edit: { cta: current.cta ?? null } }, { edit: { cta: keyword } }));
+  // Its line for this cover alone (1.36.0, Arjang Nov 26), or null for her saved line; undo steps back like any edit.
+  // Answers why it didn't save, for the line's editor to show.
+  const setCtaLine = async (line) => {
+    try { await record("Comment CTA line", current.id, { edit: { ctaLine: current.ctaLine ?? null } }, { edit: { ctaLine: line } }); return null; }
+    catch (e) { return e.message; }
+  };
   // A song steps back whole: its name, preview, Spotify link, and the downloaded hook clip with its source (1.11).
   const songOf = (item) => ({ song: item.song || "", songPreviewUrl: item.songPreviewUrl || "", songSpotifyUrl: item.songSpotifyUrl || "",
     songFile: item.songFile ?? null, songHook: item.songHook ?? null, songSource: item.songSource ?? "" });
@@ -857,6 +863,27 @@ export default function App() {
     say("Photo swapped. Quote, song and style stayed.");
   });
   const restorePhoto = () => attempt(async () => { patchItem((await post(`/api/items/${current.id}/restore-original`)).item); });
+  // Replace Photo (1.36.0, Arjang Nov 26), in the remix menu: the photo she picks goes behind the same text. On the cover
+  // it's the cover photo; on a carousel photo it's that photo. Quote, font, color, places, song and caption stay exactly
+  // as they are. Face mosaics were placed on the old photo, so they go with it. Undo brings both back, as one step.
+  const replacePhoto = (file) => attempt(async () => {
+    const src = current, s = slide > 0 ? activeSlides[slide - 1] || null : null;
+    const before = { photo: s ? { slide: s.at, mediaUrl: s.mediaUrl, mediaType: s.mediaType, title: s.title ?? "" } : { mediaUrl: src.imageUrl } };
+    say("Replacing the photo.");
+    const r = await upload(`/api/items/${src.id}/photo`, "photo", file, s ? { slide: s.at } : {});
+    let item = r.item;
+    const after = { photo: r.photo };
+    const mosaics = s ? [] : src.imageEdit?.mosaics || [];
+    if (mosaics.length) {
+      item = (await post(`/api/items/${src.id}/image-edit`, { mosaics: [] })).item;
+      before.imageEdit = { mosaics };
+      after.imageEdit = { mosaics: [] };
+    }
+    patchItem(item);
+    history.current.push({ label: "Replace photo", itemId: src.id, before, after });
+    bumpHistory();
+    say(mosaics.length ? "Photo replaced. The text stayed, and the face mosaics came off with the old photo." : "Photo replaced. The text stayed the same.");
+  });
   const searchPhotos = async (q) => (await api(`/api/photos/search?q=${encodeURIComponent(q)}`)).results;
   // Hold and drag (1.20.0, Big Edit item 9): the lifted box follows her thumb, and letting go saves the spot as one step.
   const moveText = (index, h, v, _at, w = null, s = null) => { if (!current) return; movingNow.current = { id: current.id, index, h, v, w, s }; setMoving(movingNow.current); };
@@ -1148,16 +1175,10 @@ export default function App() {
                 <SwipeRow item={current} intent={intent} busy={busy || !coverReady} canRewind={Boolean(rewindable())} onRewind={rewind}
                   onNope={() => flyCard(-1)} onLike={() => flyCard(1)} onSkip={list === "queue" ? skip : null} />
                 <ActionRow item={current} busy={busy || !coverReady} onRemix={() => setRemixOpen(true)} onDownload={download}
+                  onDownloadAll={activeSlides.length ? downloadAll : null}
                   quote={{ on: quoteOn, locked: !quotesStatus?.unlocked, onTap: tapQuote, onHold: holdQuotes }}
                   onComment={() => { noteRef.current?.focus(); noteRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }} onEdit={() => startEdit(-1)}
                   onZoom={zoomable ? () => zoomRef.current?.() : null} />
-                {downloadAsk && ( /* 1.31.1: This slide or All slides, like the original */
-                  <div className="downloadAsk" role="group" aria-label="Download">
-                    <button type="button" className="secondaryBtn" onClick={downloadThis}>This slide</button>
-                    <button type="button" className="secondaryBtn" onClick={downloadAll}>All slides</button>
-                    <button type="button" className="linkBtn" onClick={() => setDownloadAsk(false)}>Cancel</button>
-                  </div>
-                )}
                 {remixing.length > 0 && (
                   <p className="remixMarker" role="status"><span className="loadingDot" aria-hidden="true" />
                     {remixing.length === 1 ? "Your remix is on its way. It comes next." : `${remixing.length} remixes are on their way. They come next.`}</p>
@@ -1177,7 +1198,7 @@ export default function App() {
                   </button>
                 </div>
                 {/* Under Randomize layout (1.21.0, Big Edit item 15): the caption, then the overlay text, then the note. */}
-                <CaptionRow item={current} ctas={ctas} onCta={setCta} onSave={saveCaption} onRedo={() => regenerate("caption")} onDraft={(v) => setPending(current.id, "caption", v)} />
+                <CaptionRow item={current} ctas={ctas} onCta={setCta} onCtaLine={setCtaLine} onSave={saveCaption} onRedo={() => regenerate("caption")} onDraft={(v) => setPending(current.id, "caption", v)} />
                 <TitleRow item={current} />
                 {list === "approved" && current.pollen?.error && ["failed", "not_sent"].includes(current.pollen.status) && <p className="problem">{current.pollen.error}</p>}
                 <NoteComposer item={current} onPost={postNote} onDraft={(v) => setPending(current.id, "note", v)} inputRef={noteRef} />
@@ -1232,7 +1253,8 @@ export default function App() {
       )}
 
       {remixOpen && current && view === "cover" && (
-        <RemixSheet quotesLocked={!quotesStatus?.unlocked} onSubmit={submitRemix} onClose={closeRemix} />
+        <RemixSheet quotesLocked={!quotesStatus?.unlocked} onSubmit={submitRemix} onClose={closeRemix}
+          onReplacePhoto={replacePhoto} slideNumber={slide > 0 && activeSlides[slide - 1] ? slide + 1 : null} />
       )}
 
       {toast && <div className="toast" role="status" aria-live="polite">{toast.text}</div>}

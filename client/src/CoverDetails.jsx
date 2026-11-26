@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { imageUrlFor, loadImage } from "./CoverCanvas.jsx";
 import Icon from "./icons.jsx";
-import { plainCaption } from "./captionCall.js";
+import { ctaFor, plainCaption, saysKeyword } from "./captionCall.js";
 import { badgeFor } from "./pollenView.js";
 import { composePasses, driveLinkFor, parseSong, starsFor, whyProblem } from "./reviewMath.js";
 
@@ -33,13 +33,13 @@ export function SwipeRow({ item, intent, busy, canRewind, onRewind, onNope, onLi
   );
 }
 
-export function ActionRow({ item, onRemix, onDownload, onComment, onEdit, onZoom, busy, quote }) {
+export function ActionRow({ item, onRemix, onDownload, onDownloadAll, onComment, onEdit, onZoom, busy, quote }) {
   return (
     // Order from the original, with dislike and repost swapped (Arjang, Nov 18): download, repost, comment, then the T
     // icon (1.13.9), the magnifier (1.14.1, Arjang #790 item 2) and edit. Like, dislike and skip moved to the swipe row
     // above it in 1.34.0, as Tinder's heart, X and middle button.
     <div className="actionRow" role="toolbar" aria-label="Cover actions">
-      <button type="button" className="iconBtn act" onClick={onDownload} disabled={busy} aria-label="Download this cover as it will post"><Icon name="download" size={28} /></button>
+      <DownloadButton busy={busy} onTap={onDownload} onHold={onDownloadAll} />
       <button type="button" className="iconBtn act remixBtn" onClick={onRemix} disabled={busy} aria-label="Remix this cover" aria-haspopup="dialog"><Icon name="repost" size={28} /></button>
       <button type="button" className="iconBtn act" onClick={onComment} aria-label="Write a note for the next revision"><Icon name="comment" size={28} /></button>
       {quote && <QuoteButton {...quote} />}
@@ -76,6 +76,54 @@ function QuoteButton({ on, locked, onTap, onHold }) {
       onClick={() => { const p = press.current; press.current = null; if (p?.held) return; onTap(); }}
       onKeyDown={(e) => { if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); onHold(); } }}>
       <span className="quoteMark"><Icon name={on ? "text" : "textOff"} size={22} /></span>
+    </button>
+  );
+}
+
+// Download (1.36.0, Arjang Nov 26): a tap saves what's on screen to the device, with nothing to choose and no share
+// sheet. On a carousel, a hold of HOLD_MS saves every file of the post when she lets go: the save runs on the release,
+// inside her touch, which is what lets a phone's browser save a file. The hold buzzes and lights the icon, so she knows
+// to let go. Sliding off before letting go saves nothing. Shift+Enter is the hold from a keyboard.
+function DownloadButton({ busy, onTap, onHold }) {
+  const timer = useRef(null);
+  const press = useRef(null);
+  const [held, setHeld] = useState(false);
+  const stop = () => { clearTimeout(timer.current); timer.current = null; };
+  const cancel = () => { stop(); press.current = null; setHeld(false); };
+  useEffect(() => stop, []);
+  return (
+    <button type="button" className={held ? "iconBtn act downloadBtn held" : "iconBtn act downloadBtn"} disabled={busy}
+      aria-label={onHold ? "Download the photo on screen" : "Download this cover as it will post"}
+      aria-description={onHold ? "Tap to download the photo on screen. Press and hold, then let go, to download every slide." : undefined}
+      onPointerDown={(e) => {
+        if (e.button !== 0 || !onHold) return;
+        press.current = { x: e.clientX, y: e.clientY, held: false, up: false };
+        stop();
+        timer.current = setTimeout(() => {
+          timer.current = null;
+          const p = press.current;
+          if (!p || p.up) return;
+          p.held = true;
+          setHeld(true);
+          navigator.vibrate?.(12);
+        }, HOLD_MS);
+      }}
+      onPointerMove={(e) => { const p = press.current; if (p && !p.held && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 10) cancel(); }}
+      onPointerUp={() => {
+        stop();
+        const p = press.current;
+        if (!p) return;
+        p.up = true;
+        if (!p.held) return;
+        setHeld(false);
+        onHold();
+        setTimeout(() => { if (press.current === p) press.current = null; }, 500); // the click after a hold, if any, is ignored
+      }}
+      onPointerCancel={cancel} onPointerLeave={() => { if (!press.current?.up) cancel(); }}
+      onContextMenu={(e) => e.preventDefault()}
+      onClick={() => { const p = press.current; press.current = null; if (!p?.held) onTap(); }}
+      onKeyDown={(e) => { if (e.key === "Enter" && e.shiftKey && onHold) { e.preventDefault(); onHold(); } }}>
+      <Icon name="download" size={28} />
     </button>
   );
 }
@@ -147,14 +195,59 @@ function CommentCall({ item, ctas, onCta }) {
   );
 }
 
+// The comment CTA's line (1.36.0, Arjang Nov 26): with the switch on, a tap opens it to edit, for this cover only. It
+// keeps the keyword, so fans know what to comment, and goes out under the rules her saved lines follow. A cover with its
+// own line can go back to her saved line. onSave answers why it didn't save, or nothing once it did.
+function CtaLine({ call, saved, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(call.line);
+  const [problem, setProblem] = useState(null);
+  const [saving, setSaving] = useState(false);
+  if (!onSave) return <span className="captionCall">{call.line}</span>;
+  if (!editing) {
+    return (
+      <button type="button" className="captionCall editable" onClick={() => { setText(call.line); setProblem(null); setEditing(true); }}
+        aria-label={`Comment CTA, ${call.own ? "written for this cover" : "your saved line"}: ${call.line}. Tap to edit it for this cover.`}>
+        {call.line}
+      </button>
+    );
+  }
+  const save = async (next) => {
+    setSaving(true);
+    const why = await onSave(next);
+    setSaving(false);
+    if (why) setProblem(why); else setEditing(false);
+  };
+  const submit = (e) => {
+    e.preventDefault();
+    const line = text.trim();
+    if (!saysKeyword(line, call.keyword)) { setProblem(`Keep the word ${call.keyword} in it, so fans know what to comment.`); return; }
+    if (line === call.line) { setEditing(false); return; }
+    save(line === saved?.line ? null : { keyword: call.keyword, line });
+  };
+  return (
+    <form className="ctaEdit" onSubmit={submit}>
+      <textarea className="field" rows={4} value={text} maxLength={300} autoFocus
+        aria-label={`Comment CTA for this cover. Keep the word ${call.keyword} in it.`}
+        onChange={(e) => { setText(e.target.value); setProblem(null); }} />
+      {problem && <p className="problem" role="alert">{problem}</p>}
+      <div className="rowEnd">
+        {call.own && <button type="button" className="linkBtn muted" disabled={saving} onClick={() => save(null)}>Use my saved line</button>}
+        <button type="button" className="linkBtn muted" disabled={saving} onClick={() => setEditing(false)}>Cancel</button>
+        <button type="submit" className="linkBtn" disabled={saving || !text.trim()}>Save</button>
+      </div>
+    </form>
+  );
+}
+
 // What shows is the plain caption: a call written into it is left out (1.10.1, Quill #458), and editing opens that
 // plain text, so a save also takes the old call out of what's stored.
-export function CaptionRow({ item, ctas = [], onCta, onSave, onRedo, onDraft }) {
+export function CaptionRow({ item, ctas = [], onCta, onCtaLine, onSave, onRedo, onDraft }) {
   const shown = plainCaption(item.caption, ctas);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(shown);
   useEffect(() => { setText(shown); setEditing(false); }, [item.id, shown]);
-  const call = ctas.find((c) => c.keyword === String(item.cta || "").toUpperCase()) || null;
+  const call = ctaFor(item, ctas);
   return (
     <div className="captionRow">
       <div className="captionSide">
@@ -162,7 +255,7 @@ export function CaptionRow({ item, ctas = [], onCta, onSave, onRedo, onDraft }) 
         {ctas.length > 0 && onCta && <CommentCall item={item} ctas={ctas} onCta={onCta} />}
       </div>
       <div className="captionBody">
-        {call && <span className="captionCall">{call.line}</span>}
+        {call && <CtaLine key={`${item.id}|${call.keyword}|${call.line}`} call={call} saved={ctas.find((c) => c.keyword === call.keyword)} onSave={onCtaLine} />}
         {editing ? (
           <form className="captionEdit" onSubmit={(e) => { e.preventDefault(); onSave(text); setEditing(false); }}>
             <textarea className="field" rows={3} value={text} onChange={(e) => { setText(e.target.value); onDraft?.(e.target.value); }} aria-label="Instagram caption" autoFocus />

@@ -7,11 +7,19 @@
 const LEAD_CALL = /^\s*comment\s+([\p{L}\p{N}]{2,})[^\n]*?(?:(?:!+|\.+|…)(?=\s|$)|\n|$)/iu;
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** The call a cover has switched on, or null: off, or a keyword no longer on her list. */
+/** True when a line says the keyword as a word of its own, so fans know what to comment. */
+export const saysKeyword = (line, keyword) =>
+  new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(String(keyword ?? ""))}([^\\p{L}\\p{N}]|$)`, "iu").test(String(line ?? ""));
+
+/** The call a cover has switched on, or null: off, or a keyword no longer on her list. A line she wrote for this cover
+ *  alone (1.36.0, Arjang Nov 26: tap the CTA to edit it) stands in for her saved line while that same keyword is on. */
 export function ctaFor(item, ctas) {
   const want = String(item?.cta ?? "").trim().toUpperCase();
   if (!want) return null;
-  return (ctas || []).find((c) => c.keyword === want) || null;
+  const saved = (ctas || []).find((c) => c.keyword === want) || null;
+  const own = item?.ctaLine;
+  if (!saved || own?.keyword !== want || !String(own.line ?? "").trim()) return saved;
+  return { keyword: want, line: String(own.line).trim(), own: true };
 }
 
 // Takes text[start, end) out and closes the gap with one of the separators that were around it.

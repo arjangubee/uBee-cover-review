@@ -11,7 +11,7 @@ import { registerMusic } from "./music.js";
 import { getImportStatus, registerFull } from "./full.js";
 import { composePasses } from "../client/src/reviewMath.js";
 import { searchCovers } from "../client/src/searchCovers.js";
-import { ctaFor } from "./captionCtas.js";
+import { cleanCtaLine, ctaFor } from "./captionCtas.js";
 import { pollenStatus, registerPollen, startPollenSync } from "./pollen.js";
 import { registerRemix } from "./remix.js";
 import { shuffleSong } from "./songPick.js";
@@ -206,6 +206,17 @@ app.post("/api/items/:id/edit", (req, res) => {
   // Checked before anything changes, so a refused switch leaves the whole edit undone.
   const cta = req.body.cta == null || req.body.cta === "" ? null : ctaFor({ cta: req.body.cta }, store.settings.captionCtas || []);
   if (req.body.cta != null && req.body.cta !== "" && !cta) return res.status(400).json({ error: "That comment CTA isn't on your list. Ask your Muse to add it." });
+  // A comment CTA line for this cover alone (1.36.0, Arjang Nov 26: tap the CTA to edit it), as { keyword, line }, under
+  // the rules her saved lines follow. Null, or her saved line word for word, goes back to the saved line.
+  let ctaLine;
+  if (req.body.ctaLine !== undefined) {
+    const keyword = String(req.body.ctaLine?.keyword ?? "").trim().toUpperCase();
+    const saved = req.body.ctaLine === null ? null : ctaFor({ cta: keyword }, store.settings.captionCtas || []);
+    if (req.body.ctaLine !== null && !saved) return res.status(400).json({ error: "That comment CTA isn't on your list. Ask your Muse to add it." });
+    const clean = saved ? cleanCtaLine(keyword, req.body.ctaLine.line) : null;
+    if (clean?.error) return res.status(400).json({ error: clean.error });
+    ctaLine = clean && clean.line !== saved.line ? { keyword, line: clean.line } : null;
+  }
   // A song clip sent back with a song (undo does this, 1.11) has to be a clip path in the songs folder, or a Symphony
   // clip ("symphony:<id>", 1.12, which Use on this cover sends too), with its hook.
   const clipSent = req.body.song != null && Object.prototype.hasOwnProperty.call(req.body, "songFile");
@@ -231,6 +242,7 @@ app.post("/api/items/:id/edit", (req, res) => {
   if (req.body.regenerateCaption) { item.caption = generateCaption(item, store.settings.voiceProfile); item.captionSource = "placeholder"; }
   // The Comment CTA switch (1.10, renamed in 1.10.1): a keyword on the space's list turns it on, null turns it off.
   if (req.body.cta !== undefined) { if (cta) item.cta = cta.keyword; else delete item.cta; }
+  if (ctaLine !== undefined) { if (ctaLine) item.ctaLine = ctaLine; else delete item.ctaLine; }
   // Shuffle (1.27.0, Quill #1119, Arjang #1092): a song matched to what the cover says, never one the cover has had.
   if (req.body.shuffleSong) {
     const s = shuffleSong(item);

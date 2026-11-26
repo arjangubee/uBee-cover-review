@@ -141,7 +141,9 @@ export default function InfoSheet({ status, pollen, quotesStatus, quizQuotes, li
         <section className="infoBlock">
           <h3>Tips</h3>
           <ul>
-            <li>Swipe the cover to move between slides. The heart approves, the thumbs down passes.</li>
+            <li>Swipe the cover right to approve it, or left to pass. The heart and the X under it do the same. Rewind brings the last one back.</li>
+            <li>On a carousel, tap the right or left side of the photo to move between slides.</li>
+            <li>Download saves the photo on screen in one tap. On a carousel, press and hold it, then let go, to save every slide.</li>
             <li>Tap the text on the cover to edit it. Undo and redo sit at the top.</li>
             <li>On a computer: left and right arrow keys move between covers.</li>
           </ul>

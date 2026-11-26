@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateCaption, loadQuotes } from "./services.js";
 import { DATA_DIR, currentSpace, libraryDir, spaceFile, store } from "./store.js";
@@ -455,6 +455,34 @@ export function registerFull(app, upload) {
     if (item.originalImageUrl) item.imageUrl = item.originalImageUrl;
     store.saveDb();
     res.json({ item });
+  });
+
+  // Replace Photo (1.36.0, Arjang Nov 26), in the remix menu: a photo she uploads goes behind the same text. With no slide
+  // it's the cover's photo; with a slide (its place in the stored list) it's that carousel photo. Nothing else changes.
+  // Undo and redo send a photo the cover has had back as { mediaUrl, mediaType, title }, with no file.
+  app.post("/api/items/:id/photo", upload.single("photo"), (req, res) => {
+    const drop = () => { if (req.file?.path) rmSync(req.file.path, { force: true }); };
+    const item = mustItem(req, res); if (!item) return drop();
+    const raw = req.body?.slide;
+    const at = raw == null || raw === "" ? null : Number(raw);
+    const slide = at === null ? null : (item.slides || [])[at];
+    if (at !== null && !slide) { drop(); return res.status(404).json({ error: "slide not found" }); }
+    let photo;
+    if (req.file) {
+      if (!String(req.file.mimetype).startsWith("image/")) { drop(); return res.status(400).json({ error: "Replace Photo takes a photo. Pick a photo, not a video." }); }
+      photo = { mediaUrl: `/uploads/${req.file.filename}`, mediaType: "image", title: req.file.originalname };
+    } else {
+      const mediaUrl = String(req.body?.mediaUrl || "");
+      if (!/^(\/uploads\/|\/api\/library\/|https?:\/\/|data:image\/)/i.test(mediaUrl)) return res.status(400).json({ error: "Send a photo file, or a photo this cover has had." });
+      photo = { mediaUrl, mediaType: slide && req.body?.mediaType === "video" ? "video" : "image", title: String(req.body?.title ?? "") };
+    }
+    if (slide) Object.assign(slide, { mediaUrl: photo.mediaUrl, mediaType: photo.mediaType, ...(photo.title ? { title: photo.title } : {}) });
+    else {
+      item.originalImageUrl = item.originalImageUrl || item.imageUrl;
+      item.imageUrl = photo.mediaUrl;
+    }
+    store.saveDb();
+    res.json({ item, photo: slide ? { slide: at, ...photo } : { mediaUrl: photo.mediaUrl } });
   });
 
   // Save image edit notes/adjustments: saveimageedit in the original.

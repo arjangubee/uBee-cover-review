@@ -833,6 +833,24 @@ export function registerFull(app, upload) {
     res.json({ ok: true, inFlight: false, started: true, created, ...getImportStatus() });
   });
 
+  // One-off recovery (1.38.2, Quill #1367). A ported space can import a Drive photo before its batch is enqueued. The
+  // photo then has a row, so the enqueue skips its Drive id and the row keeps no review time, behind every timed cover.
+  // This gives that bare row the queue's front time, where the enqueue puts a batch's first photo. It writes the review
+  // time and nothing else. It refuses a cover that already has a place, a why or a description, or whose Drive id the
+  // last batch didn't send, so it can't run before the enqueue and can place a row only once.
+  app.post("/api/items/:id/recover-front", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const driveId = String(req.body?.driveId || "");
+    if (!item.driveId || item.driveId !== driveId) return res.status(409).json({ error: "That isn't this photo's Drive id." });
+    if (item.status !== "queue") return res.status(409).json({ error: "Only a photo in the queue can go to the front." });
+    if (typeof item.reviewOrderAt === "number") return res.status(409).json({ error: "This photo already has its place in the queue." });
+    if (item.why || String(item.description ?? "").trim()) return res.status(409).json({ error: "This photo has a why or a description, so it isn't a bare import." });
+    if (!importNow().lastBatchDriveIds.includes(driveId)) return res.status(409).json({ error: "Enqueue this photo's batch first. The photo goes in front of that batch." });
+    item.reviewOrderAt = store.frontTimes(1)[0];
+    store.saveDb();
+    res.json({ item });
+  });
+
   // Import progress for the client / the creator's AI to poll.
   app.get("/api/import/status", (_req, res) => res.json(getImportStatus()));
 

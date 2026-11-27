@@ -1,8 +1,7 @@
 {
-  "version": "1.38.1",
+  "version": "1.38.2",
   "date": "2026-11-26",
   "whatsNew": [
-    "Schedule Post names any channel Pollen left out, and says when it's because that day already has a photo post",
-    "A reel whose song clip is gone from your songs folder says so before anything is sent"
+    "A Drive photo brought in before its batch can be put back at the front of that batch, once"
   ]
 }

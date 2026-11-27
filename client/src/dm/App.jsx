@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SafeAreaTopScrim } from "./SafeAreaTopScrim.jsx";
 import { api, FIELDS, sendsAs } from "./dmApi.js";
 import { currentSession } from "../session.js";
+import { api as callServer } from "../api.js";
 
 // The Chats screen: a practice inbox in Instagram's style. Since 1.22.0 it follows the reply practice simulator's code
 // (Arjang in the Big Edit, #20, its code in room file 83), with the creator's own data left out. Its calls are in
@@ -830,24 +831,38 @@ export function App({ active = true }) {
   // for what changed since the cursor it holds. A chat that didn't change keeps the same object, so its row isn't drawn
   // again. A server from before 1.40.0 answers every chat whole, with no cursor, and that still works as it did.
   const inbox = useRef({ cursor: null, map: new Map() });
+  // An answer is put on top of the chats she has. One that left the server before an answer she already has (two reads
+  // crossing) is set aside, so a chat never steps back to an older version of itself.
+  const takeList = (r) => {
+    const held = inbox.current;
+    if (typeof r.cursor !== "string") return r;
+    const [epoch, rev] = r.cursor.split(":");
+    const [heldEpoch, heldRev] = String(held.cursor || "").split(":");
+    if (epoch === heldEpoch && Number(rev) < Number(heldRev)) return null;
+    if (r.full) held.map = new Map();
+    for (const it of r.items) held.map.set(it.id, it);
+    for (const id of r.removed || []) held.map.delete(id);
+    held.cursor = r.cursor;
+    return { items: [...held.map.values()].sort((x, y) => x.id - y.id), stats: r.stats };
+  };
+  // 1.40.0 (Arjang #1452): while Chats shows, one read stays open on the server and comes back the moment something
+  // changes, a DM her Muse brought in included. A server that can't hold a read says so by leaving out waited, and the
+  // list goes back to refreshing on its clock below.
+  const [holds, setHolds] = useState(true);
   const itemsQuery = useQuery({
     queryKey: ["items", "all"],
     queryFn: async () => {
       const held = inbox.current;
       const r = await api.dm_listitems({ filter: "all", light: true, ...(held.cursor ? { since: held.cursor } : {}) });
-      if (typeof r.cursor !== "string") return r;
-      if (r.full) held.map = new Map();
-      for (const it of r.items) held.map.set(it.id, it);
-      for (const id of r.removed || []) held.map.delete(id);
-      held.cursor = r.cursor;
-      return { items: [...held.map.values()].sort((x, y) => x.id - y.id), stats: r.stats };
+      return takeList(r) ?? queryClient.getQueryData(["items", "all"]) ?? { items: [], stats: r.stats };
     },
     enabled: active,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    // Every 30 seconds, and every 5 while a pull, a draft, a send or an edit is waiting on Muse. Only while Chats shows.
+    // With a held read there's no clock. Without one: every 30 seconds, and every 5 while a pull, a draft, a send or an
+    // edit is waiting on Muse. Only while Chats shows.
     refetchInterval: (query) =>
-      !active ? false :
+      !active || holds ? false :
       syncing ||
       query.state.data?.items.some(
         (i) => i.draft_wanted || i.publish_status === "publishing" || i.edit_status === "editing",
@@ -856,6 +871,35 @@ export function App({ active = true }) {
         : 30_000,
     refetchIntervalInBackground: false,
   });
+
+  useEffect(() => {
+    if (!active || !holds) return undefined;
+    const stop = new AbortController();
+    const pause = (ms) => new Promise((done) => {
+      const t = window.setTimeout(done, ms);
+      stop.signal.addEventListener("abort", () => { window.clearTimeout(t); done(); }, { once: true });
+    });
+    (async () => {
+      while (!stop.signal.aborted) {
+        if (!inbox.current.cursor) { await pause(1000); continue; } // the first load hasn't landed yet
+        try {
+          const r = await callServer("/api/dm/listitems", {
+            method: "POST", headers: { "Content-Type": "application/json" }, signal: stop.signal,
+            body: JSON.stringify({ filter: "all", light: true, since: inbox.current.cursor, wait: 25_000 }),
+          });
+          if (stop.signal.aborted) break;
+          if (r.waited !== true) { setHolds(false); break; }
+          const before = inbox.current.cursor;
+          const next = takeList(r);
+          if (next && (inbox.current.cursor !== before || r.items.length || r.removed?.length)) queryClient.setQueryData(["items", "all"], next);
+        } catch {
+          if (stop.signal.aborted) break;
+          await pause(5_000); // offline or the server restarted: try again shortly
+        }
+      }
+    })();
+    return () => stop.abort();
+  }, [active, holds, queryClient]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Coming back to Chats catches up at once (the two reads above start again), asking only for what changed.
   useEffect(() => {

@@ -23,7 +23,7 @@
 // her read mark here, the texts a send left behind, and edits to a line that already went out. Her Muse applies an
 // edit the way it sends: it reads editswanted and reports back with confirmedit.
 import { createHash, randomUUID } from "node:crypto";
-import { currentSpace, store } from "./store.js";
+import { currentSpace, runIn, store } from "./store.js";
 import { STORY_PLACEHOLDER, capEndings, isNonMessageText, storyCapture, voiceVersion } from "./dmRules.js";
 
 const KINDS = ["dm", "comment"];
@@ -923,16 +923,53 @@ const READS = new Set(["listitems", "getthread", "getreplylinks", "exporttrainin
   "getsync", "syncwanted"]);
 const SETTINGS = new Set(["savevoiceprofile", "resetvoiceprofile", "savevoicesource", "savereplylinks"]);
 
+// 1.40.0 (Arjang #1452): an open Chats tab hears of a change the moment it's saved, with no timer. Its read of the light
+// list can carry wait: the server holds the answer until something in her Chats changes (a DM her Muse brought in, a
+// draft, a send) or the wait runs out, then answers what changed. Every action that writes wakes the reads held for
+// that account. The answer says waited: true, so a page talking to a server that can't hold a read knows to refresh
+// on its own clock instead.
+const WAIT_MAX_MS = 25_000;
+const waiting = new Map(); // account space -> the held reads' wake-ups
+function wakeReads(space) {
+  const set = waiting.get(space);
+  if (!set) return;
+  waiting.delete(space);
+  for (const wake of set) wake();
+}
+function heldRead(space, ms, res) {
+  return new Promise((resolve) => {
+    let set = waiting.get(space);
+    if (!set) { set = new Set(); waiting.set(space, set); }
+    const done = () => { clearTimeout(timer); set.delete(wake); res.off("close", done); resolve(); };
+    const wake = done;
+    const timer = setTimeout(done, ms);
+    set.add(wake);
+    res.on("close", done); // she left Chats or closed the page, so the connection closed: let it go
+  });
+}
+
 export function registerDm(app) {
-  app.post("/api/dm/:action", (req, res) => {
+  app.post("/api/dm/:action", async (req, res) => {
     const name = req.params.action;
     const run = Object.hasOwn(actions, name) ? actions[name] : null;
     if (!run) return res.status(404).json({ error: `There's no ${name} here.` });
     res.set("Cache-Control", "no-store");
     try {
-      const out = run(req.body && typeof req.body === "object" ? req.body : {});
+      const args = req.body && typeof req.body === "object" ? req.body : {};
+      let out = run(args);
+      // A held read: nothing changed since her cursor, so wait for a change, then answer again from the new state.
+      const ms = Number(args.wait);
+      if (name === "listitems" && args.light === true && Number.isFinite(ms) && ms > 0) {
+        const space = currentSpace();
+        if (out.full === false && !out.items.length && !out.removed.length) {
+          await heldRead(space, Math.min(ms, WAIT_MAX_MS), res);
+          if (res.writableEnded || res.destroyed) return;
+          out = runIn(space, () => run(args));
+        }
+        out = { ...out, waited: true };
+      }
       if (SETTINGS.has(name)) store.saveSettings();
-      else if (!READS.has(name)) store.saveDb();
+      else if (!READS.has(name)) { store.saveDb(); wakeReads(currentSpace()); }
       res.json(out);
     } catch (e) {
       if (!(e instanceof DmError)) console.error(`dm ${name}:`, e);

@@ -2826,6 +2826,21 @@ try {
     await dm("syncwanted");
     assert(typeof (await dm("getsync")).muse_seen_at === "string", "the page hears when her Muse last looked for a pull");
   });
+  await check("v1.40 Chats: a held read comes back the moment a DM is brought in, and says waited so the page knows it can rely on it (Arjang #1452)", async () => {
+    const start = await dm("listitems", { filter: "all", light: true });
+    const t0 = Date.now();
+    const quiet = await dm("listitems", { filter: "all", light: true, since: start.cursor, wait: 400 });
+    assert(quiet.waited === true && quiet.items.length === 0 && Date.now() - t0 >= 350, `with nothing new it waits, then answers nothing: ${Date.now() - t0} ms`);
+    const t1 = Date.now();
+    const held = dm("listitems", { filter: "all", light: true, since: start.cursor, wait: 20000 });
+    await wait(150);
+    const came = await dm("importitem", { kind: "dm", thread_id: "t-held-1", sender: "right.now", incoming_text: "hello now",
+      thread_messages: [{ from: "them", kind: "text", text: "hello now", at: new Date().toISOString() }] });
+    const r = await held;
+    assert(r.waited === true && r.items.map((i) => i.id).join() === String(came.id) && Date.now() - t1 < 3000, `it answers with that chat at once: ${Date.now() - t1} ms, ${r.items.map((i) => i.id)}`);
+    const old = await dm("listitems", { filter: "all", light: true, since: r.cursor });
+    assert(old.waited === undefined, "a read with no wait answers as before");
+  });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);
     const root = new URL("../", import.meta.url).pathname;

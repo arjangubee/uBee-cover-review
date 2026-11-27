@@ -44,6 +44,24 @@ export function releaseFor(dx, vx, w) {
   return 0;
 }
 
+// A two-finger swipe on a trackpad (1.39.0, Quill #1384) comes as wheel events, not as a pointer.
+export const WHEEL = {
+  slop: 10, // px of wheel travel before a swipe picks its way: sideways moves the card, up or down scrolls the page
+  end: 160, // ms with no wheel event that ends a swipe short of the line: the card springs back
+  settle: 450, // ms with no wheel event before the next swipe can start, once one has sent a card or been refused
+};
+
+/**
+ * What one wheel event moves, in px: x the way the fingers went (right positive), y as sent. With natural scrolling,
+ * the Mac's default, a wheel's deltaX points against the fingers. Safari says which with webkitDirectionInvertedFromDevice;
+ * Chrome doesn't, so natural is assumed. Lines count as 16 px and a page as the card's width.
+ */
+export function wheelStep(e, cardW = 400) {
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? cardW : 1;
+  const x = (Number(e.deltaX) || 0) * unit, y = (Number(e.deltaY) || 0) * unit;
+  return { x: e.webkitDirectionInvertedFromDevice === false ? x : -x, y };
+}
+
 /** Speed in px per ms over the last 100 ms of samples [{ t, x, y }], newest last. */
 export function velocityOf(samples) {
   if (!samples?.length) return { x: 0, y: 0 };

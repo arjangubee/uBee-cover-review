@@ -15,7 +15,7 @@ import { SNAP_PX, guidesFor, snap } from "../client/src/snapGuides.js";
 import { HOUSE, contrastOf, pickHouseColor, randomWheelColor, seeded as coverSeed } from "../client/src/houseColor.js";
 import { composePasses, driveLinkFor, whyProblem } from "../client/src/reviewMath.js";
 import { searchCovers } from "../client/src/searchCovers.js";
-import { SWIPE, flyFor, progressFor, releaseFor, stampFor, tiltFor, velocityOf } from "../client/src/swipe.js";
+import { SWIPE, WHEEL, flyFor, progressFor, releaseFor, stampFor, tiltFor, velocityOf, wheelStep } from "../client/src/swipe.js";
 
 let failed = 0;
 function check(name, fn) {
@@ -830,6 +830,15 @@ check("v1.34 a sent card leaves the screen with room for its tilt, turns on the 
   assert(slow.ms === 340 && slow.tilt > 0, "a button press throws it at a quick pace, turning the way it goes");
   const down = flyFor({ dir: 1, dy: 0, vy: 5, w: 390, h: 488 });
   assert(down.y <= 488 / 2, "a steep flick never sends it further down than half a card");
+});
+check("v1.39 a trackpad swipe moves the card the way the fingers go, natural scrolling assumed unless Safari says not", () => {
+  assert(wheelStep({ deltaX: 30, deltaY: 2, deltaMode: 0 }).x === -30, "natural scrolling: a positive deltaX is the fingers going left");
+  assert(wheelStep({ deltaX: 30, deltaMode: 0, webkitDirectionInvertedFromDevice: true }).x === -30, "Safari saying natural: the same");
+  assert(wheelStep({ deltaX: 30, deltaMode: 0, webkitDirectionInvertedFromDevice: false }).x === 30, "Safari saying not natural: deltaX is the fingers' way");
+  assert(wheelStep({ deltaX: -2, deltaY: 1, deltaMode: 1 }).x === 32 && wheelStep({ deltaY: 1, deltaMode: 1 }).y === 16, "lines are 16 px");
+  assert(wheelStep({ deltaX: 1, deltaMode: 2 }, 390).x === -390, "a page is the card's width");
+  assert(wheelStep({}).x === 0 && wheelStep({}).y === 0, "no deltas, no move");
+  assert(WHEEL.slop === SWIPE.slop && WHEEL.end < WHEEL.settle, `slop ${WHEEL.slop}, end ${WHEEL.end} ms before settle ${WHEEL.settle} ms`);
 });
 check("v1.34 Rewind takes back a swipe still in the history, and puts it back where it was if that fails", () => {
   const h = createHistory(5);

@@ -1,7 +1,7 @@
 {
-  "version": "1.38.2",
+  "version": "1.39.0",
   "date": "2026-11-26",
   "whatsNew": [
-    "A Drive photo brought in before its batch can be put back at the front of that batch, once"
+    "On a computer, swipe two fingers sideways on the trackpad over the cover: right approves, left passes, one cover per swipe"
   ]
 }

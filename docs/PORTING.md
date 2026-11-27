@@ -12,6 +12,37 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.39.0: a two-finger trackpad swipe on a computer
+
+Arjang via Rose #1383, specced by Quill #1384. Client only: no server route, no field, no row.
+
+1. A two-finger sideways swipe on a trackpad sends wheel events, not a pointer. Over the review card, the card now
+   follows them like a drag (tilt, heart or X), and at the drag's line, a quarter of the card's width
+   (`SWIPE.commit`), it flies off: right approves, left passes. Short of the line, the card springs back once the
+   wheel has been quiet for `WHEEL.end` (160 ms).
+2. One swipe sends one cover. Once a card is sent, or refused, the rest of the swipe, its glide included, is locked
+   until the wheel has been quiet for `WHEEL.settle` (450 ms).
+3. A swipe picks its way after `WHEEL.slop` (10 px) of travel. Up or down is left to the page, so it scrolls as
+   before. Every sideways wheel event over the card is stopped (`preventDefault`, on a non-passive listener), so
+   Chrome and Safari never turn it into back or forward.
+4. The way the fingers went: with natural scrolling, the Mac's default, `deltaX` points against the fingers. Safari
+   says which with `webkitDirectionInvertedFromDevice`; Chrome doesn't, so natural scrolling is assumed there.
+   Lines count as 16 px and a page as the card's width. A pinch (`ctrlKey`) is left alone.
+5. Inert while she edits, while a sheet, the zoom or a menu is open (the same list the arrow keys check, now
+   `overlayOpen` in App.jsx), and while a text field has focus. Mouse drag and touch are unchanged, and so are the
+   arrow keys.
+
+| Where | Change |
+| --- | --- |
+| client/src/swipe.js | `WHEEL` and `wheelStep` |
+| client/src/CoverStage.jsx | the wheel listener on the stage: `onWheel`, `wheelMove`, `endWheel` |
+| client/src/App.jsx | `overlayOpen`, passed to the stage as `swipe.wheelOff`, and used by the arrow keys |
+| scripts/render-test.mjs | `wheelStep` checks |
+
+### Data steps (her space, never the repo)
+
+- None. The client comes over whole.
+
 ## 1.38.2: a one-off recovery for a photo imported before its batch
 
 Quill #1367, for the space's one bare test-import row. A ported space can import a Drive photo before its batch is

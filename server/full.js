@@ -12,6 +12,7 @@ import { basisOf, offlineRationale, rationaleProblems, rationalePrompt, sameBasi
 import { overlayOf, quoteShown } from "../client/src/quoteOverlay.js";
 import { whyProblem } from "../client/src/reviewMath.js";
 import { FONTS, HEX, PALETTE, fontOk, rememberCustomColor } from "./brand.js";
+import { fetchPhoto } from "./safety.js";
 
 export { FONTS, PALETTE }; // they live in brand.js since 1.20.0
 
@@ -169,9 +170,9 @@ async function photoAsSlide(src) {
   if (data) { type = data[1]; buf = Buffer.from(data[2], "base64"); }
   else if (/^https?:\/\//i.test(url)) {
     let r;
-    try { r = await fetch(url, { signal: AbortSignal.timeout(30000) }); } catch { throw new Error(`cover ${src.id}'s photo didn't load`); }
-    type = (r.headers.get("content-type") || "").split(";")[0].trim();
-    if (!r.ok || !type.startsWith("image/")) throw new Error(`cover ${src.id}'s photo didn't load`);
+    try { r = await fetchPhoto(url); } catch { throw new Error(`cover ${src.id}'s photo didn't load`); }
+    type = (r?.headers.get("content-type") || "").split(";")[0].trim();
+    if (!r?.ok || !type.startsWith("image/")) throw new Error(`cover ${src.id}'s photo didn't load`);
     buf = Buffer.from(await r.arrayBuffer());
   } else throw new Error(`cover ${src.id} has no photo`);
   if (!buf.length || buf.length > 40 * 1024 * 1024) throw new Error(`cover ${src.id}'s photo is empty or too big`);
@@ -457,7 +458,9 @@ export function registerFull(app, upload) {
   // Per-part ratings: ratecover in the original (quality / song / quote separately).
   app.post("/api/items/:id/rate", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
-    for (const k of ["qualityRating", "songRating", "quoteRating"]) {
+    const RATINGS = ["qualityRating", "songRating", "quoteRating"];
+    if (RATINGS.some((k) => req.body[k] != null && !Number.isFinite(Number(req.body[k])))) return res.status(400).json({ error: "A rating is a number from 1 to 10." });
+    for (const k of RATINGS) {
       if (req.body[k] === null) item[k] = null; // v1.4: undo can take back a first rating
       else if (req.body[k] != null) item[k] = Math.max(1, Math.min(10, Number(req.body[k])));
     }
@@ -604,8 +607,10 @@ export function registerFull(app, upload) {
   // Story framing: savestoryframing in the original. 9:16 lives only in Story view.
   app.post("/api/items/:id/story-framing", (req, res) => {
     const item = mustItem(req, res); if (!item) return;
-    item.storyPanX = Number(req.body.storyPanX ?? item.storyPanX ?? 50);
-    item.storyPanY = Number(req.body.storyPanY ?? item.storyPanY ?? 50);
+    // Kept inside the frame (1.40.0): anything that isn't a number from 0 to 100 leaves the pan where it was.
+    const pan = (v, was) => (isNum(v) ? clampNum(v, 0, 100) : isNum(was) ? Number(was) : 50);
+    item.storyPanX = pan(req.body.storyPanX, item.storyPanX);
+    item.storyPanY = pan(req.body.storyPanY, item.storyPanY);
     store.saveDb();
     res.json({ item });
   });

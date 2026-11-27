@@ -12,6 +12,62 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.40.0: Rewind from Passed, a rewindable Skip, a faster Chats, and guard rails
+
+From the Nov 27 audit (room #1442), Damiana's Rewind and Skip reports (room #1409 and #1411, specced by Quill #1410,
+#1412 and #1415), and Arjang's Chats list (room #1445). No field is dropped or renamed. One optional field is new.
+
+### Covers: Rewind and Skip
+
+| Action | What a port needs |
+| --- | --- |
+| `POST /api/items/:id/skip` | Now also answers `previous: { reviewOrderAt, skippedAt }`, each a number or null, read before the cover moves. A port with no skip mark answers `skippedAt: null`. |
+| `POST /api/items/:id/unskip` (new) | Body `{ previous }` as skip answered it. Only a cover with status queue (else 409). Sets `reviewOrderAt` back (null means no review time) and the skip mark back. 400 when a value isn't a time or null. Answers `{ item }`. |
+| `POST /api/items/rewind` (new) | No body. Picks the cover with status rejected and the latest `decidedAt` (then the highest id), sets status queue, `decidedAt` null, a review time in front of every queued cover (`frontTimes(1)`, the original's `frontQueueTimes`), clears the skip mark. Answers `{ item, passedLeft }`. With none passed: 409 `{ error: "Passed is empty. There's no cover to bring back.", empty: true }`. Guard on status rejected, so two presses at once can't return one cover twice. |
+| `POST /api/items/:id/decide` and `/rate` | A rating that isn't a number is refused with 400 before anything changes. |
+
+The page: Rewind takes back her latest swipe or skip from this visit first. With none left (after a reload, after a
+list switch, inside Passed) it calls `/api/items/rewind`. The button is on whenever Passed has a cover
+(`status.counts.rejected`), and with nothing to bring back it stays pressable and says so. A skip is a step Undo up
+top takes back too. With the queue clear and covers in Passed, the empty screen offers the same bring-back.
+
+### Chats: the light list, whole threads on open, pulls on their own
+
+| Action | What a port needs |
+| --- | --- |
+| `dm_listitems` | New optional args `light: true` and `since`. With `light`, each item carries `light: true`, `thread_count`, and `thread_messages` cut to the thread's end: from the latest message that isn't a reaction to the last message (at most 6). With `light` and filter `all` the answer also has `cursor`, `removed` (ids deleted since) and `full`. With `since` set to a cursor this copy gave, `items` holds only chats that changed since then and `full` is false. Any other `since` answers the whole light list with `full: true`. Without `light` the answer is exactly as before, and the page falls back to that when no `cursor` comes back. A ported space can track changes with an updated-at column and keep the cursor as that time. |
+| `dm_getthread` (new) | `{ id }` answers `{ id, thread_messages }`, the whole thread. Read only. |
+| `dm_syncwanted` | Now also starts a pull on its own: when none is in flight and the last one (done or failed) is `auto_every_ms` old (5 minutes; `COVER_REVIEW_DM_SYNC_AUTO_MS`), it stamps `askedAt` and answers `wanted: true, auto: true`. So a Muse that checks in on a schedule keeps the inbox current with no tap on Refresh. |
+| `dm_getsync` | Also answers `muse_seen_at` (when her Muse last read syncwanted), `auto_every_ms` and `auto`. The page says when her Muse last checked once a sync is old. |
+| Draft prompt | Reads the last 25 messages (was 10) and, for a DM, adds one line allowing a callback to an earlier detail. |
+
+The page: Chats opens on DMs. A long list draws 60 rows and more as she scrolls. A comment tapped in the inbox opens
+its post with that comment's reply open. Draft sits next to Send in a chat. In Advanced, the drafted texts are
+numbered and edited in place, and the same text changes in the chat. Copy into composer copies the texts as they
+stand, and sending the composer's text back takes the place of the drafts it came from. New Tailwind classes are in
+`client/src/dm/dm-tw.css` (rebuilt with `node scripts/dm-css.mjs`).
+
+### Guard rails (this app's own server; a ported space has its platform's)
+
+`server/safety.js` is new. A route that fails after an await answers JSON and the app keeps running. Every error is
+JSON in plain words, with no stack trace. Uploads take photos and videos only, and files under `/uploads` and
+`/api/library` are sent sandboxed, anything that isn't a photo, a video or audio as a download. A photo kept at
+another address is fetched from the public internet only (`COVER_REVIEW_PHOTO_ORIGINS` lets a Muse name a local
+address it serves photos from). Sessions not seen for 400 days are let go, an account keeps its 40 most recent, and
+sign-ins are capped at 60 a minute per address (`COVER_REVIEW_SIGNIN_LIMIT`). Signed out, `GET /api/update` leaves out
+`savedPatch`. The bee and the wordmark are restored at start when they're missing.
+
+| Where | Change |
+| --- | --- |
+| server/safety.js | new: `catchAsync`, `errorHandler`, `photoHeaders`, `uploadFilter`, `fetchPhoto`, `signInLimit` |
+| server/index.js | the guard rails wired in; `skip` answers `previous`; `unskip` and `rewind` |
+| server/accounts.js | `prune` |
+| server/dm.js | `lightList`, `threadTail`, `getthread`, pulls on their own in `syncwanted`, the draft prompt |
+| server/full.js, server/pollen.js | `fetchPhoto` for photos at another address; ratings and story framing checked |
+| client/src/App.jsx, CoverDetails.jsx, styles.css | Rewind and Skip; 44 px press areas; the caption's label |
+| client/src/dm/App.jsx, dmApi.js, dm-tw.css | the Chats changes above |
+| scripts/smoke.mjs, scripts/accounts-test.mjs | checks for all of the above |
+
 ## 1.39.0: a two-finger trackpad swipe on a computer
 
 Arjang via Rose #1383, specced by Quill #1384. Client only: no server route, no field, no row.

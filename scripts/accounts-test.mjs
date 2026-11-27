@@ -319,6 +319,27 @@ try {
     assert(out === JSON.stringify(["", "alice", "con", "lpt1.studio"]), `spaces: ${out}`);
   });
 
+  await check("v1.40 sessions that can't come back are let go, an account keeps its 40 most recent, and sign-ins from one address are capped", async () => {
+    await withCopy(4368, (dir) => {
+      const old = new Date(Date.now() - 401 * 24 * 60 * 60 * 1000).toISOString();
+      writeFileSync(join(dir, "accounts.json"), JSON.stringify({ accounts: [{ handle: "keeper", createdAt: old, owner: true }],
+        sessions: [{ tokenHash: "a".repeat(64), handle: "keeper", createdAt: old, lastSeenAt: old }], restrictSignups: false }));
+    }, async (at, dir) => {
+      const read = () => JSON.parse(readFileSync(join(dir, "accounts.json"), "utf8"));
+      assert(read().sessions.length === 0, "a session not seen for longer than its cookie lasts is gone at start");
+      const tokens = [];
+      for (let i = 0; i < 45; i++) tokens.push((await (await fetch(`${at}/api/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ handle: "keeper" }) })).json()).token);
+      assert(read().sessions.length === 40, `an account keeps 40 sessions: ${read().sessions.length}`);
+      const oldest = await fetch(`${at}/api/items`, { headers: { Authorization: `Bearer ${tokens[0]}` } });
+      const newest = await fetch(`${at}/api/items`, { headers: { Authorization: `Bearer ${tokens[44]}` } });
+      assert(oldest.status === 401 && newest.ok, `the oldest is signed out, the newest works: ${oldest.status} ${newest.status}`);
+      let last = null;
+      for (let i = 0; i < 20; i++) last = await fetch(`${at}/api/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ handle: "keeper" }) });
+      const body = await last.json();
+      assert(last.status === 429 && /Wait a minute/.test(body.error) && last.headers.get("retry-after"), `past 60 a minute it says to wait: ${last.status}`);
+      assert((await fetch(`${at}/api/items`, { headers: { Authorization: `Bearer ${tokens[44]}` } })).ok, "someone already signed in keeps working");
+    });
+  });
   await check("v1.15 accounts and their data never go into git: data/accounts.json and every account's folder are ignored", async () => {
     const root = new URL("../", import.meta.url).pathname;
     for (const f of ["data/accounts.json", "data/accounts/someone/db.json", "data/accounts/someone/uploads/x.png", "data/accounts/someone/settings.json"]) {

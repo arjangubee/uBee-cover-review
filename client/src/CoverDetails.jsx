@@ -16,7 +16,9 @@ export function SwipeRow({ item, intent, busy, canRewind, onRewind, onNope, onLi
   const side = (s, name) => ["swipeBtn", "big", name, dir === s && (leading ? "lead" : "pop")].filter(Boolean).join(" ");
   return (
     <div className={leading ? "swipeRow leading" : "swipeRow"} role="toolbar" aria-label="Decide">
-      <button type="button" className="swipeBtn rewind" onClick={onRewind} disabled={!canRewind} aria-label="Rewind: bring back the last cover you swiped">
+      {/* 1.40.0: with nothing to bring back it stays tappable and says so, so it never just sits there dim (Quill #1412c). */}
+      <button type="button" className="swipeBtn rewind" onClick={onRewind} aria-disabled={!canRewind}
+        aria-label={canRewind ? "Rewind: take back your last swipe or skip, or bring back the last cover you passed on" : "Rewind: nothing to bring back, Passed is empty"}>
         <Icon name="undo" size={24} />
       </button>
       <button type="button" className={side(-1, "nope")} onClick={onNope} disabled={busy} aria-label="Pass on this cover" aria-pressed={item.status === "rejected"}>
@@ -252,7 +254,7 @@ export function CaptionRow({ item, ctas = [], onCta, onCtaLine, onSave, onRedo, 
             </div>
           </form>
         ) : (
-          <button type="button" className="captionText" onClick={() => setEditing(true)} aria-label="Edit the caption">{shown || "No caption yet"}</button>
+          <button type="button" className="captionText" onClick={() => setEditing(true)} aria-label={`Caption: ${shown || "none yet"}. Tap to edit it`}>{shown || "No caption yet"}</button>
         )}
       </div>
     </div>
@@ -349,7 +351,7 @@ export function RateQuality({ item, onRate, onSwap, onRestore, searchPhotos }) {
       <Ratings item={item} onRate={onRate} />
       <dl>{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
       <form className="swapRow" onSubmit={async (e) => { e.preventDefault(); setResults(await searchPhotos(q)); }}>
-        <input className="field" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Swap the photo: search by name" aria-label="Search your photos by name" />
+        <input className="field" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Swap the photo by name" aria-label="Search your photos by name" />
         <button type="submit" className="linkBtn">Search</button>
       </form>
       {results.length > 0 && (
@@ -408,7 +410,7 @@ export function BrandFoot() {
   return (
     <footer className="brandFoot">
       <span className="rule" aria-hidden="true" />
-      <img src="/brand/ubee-wordmark-chartreuse.png" alt="ubee" className="wordmark" />
+      <img src="/brand/ubee-wordmark-chartreuse.png" alt="uBee" className="wordmark" />
       <span className="rule" aria-hidden="true" />
     </footer>
   );

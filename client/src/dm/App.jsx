@@ -811,7 +811,8 @@ export function App() {
     queryKey: ["sync"],
     queryFn: () => api.dm_getsync({}),
     refetchOnWindowFocus: true,
-    refetchInterval: (query) => (query.state.data?.state === "syncing" ? 3_000 : false),
+    // 1.40.0: once a minute at rest too, so a pull her Muse started on its own shows up without a tap.
+    refetchInterval: (query) => (query.state.data?.state === "syncing" ? 3_000 : 60_000),
     refetchIntervalInBackground: false,
   });
   const sync = syncQuery.data ?? null;
@@ -823,9 +824,22 @@ export function App() {
     wasSyncing.current = syncing;
   }, [syncing, queryClient]);
 
+  // 1.40.0 (Arjang #1445): the list is light (each thread's end only), and after the first load each refresh asks only
+  // for what changed since the cursor it holds. A chat that didn't change keeps the same object, so its row isn't drawn
+  // again. A server from before 1.40.0 answers every chat whole, with no cursor, and that still works as it did.
+  const inbox = useRef({ cursor: null, map: new Map() });
   const itemsQuery = useQuery({
     queryKey: ["items", "all"],
-    queryFn: () => api.dm_listitems({ filter: "all" }),
+    queryFn: async () => {
+      const held = inbox.current;
+      const r = await api.dm_listitems({ filter: "all", light: true, ...(held.cursor ? { since: held.cursor } : {}) });
+      if (typeof r.cursor !== "string") return r;
+      if (r.full) held.map = new Map();
+      for (const it of r.items) held.map.set(it.id, it);
+      for (const id of r.removed || []) held.map.delete(id);
+      held.cursor = r.cursor;
+      return { items: [...held.map.values()].sort((x, y) => x.id - y.id), stats: r.stats };
+    },
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     // Every 30 seconds, and every 5 while a pull, a draft, a send or an edit is waiting on Muse.
@@ -886,6 +900,10 @@ export function App() {
     if (sync?.last_synced_at) {
       const r = sync.last_result;
       const what = r ? ` · ${r.imported} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} skipped` : ""}` : "";
+      // 1.40.0 (Arjang #1445): an old sync says why. Chats stay current only while her Muse checks in for pulls.
+      const old = Date.now() - Date.parse(sync.last_synced_at) > Math.max(3 * (sync.auto_every_ms || 300_000), 900_000);
+      const museQuiet = sync.muse_seen_at && Date.now() - Date.parse(sync.muse_seen_at) > 900_000;
+      if (old && museQuiet) return `Last synced with Instagram ${syncedAgo(sync.last_synced_at)}. Your Muse last checked for a sync ${syncedAgo(sync.muse_seen_at)}, so Chats may be behind`;
       return `Synced with Instagram ${syncedAgo(sync.last_synced_at)}${what}`;
     }
     if (justRefreshed) return "Refreshed ✓ · you're up to date";
@@ -1335,6 +1353,32 @@ function InboxRow({
 // the review card below the list, as before)
 // ---------------------------------------------------------------------------
 
+/** A long list drawn a part at a time (1.40.0, Arjang #1445): the first rows now, the next ones as she nears the end.
+ *  Thousands of chats used to be drawn at once, which is most of what made Chats slow. */
+function useShownRows(total, step = 60) {
+  const [n, setN] = useState(step);
+  const end = useRef(null);
+  useEffect(() => {
+    const el = end.current;
+    if (!el || n >= total || typeof IntersectionObserver !== "function") return undefined;
+    const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) setN((v) => v + step); }, { rootMargin: "900px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [n, total, step]);
+  return { n: Math.min(n, total), more: n < total, end, showMore: () => setN((v) => v + step) };
+}
+function MoreRows({ shown, total }) {
+  if (!shown.more) return null;
+  return (
+    <li ref={shown.end} className="px-4 py-3 text-center sm:px-0">
+      <button type="button" onClick={shown.showMore} className="min-h-[44px] rounded-full px-4 text-sm font-semibold"
+        style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+        Show more ({total - shown.n} more)
+      </button>
+    </li>
+  );
+}
+
 function PracticeView({
   items,
   stats,
@@ -1345,9 +1389,8 @@ function PracticeView({
   onRefresh,
   isRefreshing,
 }) {
-  const [kindFilter, setKindFilter] = useState(
-    "all",
-  );
+  // 1.40.0 (Arjang #1445): Chats opens on DMs. Comments are one tap away, and All shows both.
+  const [kindFilter, setKindFilter] = useState("dm");
   const [search, setSearch] = useState("");
   const [chatOpen, setChatOpen] = useRemembered("chatOpen", false);
   // Big Edit #21 and #22.2: Chats opens on Needs Reply, every chat still waiting for her answer, read or not. Needs
@@ -1400,6 +1443,10 @@ function PracticeView({
     onSelect(item.id);
     if (!item.build_read_at) markReadMutation.mutate(item.id);
     if (item.kind === "dm") setChatOpen(true);
+    else {
+      setFocusComment(item.id);
+      setOpenPost(item.media_id || "none");
+    }
   };
   const handleMove = (item, section) =>
     sectionMutation.mutate({ id: item.id, section });
@@ -1437,6 +1484,10 @@ function PracticeView({
   }, [baseFiltered, mailView, needsReplyOn]);
   const mainList = lists.main;
   const generalList = lists.general;
+  const shownMain = useShownRows(mainList.length);
+  const shownGeneral = useShownRows(generalList.length);
+  // 1.40.0 (Arjang #1445): a comment tapped in the inbox opens its post with that comment's reply ready to write.
+  const [focusComment, setFocusComment] = useState(null);
   // Comments by post (Big Edit #23): every comment under a post, whatever the toggles, so none is hidden.
   const posts = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -1506,8 +1557,8 @@ function PracticeView({
     );
   }
 
-  if (shownPost && kindFilter === "comment") {
-    return <PostView key={shownPost.key} post={shownPost} onBack={() => setOpenPost(null)} />;
+  if (shownPost) {
+    return <PostView key={shownPost.key} post={shownPost} focusId={focusComment} onBack={() => { setOpenPost(null); setFocusComment(null); }} />;
   }
 
   if (chatOpen && selected && selected.kind === "dm") {
@@ -1675,17 +1726,18 @@ function PracticeView({
       ) : (
         <>
       <ul className="mt-2">
-        {mainList.map((item) => (
+        {mainList.slice(0, shownMain.n).map((item) => (
           <InboxRow
             key={item.id}
             item={item}
-            isSelected={selected?.id === item.id && item.kind === "comment"}
+            isSelected={false}
             onOpen={handleOpen}
             onMove={handleMove}
             onDismiss={handleDismiss}
             showFolder={mailView}
           />
         ))}
+        <MoreRows shown={shownMain} total={mainList.length} />
       </ul>
       {mainList.length > 0 && (
         <p className="px-4 pt-2 pb-1 text-xs text-[var(--dim)] sm:px-0">
@@ -1725,18 +1777,17 @@ function PracticeView({
             Chats Instagram keeps in General stay. Swipe left to move one back now.
           </p>
           <ul className="mt-2">
-            {generalList.map((item) => (
+            {generalList.slice(0, shownGeneral.n).map((item) => (
               <InboxRow
                 key={item.id}
                 item={item}
-                isSelected={
-                  selected?.id === item.id && item.kind === "comment"
-                }
+                isSelected={false}
                 onOpen={handleOpen}
                 onMove={handleMove}
                 onDismiss={handleDismiss}
               />
             ))}
+            <MoreRows shown={shownGeneral} total={generalList.length} />
           </ul>
         </>
       )}
@@ -1908,7 +1959,7 @@ function PostEmbed({ url }) {
   );
 }
 
-function PostView({ post, onBack }) {
+function PostView({ post, onBack, focusId = null }) {
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
   const [captionOpen, setCaptionOpen] = useState(false);
@@ -2012,7 +2063,7 @@ function PostView({ post, onBack }) {
               </div>
               <ul className="mt-1">
                 {list.map((c) => (
-                  <CommentRow key={c.id} item={c} />
+                  <CommentRow key={c.id} item={c} focused={c.id === focusId} />
                 ))}
               </ul>
             </div>
@@ -2064,7 +2115,7 @@ function ReplyLinks({ className = "" }) {
 
 /** One comment and her side of it: her sent reply (each line editable on Instagram), her reply on Instagram, her draft
  *  (tap to edit, kept), Muse drafting, or Reply. */
-function CommentRow({ item }) {
+function CommentRow({ item, focused = false }) {
   const queryClient = useQueryClient();
   const handle = handleOf(item);
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["items"] });
@@ -2145,11 +2196,19 @@ function CommentRow({ item }) {
   useEffect(() => {
     if (editing && !text && draft) setText(draft); // the draft that was being written lands in the editor
   }, [editing, draft]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 1.40.0 (Arjang #1445): the comment she tapped in the inbox comes into view under its post, with its reply open.
+  const rowRef = useRef(null);
+  useEffect(() => {
+    if (!focused) return undefined;
+    openComment();
+    const t = window.setTimeout(() => rowRef.current?.scrollIntoView({ block: "center" }), 120);
+    return () => window.clearTimeout(t);
+  }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps
   const buttonClass = "rounded-full px-3.5 py-1.5 text-sm font-semibold disabled:opacity-60";
   const quietButton = { background: "var(--surface)", border: "1px solid var(--border)" };
 
   return (
-    <li className="px-4 py-3 sm:px-0">
+    <li ref={rowRef} className="px-4 py-3 sm:px-0" style={focused ? { background: "var(--surface)", borderRadius: 16 } : undefined}>
       <div className="flex items-start gap-2.5">
         <Avatar handle={handle} size={34} />
         <div className="min-w-0 flex-1">
@@ -3139,6 +3198,18 @@ function ChatView({
     } else if (opened.wanted && !item.draft_wanted) invalidate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openQuery.data]);
+  // 1.40.0: the list carries only the end of each thread, so an open chat reads its whole thread here, and again when
+  // the end changes (a sync brought their new message). Until it lands, the end she already has shows.
+  const tailEnd = item.thread_messages[item.thread_messages.length - 1];
+  const threadQuery = useQuery({
+    queryKey: ["thread", item.id, item.thread_count ?? 0, tailEnd?.at ?? "", tailEnd?.text ?? ""],
+    queryFn: () => api.dm_getthread({ id: item.id }),
+    enabled: item.light === true,
+    staleTime: Infinity,
+    retry: 1,
+    placeholderData: (prev) => prev,
+  });
+  const wholeThread = item.light === true && Array.isArray(threadQuery.data?.thread_messages) ? threadQuery.data.thread_messages : item.thread_messages;
   // This draft predates the current voice and will not be auto-refreshed:
   // it is reviewed or already sent, so it only changes if she taps
   // "Regenerate with current voice" in Advanced.
@@ -3355,18 +3426,29 @@ function ChatView({
     window.setTimeout(() => setCopiedWhich(null), 2000);
   };
 
+  // 1.40.0 (Arjang #1445): both copy the texts as they stand now, her edits included.
+  const draftNow = () => {
+    const now = lines.filter((l) => !l.sent).map((l) => l.text).filter((t) => t.trim() !== "").join("\n");
+    return now || item.draft_text || "";
+  };
   const handleCopyDraft = async () => {
-    if (!item.draft_text) return;
-    if (await copyToClipboard(item.draft_text)) flashCopied("draft");
+    const textNow = draftNow();
+    if (!textNow) return;
+    if (await copyToClipboard(textNow)) flashCopied("draft");
   };
 
+  // The drafts the composer was loaded from. When she sends the composer's text back in, it takes their place: a draft
+  // she edited never stays behind as a dashed draft next to its edited copy.
+  const composerFrom = useRef([]);
   const handleCopyIntoComposer = async () => {
-    if (!item.draft_text) return;
-    await copyToClipboard(item.draft_text);
-    setComposer(item.draft_text);
+    const textNow = draftNow();
+    if (!textNow) return;
+    await copyToClipboard(textNow);
+    composerFrom.current = lines.filter((l) => !l.sent).map((l) => l.id);
+    setComposer(textNow);
     flashCopied("into");
     composerRef.current?.focus();
-    showToast("Draft is in the composer. The send arrow adds it as your texts");
+    showToast("The drafts are in the composer. The send arrow puts your edit in their place");
   };
 
   const handleSaveAdvanced = () => {
@@ -3385,6 +3467,18 @@ function ChatView({
   // ---- Stage flow -------------------------------------------------------
 
   const approvedLines = lines.filter((l) => l.stage === 2 && !l.sent);
+  // 1.40.0 (Arjang #1445): the texts not sent yet, in order. The editor in Advanced numbers them and edits them in place.
+  const unsentLines = lines.filter((l) => !l.sent);
+  const editLineInPlace = (id, value) => {
+    const next = value.replace(/\n/g, " ");
+    setLines((prev) => prev.map((l) => (l.id === id && !l.sent ? { ...l, text: next } : l)));
+    setSaved(false);
+    setWorkDirty(true);
+  };
+  // A text emptied in the editor is taken out when she leaves it, so no blank draft is left behind.
+  const tidyLine = (id) => {
+    setLines((prev) => prev.filter((l) => l.id !== id || l.sent || l.text.trim() !== "").map((l) => (l.id === id && !l.sent ? { ...l, text: l.text.trim() } : l)));
+  };
   const approvedText = approvedLines.map((l) => l.text).join("\n");
 
   const toggleStage = (id) => {
@@ -3473,8 +3567,10 @@ function ChatView({
       .map((s) => s.trim())
       .filter((s) => s !== "");
     if (parts.length === 0) return;
+    const replaced = composerFrom.current;
+    composerFrom.current = [];
     setLines((prev) => [
-      ...prev,
+      ...prev.filter((l) => l.sent || !replaced.includes(l.id)),
       ...parts.map((text) => ({ id: nextLineId(), text, stage: 1  })),
     ]);
     setComposer("");
@@ -3608,7 +3704,7 @@ function ChatView({
   // (that share renders as its card above the incoming bubble); and
   // anything after it, her sent reply and their later activity, which
   // drive the reaction on her bubble and the Seen receipt.
-  const threadWindow = item.thread_messages.slice(-10);
+  const threadWindow = wholeThread.slice(-10);
   const isShareKind = (k) =>
     k === "share_post" || k === "share_reel" || k === "share_story";
   let anchor = -1;
@@ -4277,14 +4373,43 @@ function ChatView({
               <div className="mt-4">
                 <h3 className="text-[13px] font-semibold tracking-wide text-[var(--dim)]">
                   Muse's draft
+                  {unsentLines.length > 0 && (
+                    <span className="font-normal"> · {unsentLines.length} {unsentLines.length === 1 ? "text" : "texts"}</span>
+                  )}
                 </h3>
-                {item.draft_text ? (
+                {item.draft_text || unsentLines.length > 0 ? (
                   <>
-                    <div className="mt-2 rounded-2xl bg-[var(--surface-alt)] px-3.5 py-2.5">
-                      <p className="whitespace-pre-line text-base leading-relaxed">
-                        {item.draft_text}
-                      </p>
-                    </div>
+                    {unsentLines.length > 0 ? (
+                      <ol className="mt-2 space-y-1.5" aria-label="Drafted texts, in the order they send">
+                        {unsentLines.map((l, n) => (
+                          <li key={l.id} className="flex items-start gap-2">
+                            <span
+                              aria-hidden="true"
+                              className="mt-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[13px] font-bold tabular-nums"
+                              style={{ background: "var(--surface-alt)", color: "var(--dim)" }}
+                            >
+                              {n + 1}
+                            </span>
+                            <textarea
+                              value={l.text}
+                              onChange={(e) => editLineInPlace(l.id, e.target.value)}
+                              onBlur={() => tidyLine(l.id)}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
+                              rows={Math.max(1, Math.ceil(l.text.length / 34))}
+                              maxLength={2000}
+                              aria-label={`Text ${n + 1} of ${unsentLines.length}${l.stage === 2 ? ", approved" : ", draft"}. Edit it here`}
+                              className="min-h-[44px] w-full resize-none rounded-2xl bg-[var(--surface-alt)] px-3.5 py-2.5 text-base leading-relaxed outline-none"
+                              style={{ border: l.stage === 2 ? "1.5px solid transparent" : "1.5px dashed var(--border)" }}
+                            />
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <p className="mt-2 text-sm text-[var(--dim)]">Every text was taken out. Draft again, or type your own in the composer.</p>
+                    )}
+                    {unsentLines.length > 0 && (
+                      <p className="mt-1.5 text-[13px] text-[var(--dim)]">Tap a text to edit it. The same text changes in the chat above.</p>
+                    )}
                     <div className="mt-2.5 flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -4761,6 +4886,20 @@ function ChatView({
               Practice only. You already replied to this one on Instagram.
             </p>
           ) : (
+            <div className="mx-3 mt-2 flex items-stretch gap-2">
+            {/* 1.40.0 (Arjang #1445): Draft sits next to Send. With nothing drafted it asks for a reply from the
+                conversation so far; with drafts there, it asks for a new one. Nothing sends from it. */}
+            <button
+              type="button"
+              onClick={() => draftMutation.mutate(item.draft_text ? "again" : "fresh")}
+              disabled={drafting || publishing}
+              aria-label={drafting ? draftLabel : unsentCount > 0 ? "Draft again: ask for a new reply in your voice" : "Draft a reply in your voice from this conversation"}
+              className="flex min-h-[48px] min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full px-5 text-base font-bold disabled:opacity-50"
+              style={{ background: "#f5f5f5", color: "#000" }}
+            >
+              <IconSparkle size={16} />
+              {drafting ? "Drafting…" : unsentCount > 0 ? "Redraft" : "Draft"}
+            </button>
             <button
               type="button"
               onClick={handleSendTap}
@@ -4770,7 +4909,7 @@ function ChatView({
                   ? `Send ${approvedLines.length} approved texts to ${handle} on Instagram`
                   : "Send: approve at least one draft first"
               }
-              className="mx-3 mt-2 flex w-[calc(100%-1.5rem)] items-center justify-center gap-2 rounded-full py-3 text-base font-bold text-white disabled:opacity-40"
+              className="flex min-h-[48px] min-w-0 flex-1 items-center justify-center gap-2 rounded-full py-3 text-base font-bold text-white disabled:opacity-40"
               style={{ background: "var(--accent)" }}
             >
               <IconSend size={18} />
@@ -4780,6 +4919,7 @@ function ChatView({
                   ? `Send ${approvedLines.length} approved ${approvedLines.length === 1 ? "text" : "texts"}`
                   : "Send"}
             </button>
+            </div>
           )}
 
           {item.needs_reply && (

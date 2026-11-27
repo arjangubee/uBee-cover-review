@@ -22,7 +22,8 @@
 // it needs a reply at all, when it last moved, and for a comment its post. It also keeps her own inbox split (General),
 // her read mark here, the texts a send left behind, and edits to a line that already went out. Her Muse applies an
 // edit the way it sends: it reads editswanted and reports back with confirmedit.
-import { store } from "./store.js";
+import { createHash, randomUUID } from "node:crypto";
+import { currentSpace, store } from "./store.js";
 import { STORY_PLACEHOLDER, capEndings, isNonMessageText, storyCapture, voiceVersion } from "./dmRules.js";
 
 const KINDS = ["dm", "comment"];
@@ -41,6 +42,11 @@ const EDIT_STATES = ["none", "editing", "edit_failed"];
 const LATEST_MS = 4102444800000; // 2100-01-01: the latest activity time taken, as in the simulator
 // 1.23.0: a pull from Instagram that hasn't reported back in this long is stuck, and Refresh starts a new one.
 const SYNC_STUCK_MS = Number(process.env.COVER_REVIEW_DM_SYNC_STUCK_MS) > 0 ? Number(process.env.COVER_REVIEW_DM_SYNC_STUCK_MS) : 10 * 60_000;
+
+// 1.40.0 (Arjang #1445: the inbox has to stay current on its own). Each time her Muse checks in, a pull is due once the
+// last one is this old, with no tap on Refresh. A pull that failed waits this long before the next try.
+const SYNC_AUTO_MS = Number(process.env.COVER_REVIEW_DM_SYNC_AUTO_MS) > 0 ? Number(process.env.COVER_REVIEW_DM_SYNC_AUTO_MS) : 5 * 60_000;
+const museSeen = new Map(); // when her Muse last read syncwanted, to the second, per account (saved at most hourly)
 
 class DmError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -185,9 +191,21 @@ const iso = (ms) => (ms ? new Date(ms).toISOString() : null);
 const currentVoice = () => voiceVersion(voiceSections());
 /** An item as the page sees it. The sealed reply stays out until it's revealed. A draft written under another version of
  * her voice is stale; a story reply whose words weren't captured says so (1.14.0, Quill #725). */
-function toItem(r, voice = currentVoice()) {
+/** The end of a thread the inbox list reads (1.40.0): from their or her latest message that isn't a reaction to the
+ *  end, so the preview line, the Read chip and Needs Reply all read as they do with the whole thread. */
+function threadTail(thread) {
+  let start = thread.length - 1;
+  while (start > 0 && thread[start].kind === "reaction") start -= 1;
+  const tail = thread.slice(Math.max(0, start));
+  return tail.length > 6 ? [tail[0], ...tail.slice(-5)] : tail;
+}
+
+function toItem(r, voice = currentVoice(), { light = false } = {}) {
   const editStatus = EDIT_STATES.includes(r.editStatus) ? r.editStatus : "none";
+  const thread = cleanThread(r.threadMessages);
   return {
+    // 1.40.0: the inbox list gets each thread's end only (light), with how many messages the whole thread has.
+    ...(light ? { light: true, thread_count: thread.length } : {}),
     id: r.id, kind: r.kind, sender: r.sender, incoming_text: isNonMessageText(r.incomingText) ? "" : r.incomingText, context_text: r.contextText ?? null,
     source: r.source, has_actual: Boolean(r.actualReply && r.actualReply.trim() !== ""),
     actual_reply: r.revealed ? (r.actualReply ?? null) : null,
@@ -195,7 +213,7 @@ function toItem(r, voice = currentVoice()) {
     revision_text: r.revisionText ?? null, feedback: r.feedback ?? null, verdict: r.verdict, revealed: Boolean(r.revealed),
     publish_status: r.publishStatus, published_text: r.publishedText ?? null, publish_error: r.publishError ?? null,
     published_at: iso(r.publishedAt), has_target: Boolean(r.mediaId || r.commentId || r.threadId),
-    thread_messages: cleanThread(r.threadMessages), created_at: iso(r.createdAt), reviewed_at: iso(r.reviewedAt),
+    thread_messages: light ? threadTail(thread) : thread, created_at: iso(r.createdAt), reviewed_at: iso(r.reviewedAt),
     draft_voice_version: r.draftVoiceVersion ?? null, voice_stale: r.draftText != null && r.draftVoiceVersion !== voice,
     story_reply_not_captured: Boolean(r.storyReplyNotCaptured), label: LABELS.includes(r.label) ? r.label : null,
     // 1.22.0: a fact her Muse hasn't synced reads as the simulator's default.
@@ -269,7 +287,8 @@ function draftPrompt(r, mode, variant, direction = null) {
   const labels = { share_post: "shared a post", share_reel: "shared a reel", share_story: "shared a story", reaction: "reacted to a message",
     voice: "sent a voice message", video: "sent a video", call: "had a call", call_missed: "missed a call", generic: "sent a message",
     admin: "sent an admin message" };
-  const history = cleanThread(r.threadMessages).slice(-10).map((m) => {
+  // 1.40.0 (Arjang #1445): a draft reads the last 25 messages, not 10, and may call back to something from earlier.
+  const history = cleanThread(r.threadMessages).slice(-25).map((m) => {
     const who = m.from === "me" ? "the creator" : "Them";
     if (m.kind === "text") return `${who}: ${m.text}`;
     const extra = [m.caption ? `caption: "${m.caption}"` : "", m.text ? `"${m.text}"` : "", m.reply_to ? `in reply to a ${m.reply_to}` : ""].filter(Boolean).join(", ");
@@ -287,6 +306,7 @@ function draftPrompt(r, mode, variant, direction = null) {
     r.sender ? `From: @${r.sender.replace(/^@/, "")}` : "",
     r.contextText ? `Context (post caption or thread so far): ${r.contextText}` : "",
     history ? `Thread so far, oldest first:\n${history}` : "",
+    history && r.kind === "dm" ? "Read the whole thread before you write. Where it fits naturally, call back to a detail from earlier in it (a name, a plan, something they shared, a joke between you). Never force one, and never invent one that isn't there." : "",
     r.storyReplyNotCaptured
       ? "Their message: (They replied to your story, and the words of that reply weren't captured. Don't invent what they said.)"
       : `Their message: ${answeringText(r)}`,
@@ -352,6 +372,8 @@ function syncStatus() {
   return {
     state, asked_at: iso(s.askedAt), last_synced_at: iso(s.lastSyncedAt), last_result: s.lastResult ?? null,
     note: s.note ?? null, last_error: failed ? s.lastError : null, failed_result: failed ? (s.failedResult ?? null) : null,
+    // 1.40.0: when her Muse last checked for a pull, how often a pull is due, and whether this one started on its own.
+    muse_seen_at: iso(museSeen.get(currentSpace()) ?? s.museSeenAt), auto_every_ms: SYNC_AUTO_MS, auto: asking && s.auto === true,
   };
 }
 
@@ -360,6 +382,42 @@ function syncStatus() {
 /** Waiting for her answer: not reviewed yet, on a chat that needs a reply at all (1.22.0, the simulator's count). */
 const isPending = (r) => r.verdict === "pending" && r.needsReply !== false;
 const isReady = (r) => r.verdict !== "pending" && r.source !== "holdout" && (r.publishStatus === "unpublished" || r.publishStatus === "publish_failed");
+
+// 1.40.0 (Arjang #1445: Chats got slow with thousands of chats). The page used to get every chat with its whole thread
+// on every refresh. Now it can ask for the light list, and after the first load only for what changed since the cursor
+// it holds. This server works out what changed by comparing each chat, as the page would see it, with what it last
+// answered. That's kept in memory only: after a restart the cursor is new, and the page loads the list whole once.
+const lightStates = new Map();
+function lightState() {
+  const key = currentSpace();
+  if (!lightStates.has(key)) lightStates.set(key, { epoch: randomUUID().slice(0, 8), rev: 0, rows: new Map(), gone: [], goneFloor: 0 });
+  return lightStates.get(key);
+}
+const GONE_KEPT = 2000;
+function lightList(all, voice, sinceRaw) {
+  const st = lightState();
+  const seen = new Set();
+  const items = [];
+  for (const r of all) {
+    const item = toItem(r, voice, { light: true });
+    const sig = createHash("md5").update(JSON.stringify(item)).digest("base64");
+    const was = st.rows.get(r.id);
+    if (!was || was.sig !== sig) st.rows.set(r.id, { sig, rev: ++st.rev });
+    seen.add(r.id);
+    items.push(item);
+  }
+  for (const id of [...st.rows.keys()]) {
+    if (seen.has(id)) continue;
+    st.rows.delete(id);
+    st.gone.push({ id, rev: ++st.rev });
+  }
+  if (st.gone.length > GONE_KEPT) { const cut = st.gone.splice(0, st.gone.length - GONE_KEPT); st.goneFloor = cut.at(-1).rev; }
+  const m = /^([a-f0-9]{8}):(\d{1,15})$/.exec(typeof sinceRaw === "string" ? sinceRaw : "");
+  const since = m && m[1] === st.epoch && Number(m[2]) <= st.rev && Number(m[2]) >= st.goneFloor ? Number(m[2]) : null;
+  const cursor = `${st.epoch}:${st.rev}`;
+  if (since === null) return { items, removed: [], cursor, full: true };
+  return { items: items.filter((i) => st.rows.get(i.id).rev > since), removed: st.gone.filter((g) => g.rev > since).map((g) => g.id), cursor, full: false };
+}
 
 const actions = {
   listitems(a) {
@@ -380,7 +438,14 @@ const actions = {
       dm: (r) => r.kind === "dm", comment: (r) => r.kind === "comment", ready: isReady, published: (r) => r.publishStatus === "published",
     }[filter];
     const voice = currentVoice();
-    return { items: all.filter(keep).map((r) => toItem(r, voice)), stats };
+    // light: true with every chat (filter "all") answers the light list, and with since, only what changed (1.40.0).
+    if (a.light === true && filter === "all") return { ...lightList(all, voice, a.since), stats };
+    return { items: all.filter(keep).map((r) => toItem(r, voice, { light: a.light === true })), stats };
+  },
+  /** One chat's whole thread (1.40.0): the light list carries only its end, so an open chat reads the rest here. */
+  getthread(a) {
+    const r = find(itemId(a.id));
+    return { id: r.id, thread_messages: cleanThread(r.threadMessages) };
   },
 
   createitem(a) {
@@ -739,7 +804,7 @@ const actions = {
   requestsync() {
     const s = syncState();
     if (!syncWired(s)) return syncStatus();
-    if (!(typeof s.askedAt === "number" && Date.now() - s.askedAt <= SYNC_STUCK_MS)) s.askedAt = Date.now();
+    if (!(typeof s.askedAt === "number" && Date.now() - s.askedAt <= SYNC_STUCK_MS)) { s.askedAt = Date.now(); s.auto = false; }
     return syncStatus();
   },
   /** Where the pull stands, for the page. */
@@ -751,11 +816,16 @@ const actions = {
   syncwanted() {
     const s = syncState();
     // Reading this is how a copy learns its Muse can pull. It's kept, at most once an hour, so a restart keeps it.
-    if (!s.museSeenAt || Date.now() - s.museSeenAt > 3_600_000) {
-      s.museSeenAt = Date.now();
-      store.saveDb();
-    }
-    return { wanted: typeof s.askedAt === "number", asked_at: iso(s.askedAt), since: iso(s.cursor) };
+    const now = Date.now();
+    museSeen.set(currentSpace(), now);
+    let save = false;
+    if (!s.museSeenAt || now - s.museSeenAt > 3_600_000) { s.museSeenAt = now; save = true; }
+    // 1.40.0: a pull is due on its own once the last one (done or failed) is SYNC_AUTO_MS old, and nothing is in flight.
+    const inFlight = typeof s.askedAt === "number" && now - s.askedAt <= SYNC_STUCK_MS;
+    const last = Math.max(s.lastSyncedAt ?? 0, s.lastErrorAt ?? 0);
+    if (!inFlight && now - last >= SYNC_AUTO_MS) { s.askedAt = now; s.auto = true; save = true; }
+    if (save) store.saveDb();
+    return { wanted: typeof s.askedAt === "number", asked_at: iso(s.askedAt), since: iso(s.cursor), auto: s.auto === true, auto_every_ms: SYNC_AUTO_MS };
   },
   /** Her Muse's report: ok with what changed (and a note, such as threads it couldn't read), or why it didn't finish. */
   confirmsync(a) {
@@ -776,6 +846,7 @@ const actions = {
     if (a.ok) Object.assign(s, { cursor: s.askedAt, lastSyncedAt: now, lastResult: result, note: detail || null });
     else Object.assign(s, { lastError: detail || "The pull from Instagram didn't go through.", lastErrorAt: now, failedResult: result });
     s.askedAt = null;
+    s.auto = false;
     return { ok: true };
   },
 
@@ -844,7 +915,7 @@ export function sendParts(textToSend) {
   return lines.map((t, i) => ({ text: t, delay_ms: i === 0 ? 0 : pauseAfter(lines[i - 1]) }));
 }
 
-const READS = new Set(["listitems", "getreplylinks", "exporttraining", "getvoiceprofile", "getaccount", "getvoicesource", "draftswanted", "publishwanted", "editswanted",
+const READS = new Set(["listitems", "getthread", "getreplylinks", "exporttraining", "getvoiceprofile", "getaccount", "getvoicesource", "draftswanted", "publishwanted", "editswanted",
   "getsync", "syncwanted"]);
 const SETTINGS = new Set(["savevoiceprofile", "resetvoiceprofile", "savevoicesource", "savereplylinks"]);
 

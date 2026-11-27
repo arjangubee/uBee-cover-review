@@ -814,8 +814,7 @@ export function App({ active = true }) {
     queryFn: () => api.dm_getsync({}),
     enabled: active,
     refetchOnWindowFocus: true,
-    // 1.40.0: once a minute at rest too, so a pull her Muse started on its own shows up without a tap.
-    refetchInterval: (query) => (!active ? false : query.state.data?.state === "syncing" ? 3_000 : 60_000),
+    refetchInterval: (query) => (active && query.state.data?.state === "syncing" ? 3_000 : false),
     refetchIntervalInBackground: false,
   });
   const sync = syncQuery.data ?? null;
@@ -907,10 +906,10 @@ export function App({ active = true }) {
     if (sync?.last_synced_at) {
       const r = sync.last_result;
       const what = r ? ` · ${r.imported} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} skipped` : ""}` : "";
-      // 1.40.0 (Arjang #1445): an old sync says why. Chats stay current only while her Muse checks in for pulls.
-      const old = Date.now() - Date.parse(sync.last_synced_at) > Math.max(3 * (sync.auto_every_ms || 300_000), 900_000);
-      const museQuiet = sync.muse_seen_at && Date.now() - Date.parse(sync.muse_seen_at) > 900_000;
-      if (old && museQuiet) return `Last synced with Instagram ${syncedAgo(sync.last_synced_at)}. Your Muse last checked for a sync ${syncedAgo(sync.muse_seen_at)}, so Chats may be behind`;
+      // 1.40.0 (Arjang #1445): a sync from hours ago says so, with when her Muse last looked for one.
+      const old = Date.now() - Date.parse(sync.last_synced_at) > 3 * 3_600_000;
+      const museQuiet = sync.muse_seen_at && Date.now() - Date.parse(sync.muse_seen_at) > 3_600_000;
+      if (old && museQuiet) return `Last full sync with Instagram ${syncedAgo(sync.last_synced_at)}. Your Muse last looked for one ${syncedAgo(sync.muse_seen_at)}`;
       return `Synced with Instagram ${syncedAgo(sync.last_synced_at)}${what}`;
     }
     if (justRefreshed) return "Refreshed ✓ · you're up to date";

@@ -31,14 +31,14 @@ list switch, inside Passed) it calls `/api/items/rewind`. The button is on whene
 (`status.counts.rejected`), and with nothing to bring back it stays pressable and says so. A skip is a step Undo up
 top takes back too. With the queue clear and covers in Passed, the empty screen offers the same bring-back.
 
-### Chats: the light list, whole threads on open, pulls on their own
+### Chats: the light list, whole threads on open, mirroring on arrival
 
 | Action | What a port needs |
 | --- | --- |
 | `dm_listitems` | New optional args `light: true` and `since`. With `light`, each item carries `light: true`, `thread_count`, and `thread_messages` cut to the thread's end: from the latest message that isn't a reaction to the last message (at most 6). With `light` and filter `all` the answer also has `cursor`, `removed` (ids deleted since) and `full`. With `since` set to a cursor this copy gave, `items` holds only chats that changed since then and `full` is false. Any other `since` answers the whole light list with `full: true`. Without `light` the answer is exactly as before, and the page falls back to that when no `cursor` comes back. A ported space can track changes with an updated-at column and keep the cursor as that time. |
 | `dm_getthread` (new) | `{ id }` answers `{ id, thread_messages }`, the whole thread. Read only. |
-| `dm_syncwanted` | Now also starts a pull on its own: when none is in flight and the last one (done or failed) is `auto_every_ms` old (5 minutes; `COVER_REVIEW_DM_SYNC_AUTO_MS`), it stamps `askedAt` and answers `wanted: true, auto: true`. So a Muse that checks in on a schedule keeps the inbox current with no tap on Refresh. |
-| `dm_getsync` | Also answers `muse_seen_at` (when her Muse last read syncwanted), `auto_every_ms` and `auto`. The page says when her Muse last checked once a sync is old. |
+| `dm_importitem` | Unchanged, and it is the intake for mirroring on arrival (Arjang #1452, #1454): one call per DM or comment at the moment it's made, found again by `thread_id` or `comment_id`, safe to repeat. It needs no pull in flight and no `dm_confirmsync`. A comment should come with `media_id`, `media_preview_url` and `media_permalink`, so its post shows on the reply screen. No timer anywhere: a pull is only what Refresh asks for. |
+| `dm_getsync` | Also answers `muse_seen_at`: when her Muse last read `dm_syncwanted`. The page names it when the last full sync is hours old. |
 | Draft prompt | Reads the last 25 messages (was 10) and, for a DM, adds one line allowing a callback to an earlier detail. |
 
 The page: Chats asks the server nothing and runs no clock while Covers or Beeline is showing (`active`, passed from
@@ -64,7 +64,7 @@ sign-ins are capped at 60 a minute per address (`COVER_REVIEW_SIGNIN_LIMIT`). Si
 | server/safety.js | new: `catchAsync`, `errorHandler`, `photoHeaders`, `uploadFilter`, `fetchPhoto`, `signInLimit` |
 | server/index.js | the guard rails wired in; `skip` answers `previous`; `unskip` and `rewind` |
 | server/accounts.js | `prune` |
-| server/dm.js | `lightList`, `threadTail`, `getthread`, pulls on their own in `syncwanted`, the draft prompt |
+| server/dm.js | `lightList`, `threadTail`, `getthread`, `muse_seen_at` in the sync status, the draft prompt |
 | server/full.js, server/pollen.js | `fetchPhoto` for photos at another address; ratings and story framing checked |
 | client/src/App.jsx, CoverDetails.jsx, styles.css | Rewind and Skip; 44 px press areas; the caption's label |
 | client/src/dm/App.jsx, dmApi.js, dm-tw.css | the Chats changes above |

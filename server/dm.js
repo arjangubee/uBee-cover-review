@@ -43,9 +43,8 @@ const LATEST_MS = 4102444800000; // 2100-01-01: the latest activity time taken, 
 // 1.23.0: a pull from Instagram that hasn't reported back in this long is stuck, and Refresh starts a new one.
 const SYNC_STUCK_MS = Number(process.env.COVER_REVIEW_DM_SYNC_STUCK_MS) > 0 ? Number(process.env.COVER_REVIEW_DM_SYNC_STUCK_MS) : 10 * 60_000;
 
-// 1.40.0 (Arjang #1445: the inbox has to stay current on its own). Each time her Muse checks in, a pull is due once the
-// last one is this old, with no tap on Refresh. A pull that failed waits this long before the next try.
-const SYNC_AUTO_MS = Number(process.env.COVER_REVIEW_DM_SYNC_AUTO_MS) > 0 ? Number(process.env.COVER_REVIEW_DM_SYNC_AUTO_MS) : 5 * 60_000;
+// 1.40.0 (Arjang #1445, #1452 and #1454): the inbox mirrors on arrival. Her Muse brings each DM or comment in with
+// importitem at the moment it's made, one chat a call, with no pull and no timer. A pull stays what Refresh asks for.
 const museSeen = new Map(); // when her Muse last read syncwanted, to the second, per account (saved at most hourly)
 
 class DmError extends Error {
@@ -372,8 +371,8 @@ function syncStatus() {
   return {
     state, asked_at: iso(s.askedAt), last_synced_at: iso(s.lastSyncedAt), last_result: s.lastResult ?? null,
     note: s.note ?? null, last_error: failed ? s.lastError : null, failed_result: failed ? (s.failedResult ?? null) : null,
-    // 1.40.0: when her Muse last checked for a pull, how often a pull is due, and whether this one started on its own.
-    muse_seen_at: iso(museSeen.get(currentSpace()) ?? s.museSeenAt), auto_every_ms: SYNC_AUTO_MS, auto: asking && s.auto === true,
+    // 1.40.0: when her Muse last checked for a pull, so the page can say why an old sync is old.
+    muse_seen_at: iso(museSeen.get(currentSpace()) ?? s.museSeenAt),
   };
 }
 
@@ -804,7 +803,7 @@ const actions = {
   requestsync() {
     const s = syncState();
     if (!syncWired(s)) return syncStatus();
-    if (!(typeof s.askedAt === "number" && Date.now() - s.askedAt <= SYNC_STUCK_MS)) { s.askedAt = Date.now(); s.auto = false; }
+    if (!(typeof s.askedAt === "number" && Date.now() - s.askedAt <= SYNC_STUCK_MS)) s.askedAt = Date.now();
     return syncStatus();
   },
   /** Where the pull stands, for the page. */
@@ -818,14 +817,11 @@ const actions = {
     // Reading this is how a copy learns its Muse can pull. It's kept, at most once an hour, so a restart keeps it.
     const now = Date.now();
     museSeen.set(currentSpace(), now);
-    let save = false;
-    if (!s.museSeenAt || now - s.museSeenAt > 3_600_000) { s.museSeenAt = now; save = true; }
-    // 1.40.0: a pull is due on its own once the last one (done or failed) is SYNC_AUTO_MS old, and nothing is in flight.
-    const inFlight = typeof s.askedAt === "number" && now - s.askedAt <= SYNC_STUCK_MS;
-    const last = Math.max(s.lastSyncedAt ?? 0, s.lastErrorAt ?? 0);
-    if (!inFlight && now - last >= SYNC_AUTO_MS) { s.askedAt = now; s.auto = true; save = true; }
-    if (save) store.saveDb();
-    return { wanted: typeof s.askedAt === "number", asked_at: iso(s.askedAt), since: iso(s.cursor), auto: s.auto === true, auto_every_ms: SYNC_AUTO_MS };
+    if (!s.museSeenAt || now - s.museSeenAt > 3_600_000) {
+      s.museSeenAt = now;
+      store.saveDb();
+    }
+    return { wanted: typeof s.askedAt === "number", asked_at: iso(s.askedAt), since: iso(s.cursor) };
   },
   /** Her Muse's report: ok with what changed (and a note, such as threads it couldn't read), or why it didn't finish. */
   confirmsync(a) {
@@ -846,7 +842,6 @@ const actions = {
     if (a.ok) Object.assign(s, { cursor: s.askedAt, lastSyncedAt: now, lastResult: result, note: detail || null });
     else Object.assign(s, { lastError: detail || "The pull from Instagram didn't go through.", lastErrorAt: now, failedResult: result });
     s.askedAt = null;
-    s.auto = false;
     return { ok: true };
   },
 

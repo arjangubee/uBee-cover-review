@@ -21,24 +21,32 @@ import { DATA_DIR, libraryDir, spaceFile, store, uploadsDir } from "./store.js";
 import { accountCount, inSpace, isOwner, ownerOnly, registerAccounts, requireSession, sessionMiddleware } from "./accounts.js";
 import { registerSymphony, startSymphony, symphonyStatus } from "./symphony.js";
 import { createUpdater } from "./update.js";
+import "../scripts/restore-brand.mjs"; // the bee and the wordmark are there even on a copy started without npm run setup (1.40.0)
+import { apiNotFound, baseHeaders, catchAsync, errorHandler, keepRunning, photoHeaders, safeName, signInLimit, uploadFilter } from "./safety.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BOOT = randomUUID(); // changes on every start, so the page can tell the new version is up
 const updater = createUpdater({ root: ROOT, dataDir: DATA_DIR });
 const app = express();
+app.disable("x-powered-by");
+catchAsync(app); // a route that fails after an await answers with an error and the app keeps running (1.40.0)
+keepRunning();
+app.use(baseHeaders);
 app.use(express.json({ limit: "10mb" }));
 // Accounts (1.15.0): who is signed in, and every request after this runs in that account's space. Personal calls and
 // photos need a session; the session, the update status and a health check without personal data answer without one.
 app.use(sessionMiddleware);
 app.use(requireSession);
+app.post("/api/session", signInLimit()); // a cap on sign-ins per address (1.40.0)
 registerAccounts(app);
 
 const multerUpload = multer({
   storage: multer.diskStorage({
     destination: (req, _file, cb) => cb(null, uploadsDir(req.space)), // each account's photos in its own folder (1.15.0)
-    filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[^\w.\-]+/g, "_")}`),
+    filename: (_req, file, cb) => cb(null, `${Date.now()}-${safeName(file.originalname)}`),
   }),
   limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: uploadFilter, // photos and videos only (1.40.0)
 });
 // multer finishes the upload outside the request's space, so the route after it is handed back to the account's space.
 const upload = { single: (f) => inSpace(multerUpload.single(f)), array: (f, n) => inSpace(multerUpload.array(f, n)) };
@@ -165,10 +173,43 @@ app.post("/api/items/:id/skip", (req, res) => {
   if (!item) return res.status(404).json({ error: "item not found" });
   if (item.status !== "queue") return res.status(409).json({ error: "Only a cover in the queue can be skipped." });
   const times = store.db.items.filter((i) => i.status === "queue" && typeof i.reviewOrderAt === "number").map((i) => i.reviewOrderAt);
+  // Where it was (1.40.0, room #1409, Quill #1410): read before it moves, so Rewind can put it back exactly there.
+  const previous = { reviewOrderAt: typeof item.reviewOrderAt === "number" ? item.reviewOrderAt : null, skippedAt: typeof item.skippedAt === "number" ? item.skippedAt : null };
   item.reviewOrderAt = Math.max(Date.now(), ...times) + 1;
   item.skippedAt = Date.now();
   store.saveDb();
+  res.json({ item, previous });
+});
+// Unskip (1.40.0, Quill #1410 and #1415): a skipped cover goes back to the place it had, on the server, so the place holds
+// after a reload. previous is what skip answered: its review time and its skip mark from before, each a number or null.
+// Only a cover still in the queue moves, and nothing else about it changes.
+app.post("/api/items/:id/unskip", (req, res) => {
+  const item = store.getItem(req.params.id);
+  if (!item) return res.status(404).json({ error: "item not found" });
+  if (item.status !== "queue") return res.status(409).json({ error: "Only a cover in the queue can go back to its place." });
+  const was = req.body?.previous ?? {};
+  const time = (v) => (v == null ? null : Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
+  const at = time(was.reviewOrderAt), mark = time(was.skippedAt);
+  if (at === undefined || mark === undefined) return res.status(400).json({ error: "Send previous as skip answered it." });
+  if (at === null) delete item.reviewOrderAt; else item.reviewOrderAt = at;
+  if (mark === null) delete item.skippedAt; else item.skippedAt = mark;
+  store.saveDb();
   res.json({ item });
+});
+// Rewind from Passed (1.40.0, room #1411, Quill #1412): the cover she passed on last comes back to the front of the queue.
+// The server picks it, by when it was passed (then by number), so it works after a reload, after a list switch and from
+// inside Passed, and pressing it again brings back the one before, until Passed is empty. Only a passed cover moves, so
+// two presses at once can't bring the same cover back twice or touch an approved one.
+app.post("/api/items/rewind", (_req, res) => {
+  const passed = store.db.items.filter((i) => i.status === "rejected");
+  const item = passed.sort((a, b) => (b.decidedAt || 0) - (a.decidedAt || 0) || b.id - a.id)[0];
+  if (!item) return res.status(409).json({ error: "Passed is empty. There's no cover to bring back.", empty: true });
+  item.status = "queue";
+  item.decidedAt = null;
+  item.reviewOrderAt = store.frontTimes(1)[0];
+  delete item.skippedAt;
+  store.saveDb();
+  res.json({ item, passedLeft: passed.length - 1 });
 });
 // Search every cover, in every list, by a word or a number (1.33.0, Arjang Nov 26).
 app.get("/api/items/search", (req, res) => {
@@ -192,6 +233,8 @@ app.post("/api/items/:id/decide", (req, res) => {
   if (!item) return res.status(404).json({ error: "item not found" });
   const { decision, rating, note } = req.body || {};
   if (!["approved", "rejected", "queue"].includes(decision)) return res.status(400).json({ error: "decision must be approved, rejected or queue" });
+  // Checked before anything changes (1.40.0): a rating that isn't a number used to save as nothing, without a word.
+  if (rating != null && !Number.isFinite(Number(rating))) return res.status(400).json({ error: "rating must be a number from 1 to 10" });
   item.status = decision;
   item.decidedAt = decision === "queue" ? null : Date.now();
   delete item.skippedAt; // a decided cover, or one sent back to the queue, isn't skipped any more (1.32.0)
@@ -295,7 +338,12 @@ registerPollen(app);
 startPollenSync();
 
 // ---------- Updates: check on start and every 2 minutes; apply at a quiet moment (1.13.10) or on UPDATE NOW ----------
-app.get("/api/update", (_req, res) => res.json({ ...updater.status(), boot: BOOT })); // boot: a page sees the app restart (1.13.10)
+// Signed out, it leaves out where a saved patch sits on this computer (1.40.0): the sign-in screen only needs the rest.
+app.get("/api/update", (req, res) => {
+  const s = { ...updater.status(), boot: BOOT }; // boot: a page sees the app restart (1.13.10)
+  if (!req.account) { s.savedPatch = null; if (s.lastUpdate) s.lastUpdate = { ...s.lastUpdate, savedPatch: null }; }
+  res.json(s);
+});
 // The page's word on her (1.13.10): busy while an editor, a sheet or a text box is open, and how long since her last tap,
 // key, scroll or wheel. The updater waits for a quiet minute before it updates on its own. Odd values only delay it.
 app.post("/api/activity", (req, res) => {
@@ -316,11 +364,14 @@ if (process.env.COVER_REVIEW_NO_UPDATE_LOOP !== "1") updater.start();
 // A photo's address opens only in its own account's space (1.15.0): the same file name in another account isn't there.
 const statics = new Map();
 const staticIn = (dir) => { if (!statics.has(dir)) statics.set(dir, express.static(dir)); return statics.get(dir); };
-app.use("/uploads", (req, res, next) => staticIn(uploadsDir(req.space))(req, res, next));
-app.use("/api/library", (req, res, next) => staticIn(libraryDir(req.space))(req, res, next));
+// Her files are only ever shown as photos, videos or downloads, never run as a page (1.40.0).
+app.use("/uploads", photoHeaders, (req, res, next) => staticIn(uploadsDir(req.space))(req, res, next));
+app.use("/api/library", photoHeaders, (req, res, next) => staticIn(libraryDir(req.space))(req, res, next));
 app.use("/brand", express.static(join(ROOT, "public", "brand")));
 const clientDist = join(ROOT, "client", "dist");
 if (existsSync(clientDist)) app.use(express.static(clientDist));
+app.use("/api", apiNotFound);
+app.use(errorHandler); // last: every failure answers JSON in plain words (1.40.0)
 
 // After an update the new copy starts while the old one is still letting go of the port.
 const port = Number(process.env.PORT || 4173);

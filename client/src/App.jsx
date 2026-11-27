@@ -417,6 +417,14 @@ export default function App() {
     if (ch.remix) item = (await post(`/api/items/${itemId}/remix-fields`, { fields: ch.remix })).item; // a remix on the spot (1.21.0)
     if (ch.slide) item = (await post(`/api/items/${itemId}/slides/${ch.slide.at}/${ch.slide.state === "removed" ? "remove" : "restore"}`)).item;
     for (const sl of ch.slides || []) item = (await post(`/api/items/${itemId}/slides/${sl.at}/${sl.state === "removed" ? "remove" : "restore"}`)).item; // 1.37.0
+    // A skip, taken back or made again (1.40.0, Quill #1410): the server moves the cover, so its place holds after a reload.
+    if (ch.unskip || ch.skip) {
+      if (ch.unskip) await post(`/api/items/${itemId}/unskip`, { previous: ch.unskip });
+      else await post(`/api/items/${itemId}/skip`, {});
+      if (ch.unskip && list === "queue") pendingId.current = itemId; // it's back in its place: go to it
+      await load({ keep: Boolean(ch.skip) });
+      return null;
+    }
     if (ch.status) {
       await post(`/api/items/${itemId}/decide`, { decision: ch.status });
       if (ch.status === list) pendingId.current = itemId; // it's back in this list: go to it
@@ -546,12 +554,56 @@ export default function App() {
     setEnterFrom({ id: item.id, dir });
   }
   // Rewind (1.34.0, Tinder's yellow arrow): her last swipe in this list that Undo up top hasn't taken back already.
+  // 1.40.0 (room #1409 and #1411, Quill #1410, #1412 and #1415): the latest thing she did comes back first. A skip goes
+  // back to the place it had. With no swipe or skip left from this visit (after a reload, after a list switch, inside
+  // Passed), the server brings back the cover she passed on last, to the front of the queue, again and again until
+  // Passed is empty. So the button works whenever Passed has a cover, and says so when it has none.
   const rewindable = () => [...swipes.current].reverse().find((e) => history.current.includes(e)) || null;
+  const passedCount = status?.counts?.rejected ?? 0;
+  const canRewind = Boolean(rewindable()) || passedCount > 0;
   const rewinding = useRef(false);
+  async function rewindSkip(entry) {
+    rewinding.current = true;
+    const at = history.current.remove(entry);
+    swipes.current = swipes.current.filter((x) => x !== entry);
+    bumpHistory();
+    try {
+      await applyChange(entry.itemId, entry.before);
+      say("Back in its place.");
+    } catch (e) {
+      history.current.insert(entry, at);
+      swipes.current.push(entry);
+      bumpHistory();
+      say(`Couldn't rewind that: ${e.message}`);
+    } finally { rewinding.current = false; }
+  }
+  async function rewindPassed() {
+    rewinding.current = true;
+    inFlight.current += 1;
+    try {
+      const { item, passedLeft } = await post("/api/items/rewind", {});
+      setStatus((s) => (s?.counts ? { ...s, counts: { ...s.counts, rejected: passedLeft, queue: (s.counts.queue || 0) + 1 } } : s));
+      if (list === "queue") bringBack(item, -1); // it flies back in from the left, the side a pass leaves by
+      else {
+        // In Passed, it leaves the list she's looking at, and the next cover takes its spot.
+        const left = itemsNow.current.filter((i) => i.id !== item.id).length;
+        setItems((prev) => prev.filter((i) => i.id !== item.id));
+        setIndex((i) => Math.max(0, Math.min(i, left - 1)));
+      }
+      say(`${displayTitle(item.title) || "The cover"} is back, at the front of the queue.`);
+    } catch (e) {
+      say(/Passed is empty/.test(e.message) ? e.message : `Couldn't rewind: ${e.message}`);
+    } finally {
+      rewinding.current = false;
+      settle();
+    }
+  }
+  const rewindEmpty = () => say("Nothing to bring back. Passed is empty.");
   async function rewind() {
     if (rewinding.current || draft || enterFrom || stageApi.current?.busy?.()) return;
     const entry = rewindable();
-    if (!entry) return;
+    if (entry?.skip) { await rewindSkip(entry); return; }
+    if (!entry) { if (passedCount > 0) await rewindPassed(); else rewindEmpty(); return; }
     rewinding.current = true;
     const at = history.current.remove(entry);
     swipes.current = swipes.current.filter((x) => x !== entry);
@@ -595,8 +647,15 @@ export default function App() {
     const id = current.id;
     setBusy(true);
     await attempt(async () => {
-      const { item } = await post(`/api/items/${id}/skip`, {});
+      const { item, previous } = await post(`/api/items/${id}/skip`, {});
       setItems((prev) => { const was = prev.find((i) => i.id === id); return [...prev.filter((i) => i.id !== id), { ...was, ...item }]; });
+      // The skip is a step Rewind and Undo can take back (1.40.0), when the server says where the cover was.
+      if (previous) {
+        const entry = { label: "Skip", itemId: id, skip: true, before: { unskip: previous }, after: { skip: true } };
+        history.current.push(entry);
+        swipes.current.push(entry);
+        bumpHistory();
+      }
       say("Skipped. It's at the end of the queue.");
     });
     setBusy(false);
@@ -1202,6 +1261,9 @@ export default function App() {
             <div className="emptyCover">
               <p className="emptyTitle">{list === "queue" ? "Your queue is clear." : list === "approved" ? "No approved covers yet." : "Nothing passed yet."}</p>
               <p className="hint">Add photos, or ask your Muse to bring in your Drive photos. No connectors needed.</p>
+              {list === "queue" && passedCount > 0 && ( /* 1.40.0: with the queue clear, Rewind is still one tap away */
+                <button type="button" className="secondaryBtn" onClick={rewind}><Icon name="undo" size={20} /> Bring back the last cover you passed on</button>
+              )}
               <label className="primaryBtn asLabel">
                 <Icon name="photoAdd" size={20} /> Add photos
                 <input type="file" accept="image/*" multiple hidden onChange={(e) => { const files = [...e.target.files]; e.target.value = ""; if (files.length) uploadPhotos(files); }} />
@@ -1224,7 +1286,7 @@ export default function App() {
                 onZoom={setZoom} zoomRef={zoomRef} onTapOff={() => sheetDismiss.current?.()} free={free} onFree={freeBox} onMoveText={moveText} onDropText={dropText}
                 under={under} underQuoteOn={underQuoteOn} swipe={swipe} swipeRef={stageApi} />
               <div className="behind" inert={draft ? true : undefined}>
-                <SwipeRow item={current} intent={intent} busy={busy || !coverReady} canRewind={Boolean(rewindable())} onRewind={rewind}
+                <SwipeRow item={current} intent={intent} busy={busy || !coverReady} canRewind={canRewind} onRewind={rewind}
                   onNope={() => flyCard(-1)} onLike={() => flyCard(1)} onSkip={list === "queue" ? skip : null} />
                 <ActionRow item={current} busy={busy || !coverReady} onRemix={() => setRemixOpen(true)} onDownload={download}
                   onDownloadAll={activeSlides.length ? downloadAll : null}

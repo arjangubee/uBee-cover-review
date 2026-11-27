@@ -185,7 +185,9 @@ globalThis.fetch = async (url, opts = {}) => {
 owners.set(new URL(base).origin, "smoke_owner");
 const server = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(PORT), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: DATA,
   COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_POLLEN_SYNC_MS: "3600000", COVER_REVIEW_DM_SYNC_STUCK_MS: "2500",
-  COVER_REVIEW_SYMPHONY_URL: `${symBase}/functions/v1/symphony` }, stdio: "pipe" });
+  COVER_REVIEW_SYMPHONY_URL: `${symBase}/functions/v1/symphony`,
+  COVER_REVIEW_PHOTO_ORIGINS: hiveBase,
+  COVER_REVIEW_DM_SYNC_AUTO_MS: "9000000000000000" }, stdio: "pipe" }); // 1.40.0: pulls here start on Refresh only; a copy below checks the ones that start on their own // 1.40.0: the stand-in "remote" photo lives on this computer
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function check(name, fn) {
@@ -206,7 +208,7 @@ async function newItem(name) {
 }
 // Another copy on its own server and its own data folder, for checks that need data an older version saved, or quotes
 // still locked (1.13.9). fill(dir) writes its data before the server starts.
-async function withCopy(port, fill, fn) {
+async function withCopy(port, fill, fn, env = {}) {
   const dir = mkdtempSync(join(tmpdir(), "cr-copy-"));
   for (const f of ["default-quotes.json", "quiz-quotes.json", "trending-instagram.json"]) copyFileSync(join(REPO_DATA, f), join(dir, f));
   fill(dir);
@@ -217,7 +219,7 @@ async function withCopy(port, fill, fn) {
   owners.set(new URL(at).origin, String(connector || "smoke_owner").replace(/^@+/, "").toLowerCase());
   tokens.delete(new URL(at).origin);
   const child = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(port), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: dir,
-    COVER_REVIEW_POLLEN_SYNC_MS: "3600000" }, stdio: "ignore" });
+    COVER_REVIEW_POLLEN_SYNC_MS: "3600000", ...env }, stdio: "ignore" });
   try {
     for (let i = 0; i < 50; i++) { try { if ((await fetch(`${at}/api/health`)).ok) break; } catch {} await wait(200); }
     await fn({ dir,
@@ -2640,6 +2642,182 @@ try {
     for (let at = 3; at < 9; at += 1) await postJson(`/api/items/${main.id}/slides/${at}/remove`);
     const after = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === main.id);
     assert(after.slides.filter((s) => !s.deletedAt).length === 3, "undo takes them off one by one");
+  });
+  await check("v1.40 Rewind brings a skipped cover back to its exact place, on the server, so it holds after a reload (room #1409, Quill #1410)", async () => {
+    const a = await newItem("unskip-a.png"), b = await newItem("unskip-b.png"), c = await newItem("unskip-c.png");
+    const order = async () => (await (await fetch(`${base}/api/items`)).json()).items.map((i) => i.id);
+    const before = await order();
+    const steps = [];
+    for (const it of [a, b, c]) {
+      const r = await postJson(`/api/items/${it.id}/skip`, {});
+      assert(r.previous && "reviewOrderAt" in r.previous && "skippedAt" in r.previous, `skip answers where it was: ${JSON.stringify(r.previous)}`);
+      steps.push({ id: it.id, previous: r.previous });
+    }
+    assert((await order()).slice(-3).join() === [a.id, b.id, c.id].join(), "three skips sit at the end, in order");
+    // Last in, first out: each comes back, and the list reads as it did before that skip.
+    for (const st of steps.reverse()) {
+      const r = await postJson(`/api/items/${st.id}/unskip`, { previous: st.previous });
+      assert(r.item.status === "queue" && r.item.rating == null, "nothing else about it changes");
+    }
+    assert((await order()).join() === before.join(), `every cover is back in its place: ${(await order()).join()} vs ${before.join()}`);
+    const again = (await (await fetch(`${base}/api/items`)).json()).items.find((i) => i.id === a.id);
+    assert(again.skippedAt === undefined, "its skip mark is gone, as before the skip");
+    // A cover skipped twice goes back to its first skip's place at the end, mark and all.
+    const one = await postJson(`/api/items/${a.id}/skip`, {});
+    const two = await postJson(`/api/items/${a.id}/skip`, {});
+    assert(two.previous.skippedAt === one.item.skippedAt && two.previous.reviewOrderAt === one.item.reviewOrderAt, "a second skip remembers the first");
+    const back = await postJson(`/api/items/${a.id}/unskip`, { previous: two.previous });
+    assert(back.item.skippedAt === one.item.skippedAt && back.item.reviewOrderAt === one.item.reviewOrderAt, "and goes back to it");
+    await postJson(`/api/items/${a.id}/unskip`, { previous: one.previous });
+    assert((await order()).join() === before.join(), "then to where it started");
+    const bad = await fetch(`${base}/api/items/${a.id}/unskip`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ previous: { reviewOrderAt: "soon", skippedAt: null } }) });
+    assert(bad.status === 400, `a place that isn't a time is refused: ${bad.status}`);
+    await postJson(`/api/items/${b.id}/decide`, { decision: "approved" });
+    const refused = await fetch(`${base}/api/items/${b.id}/unskip`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ previous: steps[1].previous }) });
+    assert(refused.status === 409, `only a queued cover goes back to its place: ${refused.status}`);
+    await postJson(`/api/items/${b.id}/decide`, { decision: "queue" });
+  });
+  await check("v1.40 Rewind brings back the cover she passed on last, to the front of the queue, until Passed is empty (room #1411, Quill #1412)", async () => {
+    const count = async (st) => (await (await fetch(`${base}/api/items?status=${st}`)).json()).items.length;
+    // Start from an empty Passed, so the order below is this test's own.
+    for (const i of (await (await fetch(`${base}/api/items?status=rejected`)).json()).items) await postJson(`/api/items/${i.id}/decide`, { decision: "approved" });
+    const none = await fetch(`${base}/api/items/rewind`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const noneBody = await none.json();
+    assert(none.status === 409 && noneBody.empty === true && /Passed is empty/.test(noneBody.error), `an empty Passed says so: ${none.status} ${JSON.stringify(noneBody)}`);
+    const made = [];
+    for (const n of ["rw-a.png", "rw-b.png", "rw-c.png"]) made.push(await newItem(n));
+    const [a, b, c] = made;
+    const approvedBefore = await count("approved"), queueBefore = await count("queue");
+    for (const it of made) { await postJson(`/api/items/${it.id}/decide`, { decision: "rejected" }); await wait(5); }
+    assert(await count("rejected") === 3 && await count("queue") === queueBefore - 3, "three passed");
+    // No memory on the page is involved: each call is the whole request, as after a reload or from inside Passed.
+    const first = await postJson(`/api/items/rewind`, {});
+    assert(first.item.id === c.id && first.passedLeft === 2, `the last one passed comes back first: ${first.item.id}, ${first.passedLeft} left`);
+    assert(first.item.status === "queue" && first.item.decidedAt === null && first.item.skippedAt === undefined, "it's queued again, with no verdict");
+    let front = (await (await fetch(`${base}/api/items`)).json()).items;
+    const lead = front.filter((i) => typeof i.reviewOrderAt === "number").sort((x, y) => x.reviewOrderAt - y.reviewOrderAt)[0];
+    assert(lead.id === c.id, `it has the earliest place in the queue: ${lead.id}`);
+    const second = await postJson(`/api/items/rewind`, {});
+    const third = await postJson(`/api/items/rewind`, {});
+    assert(second.item.id === b.id && third.item.id === a.id && third.passedLeft === 0, "then the one before, then the first");
+    front = (await (await fetch(`${base}/api/items`)).json()).items;
+    const timed = front.filter((i) => [a.id, b.id, c.id].includes(i.id)).sort((x, y) => x.reviewOrderAt - y.reviewOrderAt).map((i) => i.id);
+    assert(timed.join() === [a.id, b.id, c.id].join(), `each lands in front of the one before it: ${timed.join()}`);
+    const fourth = await fetch(`${base}/api/items/rewind`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    assert(fourth.status === 409, `a fourth press has nothing to bring back: ${fourth.status}`);
+    assert(await count("approved") === approvedBefore && await count("queue") === queueBefore, "approved covers are untouched and the totals add up");
+    // Two presses at once never bring the same cover back twice.
+    await postJson(`/api/items/${a.id}/decide`, { decision: "rejected" });
+    const both = await Promise.all([0, 1].map(() => fetch(`${base}/api/items/rewind`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })));
+    assert(both.map((r) => r.status).sort().join() === "200,409", `one comes back, one finds Passed empty: ${both.map((r) => r.status).join()}`);
+  });
+  await check("v1.40 a request that fails answers plain JSON and the app keeps running: a broken photo address, a broken body, an address that isn't there", async () => {
+    const it = await newItem("guard.png");
+    await postJson(`/api/items/${it.id}/swap-photo`, { imageUrl: "/uploads/%E0%A4%A" });
+    const broken = await fetch(`${base}/api/items/${it.id}/image`);
+    assert(broken.status === 404 && /json/.test(broken.headers.get("content-type")), `a broken % code is a missing photo: ${broken.status}`);
+    assert((await fetch(`${base}/api/health`)).ok, "the app is still up after it");
+    await postJson(`/api/items/${it.id}/restore-original`, {});
+    const bad = await fetch(`${base}/api/items/${it.id}/decide`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{not json" });
+    const badBody = await bad.text();
+    assert(bad.status === 400 && /json/.test(bad.headers.get("content-type")) && !/node_modules|at JSON\.parse/.test(badBody), `a broken body answers JSON with no stack trace: ${bad.status} ${badBody.slice(0, 120)}`);
+    const lost = await fetch(`${base}/api/no-such-thing`);
+    assert(lost.status === 404 && /json/.test(lost.headers.get("content-type")), `an address that isn't there answers JSON: ${lost.status}`);
+    const rated = await fetch(`${base}/api/items/${it.id}/decide`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision: "approved", rating: "great" }) });
+    const still = (await (await fetch(`${base}/api/items?status=queue`)).json()).items.find((i) => i.id === it.id);
+    assert(rated.status === 400 && still, `a rating that isn't a number is refused before anything changes: ${rated.status}`);
+    const stars = await fetch(`${base}/api/items/${it.id}/rate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ qualityRating: "x" }) });
+    assert(stars.status === 400, `and so is a part rating: ${stars.status}`);
+    const head = await fetch(`${base}/api/health`);
+    assert(head.headers.get("x-content-type-options") === "nosniff" && !head.headers.get("x-powered-by"), "answers carry nosniff and don't name the server software");
+  });
+  await check("v1.40 uploads are photos and videos, and a kept file is never shown as a page", async () => {
+    const send = (name, type, body = PNG_1PX) => { const f = new FormData(); f.append("photos", new Blob([body], { type }), name); return fetch(`${base}/api/items/upload`, { method: "POST", body: f }); };
+    const page = await send("page.html", "text/html", Buffer.from("<script>1</script>"));
+    assert(page.status === 400 && /photo or a video/.test((await page.json()).error), `a page is refused: ${page.status}`);
+    const dressed = await send("page.html", "image/png");
+    assert(dressed.status === 400, `a page that says it's a photo is refused by its name: ${dressed.status}`);
+    const drawing = await send("drawing.svg", "image/svg+xml", Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>"));
+    assert(drawing.status === 400, `an SVG can carry script, so it's refused: ${drawing.status}`);
+    const ok = await send("phone.heic", "application/octet-stream");
+    assert(ok.ok, `a photo the browser couldn't name still uploads by its ending: ${ok.status}`);
+    const long = await send(`${"n".repeat(400)}.png`, "image/png");
+    const longItem = (await long.json()).created[0];
+    assert(long.ok && longItem.imageUrl.length < 180 && longItem.imageUrl.endsWith(".png"), `a very long name is cut, ending kept: ${longItem?.imageUrl?.length}`);
+    const photo = await fetch(`${base}${longItem.imageUrl}`);
+    assert(photo.ok && /sandbox/.test(photo.headers.get("content-security-policy") || "") && !photo.headers.get("content-disposition"), "a photo shows as a photo, sandboxed");
+    writeFileSync(join(DATA, "uploads", "old.html"), "<script>1</script>"); // a file kept from before uploads were checked
+    const old = await fetch(`${base}/uploads/old.html`);
+    assert(old.ok && old.headers.get("content-disposition") === "attachment" && /sandbox/.test(old.headers.get("content-security-policy") || ""), "an old page in her uploads downloads and never runs");
+  });
+  await check("v1.40 a photo kept at another address is fetched from the public internet only, and signed out the update status names no folder", async () => {
+    const { privateAddress, fetchPhoto } = await import("../server/safety.js");
+    for (const a of ["127.0.0.1", "10.1.2.3", "172.16.0.9", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "::", "fd00::1", "fe80::1", "::ffff:127.0.0.1", "::ffff:7f00:1"]) {
+      assert(privateAddress(a) === true, `${a} is private`);
+    }
+    for (const a of ["8.8.8.8", "142.250.72.14", "2607:f8b0:4005:80a::200e"]) assert(privateAddress(a) === false, `${a} is public`);
+    for (const u of [`${base}/api/health`, `http://127.0.0.1:${PORT}/x.png`, "http://[::1]/x.png", "http://localhost/x.png", "file:///etc/hosts", "http://user:pw@8.8.8.8/x.png", "not an address"]) {
+      assert((await fetchPhoto(u)) === null, `${u} is never fetched`);
+    }
+    const it = await newItem("far.png");
+    await postJson(`/api/items/${it.id}/swap-photo`, { imageUrl: `http://127.0.0.1:${PORT}/brand/ubee-bee-chartreuse.png` });
+    const r = await fetch(`${base}/api/items/${it.id}/image`);
+    assert(r.status === 502, `a cover pointed at this computer doesn't load through the app: ${r.status}`);
+    await postJson(`/api/items/${it.id}/restore-original`, {});
+    const open = await (await realFetch(`${base}/api/update`)).json();
+    assert(open.current?.version && open.savedPatch === null && (open.lastUpdate == null || open.lastUpdate.savedPatch === null), "signed out: the version, and no folder path");
+  });
+  await check("v1.40 Chats: the light list carries each thread's end, then only what changed, and an open chat reads its whole thread (Arjang #1445)", async () => {
+    const thread = Array.from({ length: 30 }, (_, i) => ({ from: i % 3 === 1 ? "me" : "them", kind: "text", text: `message ${i + 1}`, at: new Date(Date.UTC(2026, 10, 1, 10, i)).toISOString() }));
+    thread.push({ from: "them", kind: "reaction", text: "❤️", at: new Date(Date.UTC(2026, 10, 1, 11, 0)).toISOString() });
+    const made = await dm("importitem", { kind: "dm", thread_id: "t-light-1", sender: "light.one", incoming_text: "message 30", thread_messages: thread });
+    const other = await dm("importitem", { kind: "dm", thread_id: "t-light-2", sender: "light.two", incoming_text: "hello" });
+    const whole = await dm("listitems", { filter: "all" });
+    assert(whole.cursor === undefined && whole.items.find((i) => i.id === made.id).thread_messages.length === 31, "asked the old way, the list is whole, as before");
+    const first = await dm("listitems", { filter: "all", light: true });
+    assert(first.full === true && typeof first.cursor === "string" && first.items.length === whole.items.length && first.stats.total === whole.stats.total, `the first light list has every chat: ${first.items.length}`);
+    const mine = first.items.find((i) => i.id === made.id);
+    assert(mine.light === true && mine.thread_count === 31 && mine.thread_messages.length === 2, `only the thread's end: ${JSON.stringify(mine.thread_messages).slice(0, 200)}`);
+    assert(mine.thread_messages[0].text === "message 30" && mine.thread_messages[1].kind === "reaction", "from the latest message that isn't a reaction to the end");
+    assert(JSON.stringify(first).length < JSON.stringify(whole).length, "and it's smaller than the whole list");
+    const none = await dm("listitems", { filter: "all", light: true, since: first.cursor });
+    assert(none.full === false && none.items.length === 0 && none.removed.length === 0 && none.cursor === first.cursor && none.stats.total === first.stats.total, `nothing changed, nothing sent: ${JSON.stringify(none).slice(0, 200)}`);
+    await dm("markreadinbuild", { id: made.id });
+    await dm("deleteitem", { id: other.id });
+    const some = await dm("listitems", { filter: "all", light: true, since: first.cursor });
+    assert(some.items.map((i) => i.id).join() === String(made.id) && some.removed.join() === String(other.id) && some.cursor !== first.cursor, `one changed, one gone: ${JSON.stringify({ items: some.items.map((i) => i.id), removed: some.removed })}`);
+    assert((await dm("listitems", { filter: "all", light: true, since: some.cursor })).items.length === 0, "and then nothing again");
+    for (const bad of ["nonsense", "00000000:5", `${first.cursor.split(":")[0]}:999999`, 7]) {
+      const r = await dm("listitems", { filter: "all", light: true, since: bad });
+      assert(r.full === true && r.items.length === whole.items.length - 1, `a cursor this copy didn't give answers the whole list: ${JSON.stringify(bad)}`);
+    }
+    const open = await dm("getthread", { id: made.id });
+    assert(open.thread_messages.length === 31 && open.thread_messages[0].text === "message 1", "an open chat reads its whole thread");
+    await dmFails("getthread", { id: 99999999 }, 404, "no longer exists");
+    await dm("generatedraft", { id: made.id, mode: "dm" });
+    const asked = (await dm("draftswanted")).items.find((i) => i.id === made.id);
+    const said = asked.prompt.split("\n").filter((l) => /^(Them|the creator): /.test(l));
+    assert(said.length === 25 && said[0].endsWith("message 7") && /call back to a detail from earlier/.test(asked.prompt), `a draft reads the last 25 messages and may call back: ${said.length}, ${said[0]}`);
+  });
+  await check("v1.40 Chats: a pull is due on its own each time her Muse checks in, with no tap on Refresh, and the page hears when her Muse last checked", async () => {
+    await withCopy(4195, () => {}, async (c) => {
+      const d = (name, body) => c.post(`/api/dm/${name}`, body || {});
+      assert((await d("getsync")).state === "off", "no pull is set up until her Muse checks in");
+      const first = await d("syncwanted");
+      assert(first.wanted === true && first.auto === true && typeof first.asked_at === "string", `her Muse's first check-in finds a pull due: ${JSON.stringify(first)}`);
+      const during = await d("getsync");
+      assert(during.state === "syncing" && during.auto === true && typeof during.muse_seen_at === "string" && during.auto_every_ms === 1500, `the page sees it running: ${JSON.stringify(during)}`);
+      assert((await d("syncwanted")).asked_at === first.asked_at, "checking in again while it runs asks nothing new");
+      await d("confirmsync", { ok: true, asked_at: first.asked_at, imported: 2, updated: 0, skipped: 0, detail: "" });
+      assert((await d("syncwanted")).wanted === false, "right after a pull, nothing is due");
+      await wait(1700);
+      const next = await d("syncwanted");
+      assert(next.wanted === true && next.auto === true && next.since === first.asked_at, `once the last pull is old enough, the next one is due: ${JSON.stringify(next)}`);
+      await d("confirmsync", { ok: false, asked_at: next.asked_at, detail: "Instagram didn't answer." });
+      assert((await d("syncwanted")).wanted === false, "a pull that failed waits before the next try");
+      const asked = await d("requestsync");
+      assert(asked.state === "syncing" && asked.auto === false, "and her own Refresh still asks at once");
+    }, { COVER_REVIEW_DM_SYNC_AUTO_MS: "1500" });
   });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);

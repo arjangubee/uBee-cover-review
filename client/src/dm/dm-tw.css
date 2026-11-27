@@ -444,6 +444,12 @@
 .dm-root .min-h-9 {
     min-height: calc(var(--spacing) * 9);
   }
+.dm-root .min-h-\[44px\] {
+    min-height: 44px;
+  }
+.dm-root .min-h-\[48px\] {
+    min-height: 48px;
+  }
 .dm-root .min-h-screen {
     min-height: 100vh;
   }
@@ -494,9 +500,6 @@
   }
 .dm-root .w-\[270px\] {
     width: 270px;
-  }
-.dm-root .w-\[calc\(100\%-1\.5rem\)\] {
-    width: calc(100% - 1.5rem);
   }
 .dm-root .w-fit {
     width: fit-content;
@@ -595,6 +598,9 @@
 .dm-root .items-start {
     align-items: flex-start;
   }
+.dm-root .items-stretch {
+    align-items: stretch;
+  }
 .dm-root .justify-around {
     justify-content: space-around;
   }
@@ -636,6 +642,13 @@
   }
 .dm-root .gap-\[3px\] {
     gap: 3px;
+  }
+.dm-root .space-y-1\.5 {
+    :where(& > :not(:last-child)) {
+      --tw-space-y-reverse: 0;
+      margin-block-start: calc(calc(var(--spacing) * 1.5) * var(--tw-space-y-reverse));
+      margin-block-end: calc(calc(var(--spacing) * 1.5) * calc(1 - var(--tw-space-y-reverse)));
+    }
   }
 .dm-root .space-y-2 {
     :where(& > :not(:last-child)) {
@@ -1072,6 +1085,10 @@
 .dm-root .not-italic {
     font-style: normal;
   }
+.dm-root .tabular-nums {
+    --tw-numeric-spacing: tabular-nums;
+    font-variant-numeric: var(--tw-ordinal,) var(--tw-slashed-zero,) var(--tw-numeric-figure,) var(--tw-numeric-spacing,) var(--tw-numeric-fraction,);
+  }
 .dm-root .underline {
     text-decoration-line: underline;
   }
@@ -1233,6 +1250,26 @@
   syntax: "*";
   inherits: false;
 }
+@property --tw-ordinal {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-slashed-zero {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-numeric-figure {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-numeric-spacing {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-numeric-fraction {
+  syntax: "*";
+  inherits: false;
+}
 @property --tw-shadow {
   syntax: "*";
   inherits: false;
@@ -1377,6 +1414,11 @@
       --tw-leading: initial;
       --tw-font-weight: initial;
       --tw-tracking: initial;
+      --tw-ordinal: initial;
+      --tw-slashed-zero: initial;
+      --tw-numeric-figure: initial;
+      --tw-numeric-spacing: initial;
+      --tw-numeric-fraction: initial;
       --tw-shadow: 0 0 #0000;
       --tw-shadow-color: initial;
       --tw-shadow-alpha: 100%;

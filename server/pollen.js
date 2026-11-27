@@ -10,6 +10,7 @@ import { captionProblems } from "./captionRules.js";
 import { postedCaption } from "./captionCtas.js";
 import { MISSING_CLIP, clipPath, clipType, songMeta } from "./songs.js";
 import { inSpace } from "./accounts.js";
+import { fetchPhoto } from "./safety.js";
 import { currentSpace, knownSpaces, libraryDir, rendersDir, runIn, store, uploadsDir } from "./store.js";
 import { MISSING_ONLINE_CLIP, isSymphonyFile, symphonyClipBytes, symphonyClipReady } from "./symphony.js";
 
@@ -434,16 +435,21 @@ export function startPollenSync() {
 // (a photo straight from Drive or another site would block the canvas export).
 async function sendImage(item, res) {
   const url = String(item.imageUrl || "");
-  const local = (prefix, root) => res.sendFile(decodeURIComponent(url.slice(prefix.length)), { root, dotfiles: "deny" }, (e) => {
-    if (e && !res.headersSent) res.status(404).json({ error: "photo not found" });
-  });
+  const local = (prefix, root) => {
+    let name;
+    try { name = decodeURIComponent(url.slice(prefix.length)); } catch { return res.status(404).json({ error: "photo not found" }); } // a broken % code (1.40.0)
+    return res.sendFile(name, { root, dotfiles: "deny" }, (e) => {
+      if (e && !res.headersSent) res.status(404).json({ error: "photo not found" });
+    });
+  };
   if (url.startsWith("/uploads/")) return local("/uploads/", uploadsDir());
   if (url.startsWith("/api/library/")) return local("/api/library/", libraryDir());
   const data = url.match(/^data:(image\/[\w.+-]+);base64,(.+)$/);
   if (data) return res.type(data[1]).send(Buffer.from(data[2], "base64"));
   if (!/^https?:\/\//i.test(url)) return res.status(404).json({ error: "photo not found" });
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(30000) });
+    const r = await fetchPhoto(url); // the public internet only, never this computer or its network (1.40.0)
+    if (!r) return res.status(502).json({ error: "couldn't load the photo" });
     const type = r.headers.get("content-type") || "";
     if (Number(r.headers.get("content-length") || 0) > 40 * 1024 * 1024) return res.status(502).json({ error: "that photo is too big" });
     const buf = Buffer.from(await r.arrayBuffer());

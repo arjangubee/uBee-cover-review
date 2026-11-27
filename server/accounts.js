@@ -35,6 +35,26 @@ function load() {
   return { accounts: Array.isArray(s.accounts) ? s.accounts : [], sessions: Array.isArray(s.sessions) ? s.sessions : [], restrictSignups: s.restrictSignups === true };
 }
 const save = () => writeJson(FILE, state);
+// Sessions that can't come back are let go (1.40.0), so accounts.json doesn't grow for ever and each request has less to
+// look through: one not seen for as long as its cookie lasts, and all but an account's 40 most recently seen.
+const MAX_SESSIONS = 40;
+function prune() {
+  const cutoff = Date.now() - MAX_AGE * 1000;
+  const seen = (x) => Date.parse(x.lastSeenAt || x.createdAt || "") || 0;
+  const live = state.sessions.filter((x) => seen(x) >= cutoff);
+  const per = new Map();
+  for (const x of [...live].sort((p, q) => seen(q) - seen(p))) {
+    const mine = per.get(x.handle) || [];
+    if (mine.length < MAX_SESSIONS) mine.push(x);
+    per.set(x.handle, mine);
+  }
+  const keep = new Set([...per.values()].flat());
+  const next = state.sessions.filter((x) => keep.has(x));
+  const changed = next.length !== state.sessions.length;
+  state.sessions = next;
+  return changed;
+}
+if (prune()) save();
 const hash = (token) => createHash("sha256").update(String(token)).digest("hex");
 
 /** A handle as Instagram has it: no @, lower case, 1 to 30 letters, numbers, periods or underscores, no period at either
@@ -88,6 +108,7 @@ export function signIn(raw, claim) {
   const token = randomBytes(32).toString("base64url");
   const now = new Date().toISOString();
   state.sessions.push({ tokenHash: hash(token), handle, createdAt: now, lastSeenAt: now });
+  prune();
   save();
   return { ...view(handle), token };
 }

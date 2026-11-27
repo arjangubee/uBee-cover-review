@@ -41,7 +41,9 @@ top takes back too. With the queue clear and covers in Passed, the empty screen 
 | `dm_getsync` | Also answers `muse_seen_at` (when her Muse last read syncwanted), `auto_every_ms` and `auto`. The page says when her Muse last checked once a sync is old. |
 | Draft prompt | Reads the last 25 messages (was 10) and, for a DM, adds one line allowing a callback to an earlier detail. |
 
-The page: Chats opens on DMs. A long list draws 60 rows and more as she scrolls. A comment tapped in the inbox opens
+The page: Chats asks the server nothing and runs no clock while Covers or Beeline is showing (`active`, passed from
+main.jsx, Arjang #1452), and catches up the moment she comes back. Chats opens on DMs. A long list draws 60 rows and
+more as she scrolls. A comment tapped in the inbox opens
 its post with that comment's reply open. Draft sits next to Send in a chat. In Advanced, the drafted texts are
 numbered and edited in place, and the same text changes in the chat. Copy into composer copies the texts as they
 stand, and sending the composer's text back takes the place of the drafts it came from. New Tailwind classes are in

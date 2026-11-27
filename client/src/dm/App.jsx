@@ -797,7 +797,9 @@ function useRemembered(key, fallback) {
   return [value, setValue];
 }
 
-export function App() {
+// active (1.40.0, Arjang #1452): true while Chats is the screen showing. Chats stays mounted so it keeps her place, but
+// while Covers or Beeline is showing it asks the server nothing and runs no clock, so it can't slow them down.
+export function App({ active = true }) {
   const [tab, setTab] = useRemembered("tab", "practice");
   const [selectedId, setSelectedId] = useRemembered("selected", null);
   const [justRefreshed, setJustRefreshed] = useState(false);
@@ -810,9 +812,10 @@ export function App() {
   const syncQuery = useQuery({
     queryKey: ["sync"],
     queryFn: () => api.dm_getsync({}),
+    enabled: active,
     refetchOnWindowFocus: true,
     // 1.40.0: once a minute at rest too, so a pull her Muse started on its own shows up without a tap.
-    refetchInterval: (query) => (query.state.data?.state === "syncing" ? 3_000 : 60_000),
+    refetchInterval: (query) => (!active ? false : query.state.data?.state === "syncing" ? 3_000 : 60_000),
     refetchIntervalInBackground: false,
   });
   const sync = syncQuery.data ?? null;
@@ -840,10 +843,12 @@ export function App() {
       held.cursor = r.cursor;
       return { items: [...held.map.values()].sort((x, y) => x.id - y.id), stats: r.stats };
     },
+    enabled: active,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    // Every 30 seconds, and every 5 while a pull, a draft, a send or an edit is waiting on Muse.
+    // Every 30 seconds, and every 5 while a pull, a draft, a send or an edit is waiting on Muse. Only while Chats shows.
     refetchInterval: (query) =>
+      !active ? false :
       syncing ||
       query.state.data?.items.some(
         (i) => i.draft_wanted || i.publish_status === "publishing" || i.edit_status === "editing",
@@ -853,10 +858,12 @@ export function App() {
     refetchIntervalInBackground: false,
   });
 
+  // Coming back to Chats catches up at once (the two reads above start again), asking only for what changed.
   useEffect(() => {
+    if (!active) return undefined;
     const id = window.setInterval(() => setNowTick(Date.now()), 15_000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [active]);
 
   useEffect(() => {
     if (!justRefreshed) return;

@@ -59,6 +59,10 @@ export function songCheck(item) {
   return { hasSongClip, songGoes: goes, clip, problem: hasSongClip && takesSongs() && !clip ? MISSING_CLIP : null };
 }
 
+/** A call to the Bee Hive with the signed-in account's Pollen code (exported for arrivals.js, 1.40.0). */
+export const askHive = (action, body = {}) => hive(action, body);
+/** What the Bee Hive said it can do in its last hello. */
+export const hiveFeatures = () => pollen()?.features || {};
 async function hive(action, body = {}, code = pollen()?.code) {
   let r;
   try {

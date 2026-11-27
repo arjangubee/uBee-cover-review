@@ -50,7 +50,8 @@ const TINY_JPEG = Buffer.from("/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYwLjMxLjEwM
 const CH_IG = "11111111-1111-4111-8111-111111111111";
 const CH_SUBSTACK = "22222222-2222-4222-8222-222222222222";
 const hive = { code: "smoke-pollen-code-0123456789-abcdefghijklmnop", revoked: false, dropSubmitOnce: false,
-  uploads: {}, uploadTypes: {}, requests: [], submits: 0, songs: false, postNow: false, scheduleAt: false };
+  uploads: {}, uploadTypes: {}, requests: [], submits: 0, songs: false, postNow: false, scheduleAt: false,
+  inboxOn: false, inbox: [], inboxCalls: 0 }; // 1.40.0: arrivals from the Bee Hive's Instagram webhook
 const CH_YT = "33333333-3333-4333-8333-333333333333";
 const hiveServer = http.createServer(async (req, res) => {
   const chunks = [];
@@ -69,7 +70,7 @@ const hiveServer = http.createServer(async (req, res) => {
   const body = JSON.parse(raw.toString() || "{}");
   if (body.action === "hello") {
     const features = { ...(hive.songs ? { songs: true } : {}), ...(hive.postNow ? { post_now: true } : {}),
-      ...(hive.scheduleAt ? { schedule_at: true, reels: true, slides: true } : {}) };
+      ...(hive.scheduleAt ? { schedule_at: true, reels: true, slides: true } : {}), ...(hive.inboxOn ? { inbox: true } : {}) };
     // 1.38.0: a Bee Hive that takes times also says which channels take reels, and which can run a trial reel.
     const reels = hive.scheduleAt;
     return send(200, { ok: true, creator: { id: "cr-1", display_name: "Test Creator" }, ...(Object.keys(features).length ? { features } : {}), channels: [
@@ -104,6 +105,14 @@ const hiveServer = http.createServer(async (req, res) => {
     }
     if (hive.dropSubmitOnce) { hive.dropSubmitOnce = false; return req.socket.destroy(); }
     return send(200, { ok: true, request: { id: r.id, status: r.status } });
+  }
+  if (body.action === "inbox") {
+    hive.inboxCalls += 1;
+    const from = body.after == null ? 0 : Number(String(body.after).split("|")[1]);
+    if (!Number.isInteger(from)) return send(400, { error: "bad cursor" });
+    const page = hive.inbox.slice(from, from + Math.min(Number(body.limit) || 100, 2));
+    const end = from + page.length;
+    return send(200, { ok: true, events: page, cursor: page.length ? `t|${end}` : (body.after ?? null), more: end < hive.inbox.length });
   }
   if (body.action === "status") {
     return send(200, { ok: true, requests: hive.requests.filter((r) => (body.ids || []).includes(r.id))
@@ -2840,6 +2849,40 @@ try {
     assert(r.waited === true && r.items.map((i) => i.id).join() === String(came.id) && Date.now() - t1 < 3000, `it answers with that chat at once: ${Date.now() - t1} ms, ${r.items.map((i) => i.id)}`);
     const old = await dm("listitems", { filter: "all", light: true, since: r.cursor });
     assert(old.waited === undefined, "a read with no wait answers as before");
+  });
+  await check("v1.40 Chats: DMs and comments from the Bee Hive's webhook come in when Chats asks, a comment whole and a DM onto its one chat, never twice (Arjang #1452)", async () => {
+    const t = (min) => new Date(Date.now() - min * 60_000).toISOString();
+    await dm("importitem", { kind: "dm", thread_id: "t-arr-known", sender: "known.fan", incoming_text: "first",
+      thread_messages: [{ from: "them", kind: "text", text: "first", at: t(30) }, { from: "me", kind: "text", text: "hey you", at: t(20) }] });
+    hive.inboxOn = true;
+    hive.inbox = [
+      { id: "e1", kind: "comment", story_reply: false, event_id: "c-arr-1", at: t(5), text: "so pretty", channel: { platform: "instagram", handle: "smoke_ig" },
+        from: { id: "111", username: "commenter.one" }, media: { id: "m-arr-1", permalink: "https://www.instagram.com/p/arr1/", preview_url: "https://example.com/arr1.jpg", caption: "Post one" } },
+      { id: "e2", kind: "dm", story_reply: false, event_id: "mid-arr-1", at: t(4), text: "are you around today", channel: { platform: "instagram", handle: "smoke_ig" },
+        from: { id: "222", username: "known.fan" }, media: { id: null, permalink: null, preview_url: null, caption: null } },
+      { id: "e3", kind: "dm", story_reply: false, event_id: "mid-arr-2", at: t(3), text: "hi, new here", channel: { platform: "instagram", handle: "smoke_ig" },
+        from: { id: "333", username: null }, media: { id: null, permalink: null, preview_url: null, caption: null } },
+    ];
+    const conn = await (await fetch(`${base}/api/connectors/pollen`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: hive.code }) })).json();
+    assert(conn.ok === true, `Pollen is connected: ${JSON.stringify(conn).slice(0, 160)}`);
+    await fetch(`${base}/api/pollen/channels?refresh=1`);
+    const start = await dm("listitems", { filter: "all", light: true });
+    const held = await dm("listitems", { filter: "all", light: true, since: start.cursor, wait: 8000 });
+    const all = (await dm("listitems", { filter: "all" })).items;
+    const comment = all.filter((i) => i.kind === "comment" && i.sender.replace(/^@/, "") === "commenter.one");
+    assert(comment.length === 1 && comment[0].media_id === "m-arr-1" && comment[0].media_preview_url === "https://example.com/arr1.jpg" && comment[0].needs_reply, `the comment came in with its post: ${JSON.stringify(comment[0] || {}).slice(0, 200)}`);
+    const known = all.filter((i) => i.kind === "dm" && i.sender.replace(/^@/, "") === "known.fan");
+    assert(known.length === 1 && known[0].thread_messages.at(-1).text === "are you around today" && known[0].needs_reply === true, "the DM landed on her one chat with that fan, and it needs a reply again");
+    assert(!all.some((i) => i.incoming_text === "hi, new here"), "a DM with no username on file waits for a full sync instead of making a copy");
+    assert(held.waited === true && held.items.length >= 2, `her open Chats heard of them: ${held.items.length} changed`);
+    const s = await dm("getsync");
+    assert(s.arrivals.on === true && s.arrivals.last_error === null && s.arrivals.last_result.comments_new === 1 && s.arrivals.last_result.dms_added === 1 && s.arrivals.last_result.dms_waiting === 1, `the page sees what came in: ${JSON.stringify(s.arrivals)}`);
+    const calls = hive.inboxCalls;
+    await dm("listitems", { filter: "all", light: true });
+    assert(hive.inboxCalls === calls, "asked again right away, it waits its 20 seconds and doesn't call the Bee Hive");
+    const count = (await dm("listitems", { filter: "all" })).items.length;
+    assert(count === all.length, "nothing was added twice");
+    hive.inboxOn = false;
   });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);

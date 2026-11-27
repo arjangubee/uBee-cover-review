@@ -24,6 +24,7 @@
 // edit the way it sends: it reads editswanted and reports back with confirmedit.
 import { createHash, randomUUID } from "node:crypto";
 import { currentSpace, runIn, store } from "./store.js";
+import { arrivalsStatus, catchUpSoon } from "./arrivals.js";
 import { STORY_PLACEHOLDER, capEndings, isNonMessageText, storyCapture, voiceVersion } from "./dmRules.js";
 
 const KINDS = ["dm", "comment"];
@@ -373,6 +374,7 @@ function syncStatus() {
     note: s.note ?? null, last_error: failed ? s.lastError : null, failed_result: failed ? (s.failedResult ?? null) : null,
     // 1.40.0: when her Muse last checked for a pull, so the page can say why an old sync is old.
     muse_seen_at: iso(museSeen.get(currentSpace()) ?? s.museSeenAt),
+    arrivals: arrivalsStatus(), // 1.40.0: DMs and comments from the Bee Hive's Instagram webhook
   };
 }
 
@@ -416,6 +418,48 @@ function lightList(all, voice, sinceRaw) {
   const cursor = `${st.epoch}:${st.rev}`;
   if (since === null) return { items, removed: [], cursor, full: true };
   return { items: items.filter((i) => st.rows.get(i.id).rev > since), removed: st.gone.filter((g) => g.rev > since).map((g) => g.id), cursor, full: false };
+}
+
+/**
+ * DMs and comments the Bee Hive's Instagram webhook took in, brought into her Chats (1.40.0, Arjang #1452). A comment
+ * comes in whole through importitem, found again by its comment id, so a repeat changes nothing. A DM is added to the one
+ * chat with that sender's username, once (its message id is kept). A DM with no such chat, or with no username on file,
+ * waits for a full sync, so a webhook DM never makes a second copy of a chat. Answers what happened.
+ */
+export function applyArrivals(events) {
+  const counts = { comments_new: 0, comments_seen: 0, dms_added: 0, dms_waiting: 0, errors: 0 };
+  const clip = (v, n) => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : undefined);
+  for (const ev of Array.isArray(events) ? events : []) {
+    try {
+      if (ev?.kind === "comment") {
+        const at = Date.parse(ev.at ?? "");
+        const r = actions.importitem({
+          kind: "comment", source: "live", comment_id: String(ev.event_id ?? "").slice(0, 120),
+          sender: clip(ev.from?.username, 80) || `ig_${String(ev.from?.id ?? "unknown").slice(0, 60)}`,
+          incoming_text: clip(ev.text, 4000) || "Commented without words",
+          media_id: clip(ev.media?.id, 120), media_permalink: clip(ev.media?.permalink, 2000), media_preview_url: clip(ev.media?.preview_url, 2000),
+          context_text: clip(ev.media?.caption, 4000), ...(Number.isFinite(at) ? { last_activity_timestamp_ms: at } : {}),
+        });
+        if (r.created) counts.comments_new += 1; else counts.comments_seen += 1;
+        continue;
+      }
+      if (ev?.kind !== "dm") continue;
+      const who = String(ev.from?.username ?? "").trim().replace(/^@/, "").toLowerCase();
+      const fits = who ? rows().filter((r) => r.kind === "dm" && String(r.sender ?? "").trim().replace(/^@/, "").toLowerCase() === who) : [];
+      if (fits.length !== 1) { counts.dms_waiting += 1; continue; }
+      const r = fits[0];
+      const id = String(ev.event_id ?? "");
+      if (Array.isArray(r.arrivalIds) && r.arrivalIds.includes(id)) continue;
+      const msg = { from: "them", kind: "text", text: clip(ev.text, 2000) ?? null, at: clip(ev.at, 40) ?? new Date().toISOString(),
+        ...(ev.story_reply ? { reply_to: "story" } : {}) };
+      syncInto(r, { thread_messages: [...cleanThread(r.threadMessages), msg].slice(-50) });
+      r.arrivalIds = [...(Array.isArray(r.arrivalIds) ? r.arrivalIds : []), id].slice(-200);
+      counts.dms_added += 1;
+    } catch {
+      counts.errors += 1;
+    }
+  }
+  return counts;
 }
 
 const actions = {
@@ -930,7 +974,7 @@ const SETTINGS = new Set(["savevoiceprofile", "resetvoiceprofile", "savevoicesou
 // on its own clock instead.
 const WAIT_MAX_MS = 25_000;
 const waiting = new Map(); // account space -> the held reads' wake-ups
-function wakeReads(space) {
+export function wakeReads(space) {
   const set = waiting.get(space);
   if (!set) return;
   waiting.delete(space);
@@ -956,6 +1000,7 @@ export function registerDm(app) {
     res.set("Cache-Control", "no-store");
     try {
       const args = req.body && typeof req.body === "object" ? req.body : {};
+      if (name === "listitems" && args.light === true) catchUpSoon(); // her open Chats asks the Bee Hive for arrivals (1.40.0)
       let out = run(args);
       // A held read: nothing changed since her cursor, so wait for a change, then answer again from the new state.
       const ms = Number(args.wait);

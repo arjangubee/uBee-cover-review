@@ -946,6 +946,13 @@ export function App({ active = true }) {
         : "The last Instagram sync didn't finish";
       return `${lead}: ${why.length > 160 ? `${why.slice(0, 159).trimEnd()}…` : why}. Refresh to try again`;
     }
+    // 1.40.0: with the Bee Hive's Instagram webhook connected, DMs and comments come in as they're made.
+    const live = sync?.arrivals;
+    if (live?.on && live.last_error) return `Live updates from Instagram stopped: ${String(live.last_error).replace(/[.!?\s]+$/, "").slice(0, 120)}. Refresh to try again`;
+    if (live?.on && live.checked_at) {
+      const at = itemsQuery.dataUpdatedAt ? new Date(itemsQuery.dataUpdatedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
+      return `Live from Instagram${at ? ` · updated ${at}` : ""}`;
+    }
     if (itemsQuery.isFetching && !itemsQuery.isPending) return "Refreshing…";
     if (sync?.last_synced_at) {
       const r = sync.last_result;

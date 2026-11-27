@@ -36,12 +36,13 @@ top takes back too. With the queue clear and covers in Passed, the empty screen 
 | Action | What a port needs |
 | --- | --- |
 | `dm_listitems` | New optional args `light: true` and `since`. With `light`, each item carries `light: true`, `thread_count`, and `thread_messages` cut to the thread's end: from the latest message that isn't a reaction to the last message (at most 6). With `light` and filter `all` the answer also has `cursor`, `removed` (ids deleted since) and `full`. With `since` set to a cursor this copy gave, `items` holds only chats that changed since then and `full` is false. Any other `since` answers the whole light list with `full: true`. Without `light` the answer is exactly as before, and the page falls back to that when no `cursor` comes back. A ported space can track changes with an updated-at column and keep the cursor as that time. |
+| `dm_listitems` with `wait` | With `light`, `since` and `wait` (ms, at most 25000), a read that finds nothing new is held until any write to that account's Chats (an import, a draft, a send) or the wait runs out, then answers again. Every held answer carries `waited: true`. A space that can't hold a read leaves `waited` out, and the page falls back to refreshing every 30 seconds while Chats shows. |
 | `dm_getthread` (new) | `{ id }` answers `{ id, thread_messages }`, the whole thread. Read only. |
 | `dm_importitem` | Unchanged, and it is the intake for mirroring on arrival (Arjang #1452, #1454): one call per DM or comment at the moment it's made, found again by `thread_id` or `comment_id`, safe to repeat. It needs no pull in flight and no `dm_confirmsync`. A comment must come with `media_id`, `media_preview_url` and `media_permalink`, so its post shows on the reply screen; when one isn't on file, the answer names it in `missing` (Quill #1461), and sending the comment again with it fills it in. No timer anywhere: a pull is only what Refresh asks for. |
 | `dm_getsync` | Also answers `muse_seen_at`: when her Muse last read `dm_syncwanted`. The page names it when the last full sync is hours old. |
 | Draft prompt | Reads the last 25 messages (was 10) and, for a DM, adds one line allowing a callback to an earlier detail. |
 
-The page: Chats asks the server nothing and runs no clock while Covers or Beeline is showing (`active`, passed from
+The page: while Chats shows, it keeps one held read open, so a DM her Muse brings in shows within a second (measured 0.1 s). Chats asks the server nothing and runs no clock while Covers or Beeline is showing (`active`, passed from
 main.jsx, Arjang #1452), and catches up the moment she comes back. Chats opens on DMs. A long list draws 60 rows and
 more as she scrolls. A comment tapped in the inbox opens
 its post with that comment's reply open. Draft sits next to Send in a chat. In Advanced, the drafted texts are

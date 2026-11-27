@@ -3525,9 +3525,19 @@ function ChatView({
     setSaved(false);
     setWorkDirty(true);
   };
-  // A text emptied in the editor is taken out when she leaves it, so no blank draft is left behind.
+  // When she leaves a text: emptied, it's taken out, so no blank draft is left behind; changed, it's approved like an edit
+  // made in the composer, so it turns solid and never stays a dashed draft (Arjang #1445). Unchanged, it stays as it was.
+  const editStart = useRef(new Map());
+  const startLineEdit = (l) => { if (!editStart.current.has(l.id)) editStart.current.set(l.id, l.text); };
   const tidyLine = (id) => {
-    setLines((prev) => prev.filter((l) => l.id !== id || l.sent || l.text.trim() !== "").map((l) => (l.id === id && !l.sent ? { ...l, text: l.text.trim() } : l)));
+    const was = editStart.current.get(id);
+    editStart.current.delete(id);
+    setLines((prev) => prev.filter((l) => l.id !== id || l.sent || l.text.trim() !== "").map((l) => {
+      if (l.id !== id || l.sent) return l;
+      const text = l.text.trim();
+      return { ...l, text, stage: was !== undefined && text !== was.trim() ? 2 : l.stage };
+    }));
+    setWorkDirty(true);
   };
   const approvedText = approvedLines.map((l) => l.text).join("\n");
 
@@ -4442,6 +4452,7 @@ function ChatView({
                             </span>
                             <textarea
                               value={l.text}
+                              onFocus={() => startLineEdit(l)}
                               onChange={(e) => editLineInPlace(l.id, e.target.value)}
                               onBlur={() => tidyLine(l.id)}
                               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
@@ -4458,7 +4469,7 @@ function ChatView({
                       <p className="mt-2 text-sm text-[var(--dim)]">Every text was taken out. Draft again, or type your own in the composer.</p>
                     )}
                     {unsentLines.length > 0 && (
-                      <p className="mt-1.5 text-[13px] text-[var(--dim)]">Tap a text to edit it. The same text changes in the chat above.</p>
+                      <p className="mt-1.5 text-[13px] text-[var(--dim)]">Tap a text to edit it. The same text changes in the chat above, and an edited text is approved.</p>
                     )}
                     <div className="mt-2.5 flex flex-wrap gap-2">
                       <button

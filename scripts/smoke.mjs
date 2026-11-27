@@ -186,8 +186,7 @@ owners.set(new URL(base).origin, "smoke_owner");
 const server = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(PORT), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: DATA,
   COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_POLLEN_SYNC_MS: "3600000", COVER_REVIEW_DM_SYNC_STUCK_MS: "2500",
   COVER_REVIEW_SYMPHONY_URL: `${symBase}/functions/v1/symphony`,
-  COVER_REVIEW_PHOTO_ORIGINS: hiveBase,
-  COVER_REVIEW_DM_SYNC_AUTO_MS: "9000000000000000" }, stdio: "pipe" }); // 1.40.0: pulls here start on Refresh only; a copy below checks the ones that start on their own // 1.40.0: the stand-in "remote" photo lives on this computer
+  COVER_REVIEW_PHOTO_ORIGINS: hiveBase }, stdio: "pipe" }); // 1.40.0: the stand-in "remote" photo lives on this computer // 1.40.0: the stand-in "remote" photo lives on this computer
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function check(name, fn) {
@@ -208,7 +207,7 @@ async function newItem(name) {
 }
 // Another copy on its own server and its own data folder, for checks that need data an older version saved, or quotes
 // still locked (1.13.9). fill(dir) writes its data before the server starts.
-async function withCopy(port, fill, fn, env = {}) {
+async function withCopy(port, fill, fn) {
   const dir = mkdtempSync(join(tmpdir(), "cr-copy-"));
   for (const f of ["default-quotes.json", "quiz-quotes.json", "trending-instagram.json"]) copyFileSync(join(REPO_DATA, f), join(dir, f));
   fill(dir);
@@ -219,7 +218,7 @@ async function withCopy(port, fill, fn, env = {}) {
   owners.set(new URL(at).origin, String(connector || "smoke_owner").replace(/^@+/, "").toLowerCase());
   tokens.delete(new URL(at).origin);
   const child = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(port), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: dir,
-    COVER_REVIEW_POLLEN_SYNC_MS: "3600000", ...env }, stdio: "ignore" });
+    COVER_REVIEW_POLLEN_SYNC_MS: "3600000" }, stdio: "ignore" });
   try {
     for (let i = 0; i < 50; i++) { try { if ((await fetch(`${at}/api/health`)).ok) break; } catch {} await wait(200); }
     await fn({ dir,
@@ -2799,25 +2798,27 @@ try {
     const said = asked.prompt.split("\n").filter((l) => /^(Them|the creator): /.test(l));
     assert(said.length === 25 && said[0].endsWith("message 7") && /call back to a detail from earlier/.test(asked.prompt), `a draft reads the last 25 messages and may call back: ${said.length}, ${said[0]}`);
   });
-  await check("v1.40 Chats: a pull is due on its own each time her Muse checks in, with no tap on Refresh, and the page hears when her Muse last checked", async () => {
-    await withCopy(4195, () => {}, async (c) => {
-      const d = (name, body) => c.post(`/api/dm/${name}`, body || {});
-      assert((await d("getsync")).state === "off", "no pull is set up until her Muse checks in");
-      const first = await d("syncwanted");
-      assert(first.wanted === true && first.auto === true && typeof first.asked_at === "string", `her Muse's first check-in finds a pull due: ${JSON.stringify(first)}`);
-      const during = await d("getsync");
-      assert(during.state === "syncing" && during.auto === true && typeof during.muse_seen_at === "string" && during.auto_every_ms === 1500, `the page sees it running: ${JSON.stringify(during)}`);
-      assert((await d("syncwanted")).asked_at === first.asked_at, "checking in again while it runs asks nothing new");
-      await d("confirmsync", { ok: true, asked_at: first.asked_at, imported: 2, updated: 0, skipped: 0, detail: "" });
-      assert((await d("syncwanted")).wanted === false, "right after a pull, nothing is due");
-      await wait(1700);
-      const next = await d("syncwanted");
-      assert(next.wanted === true && next.auto === true && next.since === first.asked_at, `once the last pull is old enough, the next one is due: ${JSON.stringify(next)}`);
-      await d("confirmsync", { ok: false, asked_at: next.asked_at, detail: "Instagram didn't answer." });
-      assert((await d("syncwanted")).wanted === false, "a pull that failed waits before the next try");
-      const asked = await d("requestsync");
-      assert(asked.state === "syncing" && asked.auto === false, "and her own Refresh still asks at once");
-    }, { COVER_REVIEW_DM_SYNC_AUTO_MS: "1500" });
+  await check("v1.40 Chats: a DM or comment comes in on arrival, one chat a call, with no pull, and the page hears when her Muse last looked (Arjang #1452)", async () => {
+    const before = await dm("listitems", { filter: "all", light: true });
+    const sync = await dm("getsync");
+    const came = await dm("importitem", { kind: "dm", thread_id: "t-arrive-1", sender: "new.fan", incoming_text: "just found you",
+      thread_messages: [{ from: "them", kind: "text", text: "just found you", at: new Date().toISOString() }] });
+    assert(came.created === true, "the arriving DM is in");
+    const after = await dm("getsync");
+    assert(after.state === sync.state && after.asked_at === sync.asked_at, "no pull was started for it: nothing reads as syncing");
+    const one = await dm("listitems", { filter: "all", light: true, since: before.cursor });
+    assert(one.items.length === 1 && one.items[0].id === came.id && one.items[0].needs_reply === true, `the page gets that one chat: ${one.items.map((i) => i.id)}`);
+    const again = await dm("importitem", { kind: "dm", thread_id: "t-arrive-1", sender: "new.fan", incoming_text: "are you there",
+      thread_messages: [{ from: "them", kind: "text", text: "just found you", at: new Date(Date.now() - 1000).toISOString() }, { from: "them", kind: "text", text: "are you there", at: new Date().toISOString() }] });
+    assert(again.id === came.id && again.created === false, "their next message lands on the same chat, never a copy");
+    const next = await dm("listitems", { filter: "all", light: true, since: one.cursor });
+    assert(next.items.length === 1 && next.items[0].thread_messages.at(-1).text === "are you there", "and the page gets that chat's new end");
+    const note = await dm("importitem", { kind: "comment", comment_id: "c-arrive-1", media_id: "m-arrive", sender: "kind.soul", incoming_text: "love this",
+      media_preview_url: "https://example.com/p.jpg", media_permalink: "https://www.instagram.com/p/abc/" });
+    const row = (await dm("listitems", { filter: "all", light: true })).items.find((i) => i.id === note.id);
+    assert(row.kind === "comment" && row.media_id === "m-arrive" && row.media_preview_url === "https://example.com/p.jpg", "a comment arrives with its post, for the reply screen");
+    await dm("syncwanted");
+    assert(typeof (await dm("getsync")).muse_seen_at === "string", "the page hears when her Muse last looked for a pull");
   });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);

@@ -582,8 +582,10 @@ export default function App() {
     return () => clearTimeout(t);
   }, [enterFrom]);
   const flyCard = (dir) => { stageApi.current?.fly(dir); };
+  // Something open over the cover: the arrow keys and a trackpad's swipe (1.39.0) leave the deck alone.
+  const overlayOpen = Boolean(draft || zoom || infoOpen || sheet || remixOpen || addMenu || queuePick || postSheet);
   const swipe = view === "cover" && current ? {
-    onSwipe: commitSwipe, canSend: canSwipe, onIntent: setIntent, enterFrom, onEntered: () => setEnterFrom(null),
+    onSwipe: commitSwipe, canSend: canSwipe, onIntent: setIntent, enterFrom, onEntered: () => setEnterFrom(null), wheelOff: overlayOpen,
   } : null;
   // Skip (1.32.0, room #1248, Quill #1249, the original's skipCover): the whole cover, every photo with it, goes to the very
   // end of the queue, and nothing else about it changes: no verdict, no field, no new row. The next cover comes up; she
@@ -1166,7 +1168,7 @@ export default function App() {
 
   useEffect(() => {
     function onKey(e) {
-      if (draft || zoom || infoOpen || sheet || remixOpen || addMenu || queuePick || postSheet || view !== "cover") return;
+      if (overlayOpen || view !== "cover") return;
       if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); step(e.shiftKey ? "redo" : "undo"); return; }
       if (e.key === "ArrowRight") { e.preventDefault(); if (e.shiftKey) setSlide((s) => Math.min(activeSlides.length, s + 1)); else goTo(index + 1); }

@@ -4,7 +4,7 @@ import Icon from "./icons.jsx";
 import { STYLE_DEFAULTS, rewrapWidth, safeZoneFor, textHitBoxes } from "./renderCover.js";
 import { lockAxis, startAxis } from "./safeLock.js";
 import { GUIDE_IDS, SNAP_PX, guidesFor, snap, snapGuidesOn } from "./snapGuides.js";
-import { SWIPE, buzzesMidDrag, flyFor, haptic, progressFor, releaseFor, stampFor, tiltFor, velocityOf } from "./swipe.js";
+import { SWIPE, WHEEL, buzzesMidDrag, flyFor, haptic, progressFor, releaseFor, stampFor, tiltFor, velocityOf, wheelStep } from "./swipe.js";
 
 // The stage: a 4:5 frame like a post, and the cover on it is a card (1.34.0, Arjang: swipe like Tinder). Drag it right
 // to approve, left to pass: it tilts with the finger, a big heart or X shows on it, and the next cover waits underneath.
@@ -533,6 +533,90 @@ export default function CoverStage({
     return true;
   };
   if (swipeRef) swipeRef.current = { fly, busy: () => modeRef.current !== "idle" };
+
+  // A two-finger swipe on a trackpad (1.39.0, Arjang via Rose #1383, Quill #1384) sends wheel events, not a pointer.
+  // Sideways, the card follows the fingers like a drag, and at the drag's line it flies off: right approves, left passes.
+  // One swipe sends one card: the rest of it, glide included, is locked until the wheel goes quiet. Up or down scrolls
+  // the page as before, and the browser never turns a sideways swipe on the card into back or forward. While she
+  // edits, a sheet or menu is open, or she's typing, the wheel is left alone.
+  const wheel = useRef(null);
+  const typing = () => {
+    const el = document.activeElement;
+    if (!el) return false;
+    if (el.isContentEditable || el.tagName === "TEXTAREA") return true;
+    return el.tagName === "INPUT" && ["", "text", "search", "email", "url", "tel", "password", "number"].includes((el.getAttribute("type") || "").toLowerCase());
+  };
+  const wheelOff = () => !canSwipe || Boolean(swipeNow.current?.wheelOff) || typing();
+  function endWheel(g) {
+    if (wheel.current !== g) return;
+    wheel.current = null;
+    if (g.on && !g.locked && modeRef.current === "drag" && !gesture.current) springBack(); // short of the line
+  }
+  function wheelMove(g, e) {
+    const card = cardRef.current, step = wheelStep(e, card?.clientWidth || 400);
+    if (!g.axis) {
+      g.sx += step.x; g.sy += step.y;
+      if (Math.abs(g.sx) + Math.abs(g.sy) < WHEEL.slop) {
+        if (Math.abs(step.x) > Math.abs(step.y)) e.preventDefault(); // not a swipe yet, and not back or forward either
+        return;
+      }
+      g.axis = Math.abs(g.sx) > Math.abs(g.sy) ? "x" : "y";
+      step.x = g.sx; // the travel before the way was picked counts too
+    }
+    if (g.axis !== "x") return; // up or down: the page scrolls
+    e.preventDefault();
+    if (g.locked) return;
+    if (!g.on) {
+      // The card moves only from rest, with its cover drawn, and not while a finger or the mouse holds it.
+      if (!card || modeRef.current !== "idle" || gesture.current || drawnRef.current !== item.id || wheelOff()) { g.locked = true; return; }
+      const r = card.getBoundingClientRect(), ox = e.clientX - r.left, oy = e.clientY - r.top;
+      Object.assign(g, { on: true, w: r.width, h: r.height, low: oy > r.height / 2, itemId: item.id });
+      placeStamps();
+      card.style.transformOrigin = `${ox}px ${oy}px`;
+      lastGrab.current = { ox, oy, w: r.width, h: r.height, low: g.low };
+      freeze();
+      setMode("drag");
+    }
+    g.dx += step.x;
+    const dir = Math.sign(g.dx), p = progressFor(g.dx, g.w);
+    setCard(g.dx, 0, tiltFor(g.dx, g.w, g.low));
+    paintStamps(dir, p);
+    const lead = Math.abs(g.dx) >= SWIPE.lead ? dir : 0, solid = p >= 1;
+    if (lead !== g.lead || solid !== g.solid) {
+      g.lead = lead; g.solid = solid;
+      intent(lead ? { dir: lead, solid, phase: "drag" } : null);
+    }
+    if (!solid) return;
+    g.locked = true; // at the line it goes, or it's refused and comes back, and that's this swipe done
+    if (g.itemId !== item.id || swipeNow.current?.canSend?.(dir) === false) { springBack(); return; }
+    send(dir, { dx: g.dx, dy: 0, vx: dir * 1.6, vy: 0, w: g.w, h: g.h, tilt: tiltFor(g.dx, g.w, g.low) });
+  }
+  const onWheel = useRef(null);
+  onWheel.current = (e) => {
+    if (e.ctrlKey) return; // a pinch zooms the page
+    let g = wheel.current;
+    if (!g) {
+      if (wheelOff()) return;
+      g = wheel.current = { sx: 0, sy: 0, axis: null, on: false, locked: false, dx: 0, lead: 0, solid: false, timer: null };
+    }
+    wheelMove(g, e);
+    clearTimeout(g.timer);
+    g.timer = setTimeout(() => endWheel(g), g.locked ? WHEEL.settle : WHEEL.end);
+  };
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return undefined;
+    const listen = (e) => onWheel.current?.(e);
+    el.addEventListener("wheel", listen, { passive: false }); // passive listeners can't stop back and forward
+    return () => { el.removeEventListener("wheel", listen); clearTimeout(wheel.current?.timer); };
+  }, []);
+  // A cover that changes under a trackpad swipe (a reload) sends the card back, and the rest of the swipe stays locked.
+  useEffect(() => {
+    const g = wheel.current;
+    if (!g?.on || g.locked || modeRef.current !== "drag") return;
+    g.locked = true;
+    springBack();
+  }, [item.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Rewind (1.34.0): the cover she brings back flies in from the side it left by, over the one she was on, which waits
   // underneath. It shows once its photo is drawn on this card, so nothing of the cover before it flies in.

@@ -2817,6 +2817,12 @@ try {
       media_preview_url: "https://example.com/p.jpg", media_permalink: "https://www.instagram.com/p/abc/" });
     const row = (await dm("listitems", { filter: "all", light: true })).items.find((i) => i.id === note.id);
     assert(row.kind === "comment" && row.media_id === "m-arrive" && row.media_preview_url === "https://example.com/p.jpg", "a comment arrives with its post, for the reply screen");
+    assert(note.missing === undefined && came.missing === undefined, "a comment with its post, or a DM, lacks nothing");
+    const bare = await dm("importitem", { kind: "comment", comment_id: "c-arrive-2", sender: "no.post", incoming_text: "hi" });
+    assert(bare.created === true && bare.missing.join() === "media_id,media_preview_url,media_permalink", `a comment that came without its post says what's missing: ${JSON.stringify(bare)}`);
+    const filled = await dm("importitem", { kind: "comment", comment_id: "c-arrive-2", sender: "no.post", incoming_text: "hi", media_id: "m-arrive",
+      media_preview_url: "https://example.com/p.jpg", media_permalink: "https://www.instagram.com/p/abc/" });
+    assert(filled.id === bare.id && filled.missing === undefined, "sent again with its post, the same comment has it");
     await dm("syncwanted");
     assert(typeof (await dm("getsync")).muse_seen_at === "string", "the page hears when her Muse last looked for a pull");
   });

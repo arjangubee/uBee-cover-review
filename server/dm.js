@@ -779,7 +779,16 @@ const actions = {
       if (fits.length === 1) [found] = fits;
       if (found) found.threadId = key;
     }
-    if (!found) return { id: actions.createitem({ ...a, kind, source }).id, created: true };
+    // 1.40.0 (Quill #1461): a comment's answer names what its post still lacks here, so whoever imports it can send it.
+    // Tapping the comment opens its post for reference, and with none of these on file there's no post to show.
+    const lacks = (r) => (r.kind !== "comment" ? {} : (() => {
+      const missing = [["media_id", r.mediaId], ["media_preview_url", r.mediaPreviewUrl], ["media_permalink", r.mediaPermalink]].filter(([, v]) => !v).map(([k]) => k);
+      return missing.length ? { missing } : {};
+    })());
+    if (!found) {
+      const id = actions.createitem({ ...a, kind, source }).id;
+      return { id, created: true, ...lacks(find(id)) };
+    }
     const sender = optText(a.sender, "sender", 80);
     const context = optText(a.context_text, "context", 4000);
     const mediaId = optText(a.media_id, "media_id", 120);
@@ -795,7 +804,7 @@ const actions = {
       found.incomingText = story.incomingText;
       found.storyReplyNotCaptured = story.notCaptured;
     }
-    return { id: found.id, created: false };
+    return { id: found.id, created: false, ...lacks(found) };
   },
 
   // 1.23.0: Refresh asks for a pull from Instagram, one at a time. A tap while one runs asks nothing new; a pull that

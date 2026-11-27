@@ -63,7 +63,7 @@ function Screens() {
       <div hidden={screen !== "chats"} className="dm-root">
         {chatsOpened && (
           <Suspense fallback={<p className="hint" style={{ padding: 24, textAlign: "center" }}>Loading Chats…</p>}>
-            <ChatsApp />
+            <ChatsApp active={screen === "chats"} />
           </Suspense>
         )}
       </div>

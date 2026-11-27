@@ -1625,6 +1625,39 @@ try {
     assert(dup.created.length === 0, "a Drive id already in the queue makes nothing");
     assert((await queueIds()).join(",") === again.join(","), "and the queue order doesn't move");
   });
+  // 1.38.2 (Quill #1367): a photo a space imported before its batch was enqueued has a bare row with no review time, so
+  // the enqueue skips it. The one-off recovery gives it the time the enqueue would have given it as the batch's first
+  // photo, writes nothing else, and refuses before the batch, on a composed or placed cover, and a second time.
+  await check("v1.38.2 a bare photo imported before its batch goes in front of that batch, at the time the batch would have given it, once", async () => {
+    const row = (id, more) => ({ id, imageUrl: `https://example.com/row-${id}.jpg`, title: `row ${id}`, source: "drive", driveId: `smoke-row-${id}`, status: "queue", quote: "A quote.", ...more });
+    await withCopy(4196, (dir) => writeFileSync(join(dir, "db.json"), JSON.stringify({ voiceSamples: [], nextId: 6, items: [
+      row(1, { reviewOrderAt: 1000 }), row(2, { reviewOrderAt: 2000 }), row(3, { song: "Artist A - Song A", why: null, description: "" }),
+      row(4, { why: { text: "Because.", tags: [] } }), row(5, { description: "A photo." })] })), async ({ dir, get, post }) => {
+      const saved = (id) => JSON.parse(readFileSync(join(dir, "db.json"), "utf8")).items.find((i) => i.id === id);
+      const sorted = (o) => JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k]]));
+      const early = await post("/api/items/3/recover-front", { driveId: "smoke-row-3" });
+      assert(/batch first/.test(early.error || ""), `before its batch it should refuse, got ${JSON.stringify(early).slice(0, 200)}`);
+      const sent = await post("/api/items/enqueue", { items: ["smoke-row-3", "smoke-new-1", "smoke-new-2"].map((driveId) => ({ imageUrl: `https://example.com/${driveId}.jpg`, driveId })) });
+      assert(sent.created.length === 2, `the enqueue skips the bare row's Drive id, got ${sent.created.length} new`);
+      assert(sent.created.map((i) => i.reviewOrderAt).join(",") === "998,999", `the two new ones take the batch's 2nd and 3rd times, got ${sent.created.map((i) => i.reviewOrderAt)}`);
+      const [n1, n2] = sent.created.map((i) => i.id);
+      for (const [id, driveId, words] of [[3, "smoke-new-1", "Drive id"], [4, "smoke-row-4", "bare import"], [5, "smoke-row-5", "bare import"], [n1, "smoke-new-1", "already has its place"], [999, "smoke-row-3", "not found"]]) {
+        const no = await post(`/api/items/${id}/recover-front`, { driveId });
+        assert((no.error || "").includes(words), `cover ${id} should be refused with "${words}", got ${JSON.stringify(no).slice(0, 200)}`);
+      }
+      const before = saved(3);
+      const done = await post("/api/items/3/recover-front", { driveId: "smoke-row-3" });
+      assert(done.item?.reviewOrderAt === 997, `it takes 997, the first photo's time in a batch of three in front of 1000, got ${done.item?.reviewOrderAt}`);
+      const after = saved(3);
+      assert(after.reviewOrderAt === 997, "the time is saved");
+      delete after.reviewOrderAt;
+      assert(sorted(after) === sorted(before), `nothing else on the row changes: ${sorted(after).slice(0, 300)}`);
+      const order = (await get("/api/items")).items.map((i) => i.id);
+      assert(order.slice(0, 5).join(",") === [3, n1, n2, 1, 2].join(","), `the batch leads in its order, then the rest: ${order}`);
+      const twice = await post("/api/items/3/recover-front", { driveId: "smoke-row-3" });
+      assert((twice.error || "").includes("already has its place") && saved(3).reviewOrderAt === 997, "a second call is refused and moves nothing");
+    });
+  });
   // The Chats simulator (1.14, Arjang #570 and #575, Quill #581 and #584): practice replies to DMs and comments, her Muse
   // drafts and sends. One POST route per action under /api/dm/, the same names and answers as a Muse space's dm_ actions.
   const dm = (name, body) => postJson(`/api/dm/${name}`, body || {});

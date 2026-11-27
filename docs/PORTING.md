@@ -12,6 +12,35 @@ Rules for every port:
 4. Bring the client over whole (client/src, built with `npm --prefix client run build`), then map its calls to the space's actions.
 5. Check her data is all still there, then post screenshots of the cover screen and the editor.
 
+## 1.38.2: a one-off recovery for a photo imported before its batch
+
+Quill #1367, for the space's one bare test-import row. A ported space can import a Drive photo before its batch is
+enqueued. The photo then has a row, so the enqueue skips its Drive id and the row keeps no review time. It sits behind
+every timed cover, at the back of the queue.
+
+1. `POST /api/items/:id/recover-front` with `{ driveId }` gives that row the queue's front time (`store.frontTimes(1)`),
+   where the enqueue puts a batch's first photo. It writes `reviewOrderAt` and nothing else, and answers `{ item }`.
+2. It refuses with a 409, writing nothing, when the Drive id sent isn't the row's, the row isn't in the queue, the row
+   already has a review time, the row has a `why` or a `description`, or the last batch enqueued didn't send that Drive
+   id. So it can't run before the batch is enqueued, and it can place a row only once. A missing row is a 404.
+3. Right after the batch is enqueued, the front time is exactly the time the enqueue would have given the photo as the
+   batch's first. In a batch of n going in front of E, the enqueue gives E - n to E - 1 in order. With the first photo
+   skipped, the rest still get E - n + 1 to E - 1, and the recovery gives the photo E - n. A photo further back in its
+   batch has no free time between its neighbors, so this fits a batch's first photo only.
+4. A correction to 1.38.0, whose data steps said none to run. That holds for this repo's JSON store. A space with its
+   own tables needs a place for the two cover fields 1.38.0 added, `pollenReel` and `pollenSlides` (null on every old
+   cover, no backfill), and for `settings.pollenPrefs`. 1.38.1 and 1.38.2 add no field.
+
+| Where | Change |
+| --- | --- |
+| server/full.js | `POST /api/items/:id/recover-front` |
+| scripts/smoke.mjs | the recovery's check, in its own copy with a seeded bare row |
+
+### Data steps (her space, never the repo)
+
+- One, once: the space's bare test-import row takes its front time through this route, after the batch that skipped
+  it is enqueued. Quill #1367 scopes it to that row: a one-off recovery, not a standing action.
+
 ## 1.38.1: Schedule Post says what Pollen left out
 
 Follow-up to 1.38.0, from wiring the Bee Hive and Pollen ends.
@@ -75,7 +104,9 @@ Arjang, Nov 26, in chat.
 
 ### Data steps (her space, never the repo)
 
-- None to run. Her choices live in `settings.pollenPrefs`. A cover sent before keeps its `pollen` as it was.
+- None to run in this repo's JSON store. A space with its own tables needs a place for the two new cover fields,
+  `pollenReel` and `pollenSlides` (null on every old cover, no backfill), and for her choices in
+  `settings.pollenPrefs` (corrected in 1.38.2). A cover sent before keeps its `pollen` as it was.
 
 ## 1.37.0: Choose From Queue for a carousel
 

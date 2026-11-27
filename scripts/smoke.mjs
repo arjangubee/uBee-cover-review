@@ -195,7 +195,8 @@ owners.set(new URL(base).origin, "smoke_owner");
 const server = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(PORT), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: DATA,
   COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_POLLEN_SYNC_MS: "3600000", COVER_REVIEW_DM_SYNC_STUCK_MS: "2500",
   COVER_REVIEW_SYMPHONY_URL: `${symBase}/functions/v1/symphony`,
-  COVER_REVIEW_PHOTO_ORIGINS: hiveBase }, stdio: "pipe" }); // 1.40.0: the stand-in "remote" photo lives on this computer // 1.40.0: the stand-in "remote" photo lives on this computer
+  COVER_REVIEW_PHOTO_ORIGINS: hiveBase, // 1.40.0: the stand-in "remote" photo lives on this computer
+  COVER_REVIEW_DM_PULL_MS: "9000000000000000" }, stdio: "pipe" }); // pulls here start on Refresh only; a copy below checks the open-Chats ones // 1.40.0: the stand-in "remote" photo lives on this computer
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function check(name, fn) {
@@ -216,7 +217,7 @@ async function newItem(name) {
 }
 // Another copy on its own server and its own data folder, for checks that need data an older version saved, or quotes
 // still locked (1.13.9). fill(dir) writes its data before the server starts.
-async function withCopy(port, fill, fn) {
+async function withCopy(port, fill, fn, env = {}) {
   const dir = mkdtempSync(join(tmpdir(), "cr-copy-"));
   for (const f of ["default-quotes.json", "quiz-quotes.json", "trending-instagram.json"]) copyFileSync(join(REPO_DATA, f), join(dir, f));
   fill(dir);
@@ -227,7 +228,7 @@ async function withCopy(port, fill, fn) {
   owners.set(new URL(at).origin, String(connector || "smoke_owner").replace(/^@+/, "").toLowerCase());
   tokens.delete(new URL(at).origin);
   const child = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: String(port), COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: dir,
-    COVER_REVIEW_POLLEN_SYNC_MS: "3600000" }, stdio: "ignore" });
+    COVER_REVIEW_POLLEN_SYNC_MS: "3600000", ...env }, stdio: "ignore" });
   try {
     for (let i = 0; i < 50; i++) { try { if ((await fetch(`${at}/api/health`)).ok) break; } catch {} await wait(200); }
     await fn({ dir,
@@ -2883,6 +2884,22 @@ try {
     const count = (await dm("listitems", { filter: "all" })).items.length;
     assert(count === all.length, "nothing was added twice");
     hive.inboxOn = false;
+  });
+  await check("v1.40 Chats: while Chats is open, a DM pull is due every few minutes at her Muse's check-in; with Chats closed nothing is pulled (room #1495)", async () => {
+    await withCopy(4194, () => {}, async (c) => {
+      const d = (name, body) => c.post(`/api/dm/${name}`, body || {});
+      const first = await d("syncwanted");
+      assert(first.wanted === false, `Chats not open: nothing is due: ${JSON.stringify(first)}`);
+      await d("listitems", { filter: "all", light: true }); // she opens Chats
+      const due = await d("syncwanted");
+      assert(due.wanted === true && typeof due.asked_at === "string", `with Chats open, a pull is due: ${JSON.stringify(due)}`);
+      assert((await d("syncwanted")).asked_at === due.asked_at, "checking in again while it runs asks nothing new");
+      await d("confirmsync", { ok: true, asked_at: due.asked_at, imported: 1, updated: 0, skipped: 0, detail: "" });
+      assert((await d("syncwanted")).wanted === false, "right after a pull, nothing is due");
+      await wait(1300);
+      await d("listitems", { filter: "all", light: true });
+      assert((await d("syncwanted")).wanted === true, "once the last pull is old enough and Chats is still open, the next one is due");
+    }, { COVER_REVIEW_DM_PULL_MS: "1000" });
   });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);

@@ -47,6 +47,13 @@ const SYNC_STUCK_MS = Number(process.env.COVER_REVIEW_DM_SYNC_STUCK_MS) > 0 ? Nu
 // 1.40.0 (Arjang #1445, #1452 and #1454): the inbox mirrors on arrival. Her Muse brings each DM or comment in with
 // importitem at the moment it's made, one chat a call, with no pull and no timer. A pull stays what Refresh asks for.
 const museSeen = new Map(); // when her Muse last read syncwanted, to the second, per account (saved at most hourly)
+// 1.40.0 (room #1495): until Meta approves uBee Messages, its webhook sends no DMs, so a DM only comes in through her
+// Muse's full pull. While Chats is open (a light read in the last INTEREST_MS), a pull is due once the last one is
+// DM_PULL_MS old, and her Muse's next check-in starts it. With Chats closed nothing is pulled. Comments don't wait for
+// it: they come in from the Bee Hive (arrivals.js).
+const DM_PULL_MS = Number(process.env.COVER_REVIEW_DM_PULL_MS) > 0 ? Number(process.env.COVER_REVIEW_DM_PULL_MS) : 5 * 60_000;
+const INTEREST_MS = 2 * 60_000;
+const chatsOpenAt = new Map(); // account space -> when Chats last read its list
 
 class DmError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -870,10 +877,13 @@ const actions = {
     // Reading this is how a copy learns its Muse can pull. It's kept, at most once an hour, so a restart keeps it.
     const now = Date.now();
     museSeen.set(currentSpace(), now);
-    if (!s.museSeenAt || now - s.museSeenAt > 3_600_000) {
-      s.museSeenAt = now;
-      store.saveDb();
-    }
+    let save = false;
+    if (!s.museSeenAt || now - s.museSeenAt > 3_600_000) { s.museSeenAt = now; save = true; }
+    const inFlight = typeof s.askedAt === "number" && now - s.askedAt <= SYNC_STUCK_MS;
+    const open = now - (chatsOpenAt.get(currentSpace()) || 0) <= INTEREST_MS;
+    const last = Math.max(s.lastSyncedAt ?? 0, s.lastErrorAt ?? 0, typeof s.askedAt === "number" ? s.askedAt : 0);
+    if (open && !inFlight && now - last >= DM_PULL_MS) { s.askedAt = now; save = true; }
+    if (save) store.saveDb();
     return { wanted: typeof s.askedAt === "number", asked_at: iso(s.askedAt), since: iso(s.cursor) };
   },
   /** Her Muse's report: ok with what changed (and a note, such as threads it couldn't read), or why it didn't finish. */
@@ -1000,7 +1010,10 @@ export function registerDm(app) {
     res.set("Cache-Control", "no-store");
     try {
       const args = req.body && typeof req.body === "object" ? req.body : {};
-      if (name === "listitems" && args.light === true) catchUpSoon(); // her open Chats asks the Bee Hive for arrivals (1.40.0)
+      if (name === "listitems" && args.light === true) {
+        chatsOpenAt.set(currentSpace(), Date.now()); // Chats is open: DM pulls are due while it is (1.40.0)
+        catchUpSoon(); // and it asks the Bee Hive for arrivals
+      }
       let out = run(args);
       // A held read: nothing changed since her cursor, so wait for a change, then answer again from the new state.
       const ms = Number(args.wait);

@@ -2025,6 +2025,11 @@ function PostView({ post, onBack, focusId = null }) {
   const [failed, setFailed] = useState(false);
   const [captionOpen, setCaptionOpen] = useState(false);
   const embed = igEmbedUrl(post.permalink);
+  // 1.40.0 (room #1521): opening a post asks for drafts on its other comments when drafting ahead is on (the server checks).
+  const postMediaId = post.comments.find((c) => c.media_id)?.media_id ?? null;
+  useEffect(() => {
+    if (postMediaId) api.dm_draftpost({ media_id: postMediaId }).catch(() => {});
+  }, [postMediaId]);
   const sorted = [...post.comments].sort((a, b) => lastActivityMs(b) - lastActivityMs(a));
   const count = post.comments.length;
   return (
@@ -7760,6 +7765,48 @@ function TrainingView({
 // Voice: the rules the drafter follows
 // ---------------------------------------------------------------------------
 
+// 1.40.0 (room #1521): drafting ahead. Off until she turns it on. With it on, new comments get a draft before she opens them.
+function DraftAheadToggle() {
+  const queryClient = useQueryClient();
+  const q = useQuery({ queryKey: ["draft-ahead"], queryFn: () => api.dm_getdraftahead({}) });
+  const [error, setError] = useState("");
+  const m = useMutation({
+    mutationFn: async (on) => await api.dm_setdraftahead({ on }),
+    onSuccess: (data) => { setError(""); queryClient.setQueryData(["draft-ahead"], data); },
+    onError: (e) => setError(e.message),
+  });
+  const on = q.data?.on === true;
+  if (q.isError) return null;
+  return (
+    <div className="mt-5 rounded-2xl bg-[var(--surface-alt)] p-4">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p id="draft-ahead-label" className="text-sm font-semibold">Draft comments ahead</p>
+          <p className="mt-1 text-sm leading-snug text-[var(--dim)]">
+            New comments get a draft before you open them. Nothing sends until you tap Send.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          aria-labelledby="draft-ahead-label"
+          disabled={q.isPending || m.isPending}
+          onClick={() => m.mutate(!on)}
+          className="relative h-8 w-14 shrink-0 rounded-full transition-colors disabled:opacity-60"
+          style={{ background: on ? "var(--accent)" : "var(--dim)" }}
+        >
+          <span
+            className="absolute top-1 h-6 w-6 rounded-full bg-white transition-transform"
+            style={{ left: 4, transform: on ? "translateX(24px)" : "none" }}
+          />
+        </button>
+      </div>
+      {error && <p className="mt-2 text-sm" style={{ color: "var(--danger)" }}>{error}</p>}
+    </div>
+  );
+}
+
 function VoiceView() {
   const queryClient = useQueryClient();
   const voiceQuery = useQuery({
@@ -7835,6 +7882,7 @@ function VoiceView() {
         your changes apply to the next draft Muse writes. One rule per
         line. The starting wording comes from Muse, and Restore puts it back.
       </p>
+      <DraftAheadToggle />
 
       {voiceQuery.isPending ? (
         <p className="py-10 text-center text-sm text-[var(--dim)]">

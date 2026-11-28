@@ -2923,6 +2923,37 @@ try {
       } finally { other.kill(); }
     }, { COVER_REVIEW_DM_PULL_MS: "1000" });
   });
+  await check("v1.40 Chats: drafting ahead is off until she turns it on; then new comments and her opened post's comments wait for a draft, and nothing of hers is touched (room #1521)", async () => {
+    await withCopy(4194, () => {}, async (c) => {
+      const d = (name, body) => c.post(`/api/dm/${name}`, body || {});
+      const comment = (id, media, words, extra = {}) => d("importitem", { kind: "comment", source: "live", comment_id: id, sender: `fan.${id}`,
+        incoming_text: words, media_id: media, media_permalink: `https://www.instagram.com/p/${media}/`, media_preview_url: `https://example.com/${media}.jpg`, ...extra });
+      assert((await d("getdraftahead")).on === false, "off by default");
+      const before = await comment("ca-1", "post-a", "love this look");
+      const wantedIds = async () => (await d("draftswanted")).items.map((i) => i.id);
+      assert(!(await wantedIds()).includes(before.id), "with it off, a new comment waits for nobody");
+      assert((await d("draftpost", { media_id: "post-a" })).wanted === 0, "with it off, opening a post asks nothing");
+      const done = await comment("ca-2", "post-a", "so pretty");
+      await d("generatedraft", { id: done.id, mode: "listening" });
+      await d("savedraft", { id: done.id, draft_text: "thank you angel" });
+      await d("savereview", { id: done.id, verdict: "approved", revision_text: "thank you angel", feedback: "" });
+      assert((await d("setdraftahead", { on: "yes" })).error, "on must be true or false");
+      assert((await d("setdraftahead", { on: true })).on === true && (await d("getdraftahead")).on === true, "she turns it on, and it stays on");
+      const fresh = await comment("ca-3", "post-a", "so hot omg");
+      const asked = (await d("draftswanted")).items.find((i) => i.id === fresh.id);
+      assert(asked, "with it on, a new comment waits for a draft as it comes in");
+      assert(asked.prompt.includes("Who they are to her:") && asked.prompt.includes("thank you angel") && asked.prompt.includes("Replies already on this post")
+        && asked.prompt.includes("never the same line as another reply"), `its prompt knows the post and her approved tone: ${asked.prompt.slice(-600)}`);
+      const open = await d("draftpost", { media_id: "post-a" });
+      assert(open.on === true && open.wanted === 1, `opening the post asks only for the one with nothing of hers: ${JSON.stringify(open)}`);
+      assert((await wantedIds()).includes(before.id), "the older draft-less comment on that post now waits too");
+      const kept = (await d("listitems", { filter: "all" })).items.find((i) => i.id === done.id);
+      assert(kept.draft_text === "thank you angel" && kept.verdict === "approved" && kept.draft_wanted === false, "her approved one is untouched");
+      await d("setdraftahead", { on: false });
+      const later = await comment("ca-4", "post-b", "hi");
+      assert(!(await wantedIds()).includes(later.id), "turned off, new comments wait for nobody again");
+    });
+  });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);
     const root = new URL("../", import.meta.url).pathname;

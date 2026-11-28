@@ -298,6 +298,26 @@ function answeringText(r) {
   return words.length ? words.join("\n") : r.incomingText;
 }
 
+// 1.40.0 (room #1521): a comment's draft also knows who wrote it, what she already approved for other comments, and what
+// is already drafted on the same post, so replies on one post don't read the same.
+function commentContext(r) {
+  if (r.kind !== "comment") return [];
+  const lines = [];
+  const who = [r.following === true ? "she follows them" : "she doesn't follow them",
+    r.followsHer === true ? "they follow her" : r.followsHer === false ? "they don't follow her" : ""].filter(Boolean).join(", ");
+  lines.push(`Who they are to her: ${who}.`);
+  const finalText = (x) => x.publishedText || x.revisionText || x.draftText || null;
+  const examples = [...rows()].filter((x) => x.id !== r.id && x.kind === "comment" && x.source !== "holdout"
+    && (x.verdict === "approved" || x.verdict === "edited") && finalText(x) && x.incomingText)
+    .sort((a, b) => b.id - a.id).slice(0, 3);
+  if (examples.length) lines.push(`Replies she approved to other comments, for her tone (don't copy them):\n${examples.map((x) => `Comment: ${x.incomingText}\nHer reply: ${finalText(x)}`).join("\n")}`);
+  const onPost = r.mediaId ? rows().filter((x) => x.id !== r.id && x.mediaId === r.mediaId && x.kind === "comment")
+    .map((x) => x.publishedText || x.revisionText || x.draftText).filter((t) => t && t.trim() !== "").slice(-8) : [];
+  if (onPost.length) lines.push(`Replies already on this post. Yours must not repeat any of them, word for word or nearly:\n${onPost.map((t) => `- ${t.trim()}`).join("\n")}`);
+  lines.push("If the comment is crude, sexual or hateful, a short thank-you is fine, but never the same line as another reply. Where it's safe, echo one of their own words, and vary any stretched word and emoji.");
+  return lines;
+}
+
 function draftPrompt(r, mode, variant, direction = null) {
   const openings = [...rows()].sort((a, b) => b.id - a.id).slice(0, 12)
     .map((x) => x.draftText).filter((t) => t && t.trim() !== "").slice(0, 3)
@@ -329,6 +349,7 @@ function draftPrompt(r, mode, variant, direction = null) {
       ? "Their message: (They replied to your story, and the words of that reply weren't captured. Don't invent what they said.)"
       : `Their message: ${answeringText(r)}`,
     openings.length ? `Do not start your reply the same way as these recent drafts: ${openings.join(" / ")}` : "",
+    ...commentContext(r),
     note,
     direction ? `Her direction for this draft, follow it: ${direction}` : "",
   ].filter((l) => l !== "").join("\n");
@@ -400,6 +421,17 @@ function syncStatus() {
 
 /** Waiting for her answer: not reviewed yet, on a chat that needs a reply at all (1.22.0, the simulator's count). */
 const isPending = (r) => r.verdict === "pending" && r.needsReply !== false;
+// 1.40.0 (room #1521): drafting ahead. Off unless she turns it on in Chats. With it on, a live comment that needs a reply
+// and has nothing of hers on it yet is marked as waiting for a draft when it comes in, when she opens it, or when she
+// opens its post, so her Muse drafts it before she gets there. It only ever asks for a draft: a draft, revision,
+// feedback or verdict already there is never touched, and nothing is sent without her tap.
+const aheadOn = () => store.settings.dmDraftAhead === true;
+function wantAhead(r) {
+  if (!aheadOn() || r.kind !== "comment" || r.source !== "live" || !isPending(r) || r.publishStatus !== "unpublished") return false;
+  if (r.draftText != null || r.draftWanted || r.revisionText || r.feedback || Array.isArray(r.workLines)) return false;
+  r.draftWanted = { mode: "listening", variant: "fresh", at: Date.now(), ahead: true };
+  return true;
+}
 const isReady = (r) => r.verdict !== "pending" && r.source !== "holdout" && (r.publishStatus === "unpublished" || r.publishStatus === "publish_failed");
 
 // 1.40.0 (Arjang #1445: Chats got slow with thousands of chats). The page used to get every chat with its whole thread
@@ -568,6 +600,7 @@ const actions = {
     const stale = r.draftText != null && r.draftVoiceVersion !== voice;
     const pending = r.verdict === "pending" && r.publishStatus === "unpublished" && r.needsReply !== false;
     if (pending && stale && !r.draftWanted) r.draftWanted = { mode: r.kind === "dm" ? "dm" : "listening", variant: "fresh", at: Date.now() };
+    wantAhead(r);
     return { item: toItem(r, voice), regenerated: false, wanted: Boolean(r.draftWanted) };
   },
 
@@ -794,6 +827,24 @@ const actions = {
     store.settings.dmVoice = { rules, startingProfile };
     return { ok: true };
   },
+  /** Whether new comments are drafted ahead (room #1521). */
+  getdraftahead() {
+    return { on: aheadOn() };
+  },
+  /** She turns drafting ahead on or off. Turning it on doesn't sweep old comments; each is asked for as it comes in or opens. */
+  setdraftahead(a) {
+    if (typeof a.on !== "boolean") throw new DmError("on must be true or false.");
+    store.settings.dmDraftAhead = a.on;
+    return { on: a.on };
+  },
+  /** She opened a post: with drafting ahead on, its other comments that need a reply are asked for too. */
+  draftpost(a) {
+    const mediaId = text(a.media_id, "media_id", { min: 1, max: 120 });
+    if (!aheadOn()) return { on: false, wanted: 0 };
+    let wanted = 0;
+    for (const r of rows()) if (r.mediaId === mediaId && wantAhead(r)) wanted += 1;
+    return { on: true, wanted };
+  },
   /** Items waiting for a draft, oldest ask first, each with the text a model would get. Never a sealed reply. */
   draftswanted() {
     const waiting = rows().filter((r) => r.draftWanted).sort((x, y) => x.draftWanted.at - y.draftWanted.at || x.id - y.id);
@@ -849,6 +900,7 @@ const actions = {
     })());
     if (!found) {
       const id = actions.createitem({ ...a, kind, source }).id;
+      wantAhead(find(id));
       return { id, created: true, ...lacks(find(id)) };
     }
     const sender = optText(a.sender, "sender", 80);
@@ -866,6 +918,7 @@ const actions = {
       found.incomingText = story.incomingText;
       found.storyReplyNotCaptured = story.notCaptured;
     }
+    wantAhead(found);
     return { id: found.id, created: false, ...lacks(found) };
   },
 
@@ -985,9 +1038,9 @@ export function sendParts(textToSend) {
   return lines.map((t, i) => ({ text: t, delay_ms: i === 0 ? 0 : pauseAfter(lines[i - 1]) }));
 }
 
-const READS = new Set(["listitems", "getthread", "getreplylinks", "exporttraining", "getvoiceprofile", "getaccount", "getvoicesource", "draftswanted", "publishwanted", "editswanted",
+const READS = new Set(["listitems", "getthread", "getdraftahead", "getreplylinks", "exporttraining", "getvoiceprofile", "getaccount", "getvoicesource", "draftswanted", "publishwanted", "editswanted",
   "getsync", "syncwanted"]);
-const SETTINGS = new Set(["savevoiceprofile", "resetvoiceprofile", "savevoicesource", "savereplylinks"]);
+const SETTINGS = new Set(["savevoiceprofile", "resetvoiceprofile", "savevoicesource", "savereplylinks", "setdraftahead"]);
 
 // 1.40.0 (Arjang #1452): an open Chats tab hears of a change the moment it's saved, with no timer. Its read of the light
 // list can carry wait: the server holds the answer until something in her Chats changes (a DM her Muse brought in, a

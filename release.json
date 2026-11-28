@@ -1,9 +1,9 @@
 {
   "version": "1.40.0",
-  "date": "2026-11-27",
+  "date": "2026-11-28",
   "whatsNew": [
-    "Rewind works any time: it brings back the last cover you passed on, even after a reload or from inside Passed, and it takes back a Skip too",
-    "Chats is much faster with a big inbox, opens on DMs, and a comment you tap opens its post with your reply ready. Draft sits next to Send, and drafts are numbered and edited in place",
-    "Safer under the hood: one bad request can no longer stop the app, and uploads are photos and videos only"
+    "Your queue comes shuffled now, with Random or Recent on the Queue tab, and Rewind brings back the last cover you passed on, even after a reload",
+    "The carousel's + adds photos more ways: Generate, Pick, Add and Pick from shuffle, plus Upload your own with a quote from your list",
+    "Chats is much faster with a big inbox, and your replies show in each comment's thread"
   ]
 }

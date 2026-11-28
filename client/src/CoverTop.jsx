@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Icon from "./icons.jsx";
 import { hardRefresh } from "./release.js";
 import { imageUrlFor, loadImage } from "./CoverCanvas.jsx";
-import { aspectLabel, displayTitle, parseSong, spotifyEmbedUrl } from "./reviewMath.js";
+import { aspectLabel, displayTitle, parseSong, spotifyEmbedUrl, symphonyWhy } from "./reviewMath.js";
 import { clipNow, clipSource, isSilent, unlockAudio } from "./songs/clipSource.js";
 import { symphonyIdOf } from "./songs/songsData.js";
 
@@ -77,6 +77,18 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs, onPlayer
   const [playerOpen, setPlayerOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(item.song || "");
+  const verified = symphonyWhy(item);
+  const [whyOpen, setWhyOpen] = useState(false);
+  const whyRef = useRef(null);
+  useEffect(() => { setWhyOpen(false); }, [item.id, item.song]);
+  useEffect(() => {
+    if (!whyOpen) return undefined;
+    const away = (e) => { if (whyRef.current && !whyRef.current.contains(e.target)) setWhyOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setWhyOpen(false); };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
+  }, [whyOpen]);
   const audio = useRef(null);
   // The photo's ratio beside its number (1.29.0, Quill #1212), from the photo's own pixels.
   const [ratio, setRatio] = useState("");
@@ -125,7 +137,18 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs, onPlayer
   useEffect(() => { onPlayer?.(shown); }, [shown, onPlayer]);
   useEffect(() => () => onPlayer?.(false), [onPlayer]);
   return (
-    <div className="songWrap">
+    <div className="songWrap" ref={whyRef}>
+    {verified && whyOpen && (
+      <div className="symWhy" id={`symwhy-${item.id}`} role="region" aria-label="Why Symphony picked this song">
+        <div className="symWhyHead">
+          <Icon name="shieldCheck" size={18} />
+          <strong>Picked by Symphony</strong>
+          <button type="button" className="iconBtn symWhyClose" onClick={() => setWhyOpen(false)} aria-label="Close"><Icon name="close" size={18} /></button>
+        </div>
+        <p className="symWhyText">{verified.text}</p>
+        <p className="symWhyFoot">For {verified.song}{verified.recordedAt ? ` · ${new Date(verified.recordedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}</p>
+      </div>
+    )}
     {shown && (
       <iframe key={`${item.id}-${embed}`} className="spotifyEmbed" src={embed} title={`Spotify player for ${item.song || "this song"}`}
         allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" />
@@ -139,9 +162,17 @@ export function SongRow({ item, onShuffle, onSetSong, onDraft, onSongs, onPlayer
             <button type="submit" className="linkBtn">Save</button>
           </form>
         ) : (
-          <button type="button" className="songLine" onClick={() => setEditing(true)} aria-label={`Song: ${item.song || "none yet"}. Tap to change it`}>
-            {item.song ? <>{artist && <>{artist} · </>}<span className="u">{title}</span></> : <span>No song yet. Tap shuffle or type one.</span>}
-          </button>
+          <div className="songLineRow">
+            <button type="button" className="songLine" onClick={() => setEditing(true)} aria-label={`Song: ${item.song || "none yet"}. Tap to change it`}>
+              {item.song ? <>{artist && <>{artist} · </>}<span className="u">{title}</span></> : <span>No song yet. Tap shuffle or type one.</span>}
+            </button>
+            {verified && (
+              <button type="button" className={whyOpen ? "symBadge open" : "symBadge"} onClick={() => setWhyOpen((o) => !o)}
+                aria-expanded={whyOpen} aria-controls={`symwhy-${item.id}`} aria-label="Symphony picked this song. Show why">
+                <Icon name="shieldCheck" size={18} />
+              </button>
+            )}
+          </div>
         )}
       </div>
       {embed ? (

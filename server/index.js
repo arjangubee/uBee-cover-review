@@ -5,6 +5,8 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONNECTORS, createDriveFolders, drivePlan, sortLocalDump, spotifyAuthUrl } from "./connectors.js";
+import { DECK_ORDERS, deckOrderOf, newSeed, orderDeck, seedOf } from "./deckOrder.js";
+import { placeFront } from "./deckPlace.js";
 import { buildVoiceProfile, generateCaption, loadQuotes, loadTrending, saveTrending, suggestQuote, suggestSong } from "./services.js";
 import { registerDm } from "./dm.js";
 import { registerMusic } from "./music.js";
@@ -163,8 +165,28 @@ app.get("/api/items", (req, res) => {
   // only once its compose check passes (1.25.0, Arjang #1104): the rest wait behind, in their own order. The deck checks
   // the cover she's on and the next one ahead of time (1.21.0), and a rule change rechecks saved checks (1.13.9).
   // A skipped cover (1.32.0) sits after all of them, literally last, skips in the order they were made.
+  // The deck's order (1.40.0 part 18): random by default, or recent, which is this order. Random shuffles the first two
+  // groups by her seed and leaves skipped covers last.
   const queue = store.queueInOrder(), skipped = queue.filter((i) => i.skippedAt), rest = queue.filter((i) => !i.skippedAt);
-  res.json({ items: [...rest.filter((i) => composePasses(i.beacons)), ...rest.filter((i) => !composePasses(i.beacons)), ...skipped] });
+  const passing = rest.filter((i) => composePasses(i.beacons)), waiting = rest.filter((i) => !composePasses(i.beacons));
+  res.json({ items: orderDeck({ passing, waiting, skipped }, deckSettings()), order: deckOrderOf(store.settings) });
+});
+// The deck's order (1.40.0 part 18, room #1582 and #1583): random (the default) or recent, per account. Picking random
+// makes a new shuffle every time; picking recent keeps the seed, so going back to random makes a new one anyway.
+function deckSettings() {
+  if (deckOrderOf(store.settings) === "random" && seedOf(store.settings) == null) {
+    store.settings.deckOrder = { order: "random", seed: newSeed() };
+    store.saveSettings();
+  }
+  return store.settings;
+}
+app.get("/api/settings/deck-order", (_req, res) => res.json({ order: deckOrderOf(deckSettings()) }));
+app.post("/api/settings/deck-order", (req, res) => {
+  const order = req.body?.order;
+  if (!DECK_ORDERS.includes(order)) return res.status(400).json({ error: "Send order: random or recent." });
+  store.settings.deckOrder = order === "random" ? { order, seed: newSeed() } : { ...(store.settings.deckOrder || {}), order };
+  store.saveSettings();
+  res.json({ order });
 });
 // Skip (1.32.0, room #1248, Quill #1249, the original's skipCover): a queued cover goes to the very end of the queue. Only
 // its place moves: skippedAt marks it and its review time goes after every queued cover's. A decision clears the mark.
@@ -208,6 +230,7 @@ app.post("/api/items/rewind", (_req, res) => {
   item.decidedAt = null;
   item.reviewOrderAt = store.frontTimes(1)[0];
   delete item.skippedAt;
+  placeFront(item); // in a random deck it leads too (1.40.0 part 18)
   store.saveDb();
   res.json({ item, passedLeft: passed.length - 1 });
 });

@@ -14,6 +14,7 @@ import { cleanWhy, normalizeForStockCheck, quoteInStock, recheckSaved, songInPoo
 import { generateCaption, loadQuotes } from "./services.js";
 import { SONG_SOURCES, cleanHook, cleanSongFile } from "./songs.js";
 import { store } from "./store.js";
+import { placeAfterItem } from "./deckPlace.js";
 import { best, noteTried, pickSongFor } from "./songPick.js";
 
 export const PROMPT_MAX = 300;
@@ -81,6 +82,7 @@ function moveItem(id, afterId) {
   if (after && typeof after.reviewOrderAt === "number") it.reviewOrderAt = after.reviewOrderAt;
   else if (after) delete it.reviewOrderAt;
   else it.reviewOrderAt = store.frontTimes(1)[0];
+  placeAfterItem(it, after); // and the same place in a random deck (1.40.0 part 18)
   return true;
 }
 

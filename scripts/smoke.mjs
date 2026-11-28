@@ -12,7 +12,8 @@ import { bakedCta, cleanCtas, ctaFor, plainCaption, postedCaption } from "../ser
 import * as sharedCall from "../client/src/captionCall.js";
 import { bangRuleOf, capEndings, storyCapture, voiceVersion } from "../server/dmRules.js";
 import { askCss, fmt, pokeReach, why } from "../client/src/beeline/beelineText.js";
-import { symphonyWhy } from "../client/src/reviewMath.js";
+import { composePasses, symphonyWhy } from "../client/src/reviewMath.js";
+import { deckKey, frontPlace, inRandomOrder, placeAfter } from "../server/deckOrder.js";
 import { callsFolded, cleanKey, decide, fileUrl, forgetDevice, looksLikeKey, saveDevice, savedDevice, setCallsFolded } from "../client/src/beeline/beelineApi.js";
 
 // Smoke runs in a throwaway data folder, so it never touches a creator's real photos,
@@ -183,6 +184,10 @@ async function ownerToken(origin) {
     const j = await r.json();
     if (!j.token || !j.owner) throw new Error(`smoke couldn't sign in as the owner on ${origin}: ${JSON.stringify(j)}`);
     tokens.set(origin, j.token);
+    // Most checks read the queue's own order, so each copy's deck reads recent (1.40.0 part 18: random is the default).
+    // The deck order check turns random on and off itself.
+    await realFetch(`${origin}/api/settings/deck-order`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${j.token}` },
+      body: JSON.stringify({ order: "recent" }) });
   }
   return tokens.get(origin);
 }
@@ -2472,6 +2477,53 @@ try {
     const refused = await fetch(`${base}/api/items/${b.id}/skip`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     assert(refused.status === 409, `only a queued cover: ${refused.status}`);
     await postJson(`/api/items/${b.id}/decide`, { decision: "queue" });
+  });
+  await check("v1.40 part18 the deck is random or recent: a seeded shuffle that holds, Rewind leads, skips stay last (room #1582, #1583)", async () => {
+    const ids = (l) => l.map((i) => i.id).join();
+    const queue = async () => (await (await fetch(`${base}/api/items`)).json());
+    for (let n = 0; n < 6; n++) await newItem(`deck-${n}.png`);
+    assert((await (await fetch(`${base}/api/settings/deck-order`)).json()).order === "recent", "the harness reads recent");
+    const recent = await queue();
+    assert(recent.order === "recent", `the list says its order: ${recent.order}`);
+    const r = await postJson("/api/settings/deck-order", { order: "random" });
+    assert(r.order === "random", "random is on");
+    const a = await queue(), b = await queue();
+    assert(a.order === "random" && ids(a.items) === ids(b.items), "the shuffle holds from one read to the next");
+    assert([...a.items].map((i) => i.id).sort().join() === [...recent.items].map((i) => i.id).sort().join(), "the same covers, only in another order");
+    assert(ids(a.items) !== ids(recent.items), `shuffled: ${a.items.length} covers`);
+    // A skip still goes last.
+    const victim = a.items.find((i) => !i.skippedAt);
+    await postJson(`/api/items/${victim.id}/skip`, {});
+    let list = (await queue()).items;
+    assert(list.at(-1).id === victim.id, "a skipped cover is last in a random deck too");
+    await postJson(`/api/items/${victim.id}/decide`, { decision: "queue" }); // clears the skip
+    // Rewind leads its group.
+    const out = list.find((i) => !i.skippedAt && i.id !== victim.id);
+    await postJson(`/api/items/${out.id}/decide`, { decision: "rejected" });
+    const back = await postJson("/api/items/rewind", {});
+    list = (await queue()).items.filter((i) => !i.skippedAt);
+    const group = list.filter((i) => composePasses(i.beacons) === composePasses(back.item.beacons));
+    assert(group[0].id === back.item.id, `Rewind's cover leads: ${group[0].id} vs ${back.item.id}`);
+    // A new shuffle each time she picks random.
+    const before = ids((await queue()).items);
+    await postJson("/api/settings/deck-order", { order: "random" });
+    assert(ids((await queue()).items) !== before, "picking random again makes a new shuffle");
+    // Recent is the queue's own order again.
+    await postJson("/api/settings/deck-order", { order: "recent" });
+    const again = await queue();
+    assert(again.order === "recent", "recent is back");
+    const bad = await fetch(`${base}/api/settings/deck-order`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order: "sideways" }) });
+    assert(bad.status === 400, `a made-up order is refused: ${bad.status}`);
+    // The pure rules a ported space uses.
+    const covers = [1, 2, 3, 4, 5].map((id) => ({ id }));
+    const seeded = inRandomOrder(covers, 7);
+    assert(ids(seeded) === ids(inRandomOrder(covers, 7)), "a seed always gives the same order");
+    const front = { id: 9, deckPlace: frontPlace(covers, 7) };
+    assert(inRandomOrder([...covers, front], 7)[0].id === 9, "a front place leads");
+    const after = { id: 10, deckPlace: placeAfter(covers, seeded[1], 7, 10) };
+    const placed = inRandomOrder([...covers, after], 7);
+    assert(placed[placed.findIndex((i) => i.id === seeded[1].id) + 1].id === 10, "a place after one cover sits right after it");
+    assert(deckKey({ id: 9, deckPlace: { seed: 8, key: -5 } }, 7) !== -5, "a place made for another seed doesn't count");
   });
   await check("v1.26 the color pass sets a cover's own color from its photo, never over one she picked, and custom colors keep the 5 newest", async () => {
     const a = await newItem("auto-a.png"), b = await newItem("auto-b.png");

@@ -9,9 +9,10 @@ import TileCover from "./TileCover.jsx";
 // Schedule with Pollen. Tapping a cover opens it.
 
 const TABS = [["queue", "Queue"], ["approved", "Approved"], ["rejected", "Passed"]];
+const ORDERS = [["random", "Random", "A new random order"], ["recent", "Recent", "The queue's own order"]];
 
 export default function LibraryView({ list, setList, items, counts, pollenOn, onOpen, onSchedule, onUpload, onClose, canClose, onSongs,
-  look = null, quoteOverlay = null, quotesUnlocked = false, loadError = null, listFailed = false }) {
+  look = null, quoteOverlay = null, quotesUnlocked = false, loadError = null, listFailed = false, deckOrder = "random", onDeckOrder = null }) {
   // Each preview shows its text the way its cover does (1.20.0, Big Edit item 19): the overlay rule, and the queue's look.
   const tile = (item) => {
     const it = withLook(item, look);
@@ -37,6 +38,17 @@ export default function LibraryView({ list, setList, items, counts, pollenOn, on
           </button>
         ))}
       </div>
+      {/* The deck's order (1.40.0 part 18, room #1583): Random shuffles the deck, Recent keeps the queue's order. */}
+      {list === "queue" && onDeckOrder && (
+        <div className="deckOrder" role="radiogroup" aria-label="Deck order">
+          {ORDERS.map(([id, name, hint]) => (
+            <button type="button" key={id} role="radio" aria-checked={deckOrder === id} className={deckOrder === id ? "on" : ""}
+              onClick={() => onDeckOrder(id)} title={hint}>
+              <Icon name={id === "random" ? "shuffle" : "sort"} size={18} /> {name}
+            </button>
+          ))}
+        </div>
+      )}
       {loadError /* 1.27.1: a call that didn't load says so and stays until it does, never an empty list */}
       {!items.length && !listFailed && (
         <div className="emptyState">

@@ -306,7 +306,7 @@ export function quotesStatus() {
 // Pollen booking and no compose check carried over from the cover it came from. v1.4. The remix menu (1.17.0) builds on it.
 export function revisionOf(src) {
   // A cover's place in the queue isn't part of it (1.20.1): a revision gets its own.
-  const { id, status, decidedAt, pollen, pollenReel, pollenRender, pollenSlides, beacons, composeAttestedAt, beaconsVersion, reviewOrderAt, rationale, ...rest } = structuredClone(src);
+  const { id, status, decidedAt, pollen, pollenReel, pollenRender, pollenSlides, beacons, composeAttestedAt, beaconsVersion, reviewOrderAt, deckPlace, rationale, ...rest } = structuredClone(src);
   return rest; // a copy starts unchecked: no check, and none of the check's lines (1.21.0)
 }
 

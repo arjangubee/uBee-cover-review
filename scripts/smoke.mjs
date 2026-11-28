@@ -14,6 +14,7 @@ import { bangRuleOf, capEndings, storyCapture, voiceVersion } from "../server/dm
 import { askCss, fmt, pokeReach, why } from "../client/src/beeline/beelineText.js";
 import { composePasses, symphonyWhy } from "../client/src/reviewMath.js";
 import { deckKey, frontPlace, inRandomOrder, placeAfter } from "../server/deckOrder.js";
+import { overlayTextOf, rankPhotos } from "../server/photoMatch.js";
 import { callsFolded, cleanKey, decide, fileUrl, forgetDevice, looksLikeKey, saveDevice, savedDevice, setCallsFolded } from "../client/src/beeline/beelineApi.js";
 
 // Smoke runs in a throwaway data folder, so it never touches a creator's real photos,
@@ -2664,6 +2665,33 @@ try {
     } finally {
       await postJson(`/api/settings/caption-ctas`, { ctas: [] });
     }
+  });
+  await check("v1.40 part19 Generate adds the photos that best match the cover's text, as many as asked, never one already in it (room #1582)", async () => {
+    const main = await newItem("gen-main.png");
+    await postJson(`/api/items/${main.id}/edit`, { quote: "Golden hour on the ocean" });
+    const sea = await newItem("gen-sea.png"), sun = await newItem("gen-sun.png"), desk = await newItem("gen-desk.png");
+    await postJson(`/api/items/${sea.id}/description`, { text: "waves on the ocean at golden hour" });
+    await postJson(`/api/items/${sun.id}/description`, { text: "a golden sunset" });
+    await postJson(`/api/items/${desk.id}/description`, { text: "a laptop on a desk" });
+    const r = await postJson(`/api/items/${main.id}/slides/generate`, { count: 2, text: "Golden hour on the ocean" });
+    assert(r.added === 2 && r.matched === 2, `two, both matched: ${JSON.stringify({ added: r.added, matched: r.matched })}`);
+    assert(r.item.slides[0].fromItemId === sea.id && r.item.slides[1].fromItemId === sun.id, `best match first: ${r.item.slides.map((x) => x.fromItemId)}`);
+    const again = await postJson(`/api/items/${main.id}/slides/generate`, { count: 1, text: "Golden hour on the ocean" });
+    assert(![sea.id, sun.id].includes(again.item.slides[2].fromItemId), "a photo already in the carousel isn't picked again");
+    const own = await postJson(`/api/items/${main.id}/slides/generate`, { count: 1 });
+    assert(own.added === 1, "with no text sent, the cover's own quote is the text");
+    const refuse = async (body, status) => {
+      const res = await fetch(`${base}/api/items/${main.id}/slides/generate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      assert(res.status === status, `${JSON.stringify(body)}: expected ${status}, got ${res.status}`);
+      return (await res.json()).error;
+    };
+    await refuse({ count: 0 }, 400);
+    await refuse({ count: "two" }, 400);
+    assert(/room for 5/.test(await refuse({ count: 6 }, 409)), "more than the room left says how many fit");
+    assert(overlayTextOf({ quote: "Hi there", extraTexts: [{ quote: "on cover" }, { quote: "on slide 2", slide: 2 }] }) === "Hi there on cover", "the overlay text is the cover photo's");
+    assert(overlayTextOf({ quote: "Hi there" }, false) === "", "a hidden quote isn't on the cover");
+    const ranked = rankPhotos("ocean waves", [{ id: 1, description: "a desk" }, { id: 2, description: "ocean waves" }, { id: 3, title: "waves" }]);
+    assert(ranked.map((x) => x.id).join() === "2,3,1" && ranked[0].score === 4, `ranking: ${JSON.stringify(ranked)}`);
   });
   await check("v1.37 Choose From Queue adds other covers' photos as slides, in the order picked, up to 10 photos with the cover", async () => {
     const main = await newItem("carousel.png");

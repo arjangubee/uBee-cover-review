@@ -43,6 +43,18 @@ top takes back too. With the queue clear and covers in Passed, the empty screen 
 The page: All covers shows Random | Recent under the tabs on the Queue tab. A pick saves it, and the deck starts again
 from its first cover. Choose From Queue reads the same list, so it shows the queue in the deck's order.
 
+### Covers: the carousel's + (part 19, room #1582)
+
+| Action | What a port needs |
+| --- | --- |
+| `POST /api/items/:id/slides/generate` (new) | Body `{ count, text }`. count is a whole number from 1 up to the room left (else 400, or 409 with "room for N more", or 409 when full). text is the overlay text as the page shows it (at most 2000 characters); without it, `overlayTextOf(item)`. Candidates: covers in queue or approved with a photo, other than this one and any already in its carousel (`fromItemId` of an active slide). `rankPhotos(text, candidates, item.id * 31 + activeSlides)` from `server/photoMatch.js` (the same words as remix: description counts 2, title 1). It takes them best first, each as Choose From Queue does (`fromItemId`, a copy of the photo), and passes over one whose photo doesn't load. Answers `{ item, added, matched }`, matched being how many shared a word with the text. 502 when none came through. No model. |
+
+The page: the + opens Carousel with four options. Generate (with a how-many stepper, 3 or the room left), Pick (Choose
+From Queue, as before), Add (the phone's own picker, as before) and Pick from shuffle. Pick from shuffle is the page's own
+(`client/src/ShuffleTheater.jsx`): it reads `/api/items?status=queue` (the deck's order), leaves out this cover and its
+carousel's photos, and shows one at a time over a dimmed screen with the quote off. Right or + keeps it, left or X skips
+it, and Done sends the kept ones to `slides/from` as one step for Undo. It stops keeping at the room left.
+
 ### Chats: the light list, whole threads on open, mirroring on arrival
 
 | Action | What a port needs |

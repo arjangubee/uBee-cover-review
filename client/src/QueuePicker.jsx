@@ -7,34 +7,61 @@ import { displayTitle } from "./reviewMath.js";
 export const CAROUSEL_MAX = 10;
 const PEEK_MS = 350; // a press this long shows the photo whole; a shorter one is a tap
 
-// The carousel's + (1.37.0, Arjang Nov 26): Choose From Queue, then her phone's own picker (Photo Library, Take Photo or
-// Video, Choose File). A web page can't add a line to the phone's menu, so this small menu comes first.
-export function AddSlideMenu({ room, onQueue, onFile, onClose }) {
+// The carousel's + (1.37.0, Arjang Nov 26; its Carousel options since 1.40.0 part 19, room #1582): Generate, Pick, Add and
+// Pick from shuffle. Generate takes as many photos as she sets, the ones that best match the text on the cover. Pick is
+// Choose From Queue. Add is her phone's own picker (Photo Library, Take Photo or Video, Choose File, and Google Drive under
+// Browse when its app is on the phone). Pick from shuffle swipes through the queue one photo at a time.
+export function AddSlideMenu({ room, onGenerate, onQueue, onFile, onShuffle, onClose }) {
   const fileRef = useRef(null);
   const first = useRef(null);
   const full = room <= 0;
+  const [count, setCount] = useState(Math.max(1, Math.min(3, room)));
+  const [generating, setGenerating] = useState(false);
+  const [note, setNote] = useState("");
   useEffect(() => { first.current?.focus(); }, []);
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); onClose(); } };
+    const onKey = (e) => { if (e.key === "Escape" && !generating) { e.preventDefault(); onClose(); } };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, generating]);
+  const generate = async () => {
+    if (full || generating) return;
+    setGenerating(true);
+    setNote("");
+    const why = await onGenerate(count);
+    if (why) { setNote(why); setGenerating(false); }
+  };
   return (
-    <div className="sheetBackdrop" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="sheetBackdrop" onClick={(e) => { if (e.target === e.currentTarget && !generating) onClose(); }}>
       <div className="sheet addSlideSheet" role="dialog" aria-modal="true" aria-labelledby="addSlideTitle" aria-describedby="addSlideHint">
         <div className="sheetHead">
-          <h2 id="addSlideTitle">Add to this carousel</h2>
-          <button type="button" className="iconBtn" onClick={onClose} aria-label="Close"><Icon name="close" /></button>
+          <h2 id="addSlideTitle">Carousel</h2>
+          <button type="button" className="iconBtn" onClick={onClose} disabled={generating} aria-label="Close"><Icon name="close" /></button>
         </div>
         <p className="hint" id="addSlideHint">
           {full ? `It has ${CAROUSEL_MAX} photos, the most a carousel holds. Remove one to add another.`
             : `${CAROUSEL_MAX - room} of ${CAROUSEL_MAX} photos. Room for ${room} more.`}
         </p>
-        <button ref={first} type="button" className="addSlideOption" disabled={full} onClick={onQueue}>
-          <Icon name="grid" size={22} /> Choose From Queue
+        <div className="addSlideOption generateRow">
+          <button ref={first} type="button" className="generateGo" disabled={full || generating} onClick={generate}>
+            <Icon name="sparkle" size={22} /> {generating ? "Generating" : "Generate"}
+          </button>
+          <div className="countStep" role="group" aria-label="How many photos">
+            <button type="button" className="countBtn" aria-label="One fewer" disabled={full || generating || count <= 1} onClick={() => setCount((n) => n - 1)}><Icon name="minus" size={18} /></button>
+            <span aria-live="polite">{full ? 0 : count}</span>
+            <button type="button" className="countBtn" aria-label="One more" disabled={full || generating || count >= room} onClick={() => setCount((n) => n + 1)}><Icon name="plus" size={18} /></button>
+          </div>
+        </div>
+        {note && <p className="problem addSlideNote" role="alert">{note}</p>}
+        <button type="button" className="addSlideOption" disabled={full || generating} onClick={onQueue}>
+          <Icon name="grid" size={22} /> Pick
         </button>
-        <button type="button" className="addSlideOption" disabled={full} onClick={() => fileRef.current?.click()}>
-          <Icon name="photoAdd" size={22} /> Photo Library, Camera or File
+        <button type="button" className="addSlideOption" disabled={full || generating} onClick={() => fileRef.current?.click()}>
+          <Icon name="photoAdd" size={22} /> Add
+          <span className="optionHint">Photos, camera, files or Drive</span>
+        </button>
+        <button type="button" className="addSlideOption" disabled={full || generating} onClick={onShuffle}>
+          <Icon name="shuffle" size={22} /> Pick from shuffle
         </button>
         <input ref={fileRef} type="file" accept="image/*,video/*" hidden
           onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) { onClose(); onFile(f); } }} />

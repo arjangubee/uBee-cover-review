@@ -14,7 +14,8 @@ import SearchSheet from "./SearchSheet.jsx";
 import LibraryView from "./LibraryView.jsx";
 import RemixSheet from "./RemixSheet.jsx";
 import QueuePicker, { AddSlideMenu, CAROUSEL_MAX } from "./QueuePicker.jsx";
-import { STYLE_DEFAULTS, canvasMeasureAt, colorPatch, ensureFonts, lookOf, normalizePlacement, randomizeLayout, registerFonts, renderCover, withDefaults, withLook } from "./renderCover.js";
+import ShuffleTheater from "./ShuffleTheater.jsx";
+import { STYLE_DEFAULTS, canvasMeasureAt, colorPatch, ensureFonts, lookOf, normalizePlacement, randomizeLayout, registerFonts, renderCover, textBoxes, withDefaults, withLook } from "./renderCover.js";
 import { changedFields, displayTitle, valueForStars } from "./reviewMath.js";
 import ScheduleSheet from "./ScheduleSheet.jsx";
 import SchedulePostSheet, { SchedulePostButton } from "./SchedulePostSheet.jsx";
@@ -87,6 +88,7 @@ export default function App() {
   const [remixOpen, setRemixOpen] = useState(false); // the remix menu (1.17.0)
   const [addMenu, setAddMenu] = useState(false); // the carousel's + (1.37.0)
   const [queuePick, setQueuePick] = useState(false); // Choose From Queue (1.37.0)
+  const [theater, setTheater] = useState(false); // Pick from shuffle (1.40.0 part 19): theater mode, quote off while open
   const [deckOrder, setDeckOrder] = useState("random"); // the deck's order (1.40.0 part 18): random or recent, as the server says
   const [postSheet, setPostSheet] = useState(null); // Schedule Post (1.38.0): the cover as she saw it when she opened it
   const [remixing, setRemixing] = useState([]); // remixes still being made: each comes next once it's done
@@ -281,7 +283,7 @@ export default function App() {
   const indexNow = useRef(index);
   indexNow.current = index;
   // An editor or a sheet open means she's busy: the update notes above both screens wait for a quiet minute (1.13.10, 1.14).
-  const inUse = Boolean(draft) || infoOpen || Boolean(sheet) || remixOpen || addMenu || queuePick || Boolean(postSheet);
+  const inUse = Boolean(draft) || infoOpen || Boolean(sheet) || remixOpen || addMenu || queuePick || theater || Boolean(postSheet);
   useEffect(() => { setScreenBusy("covers", inUse); }, [inUse]);
   useEffect(() => () => setScreenBusy("covers", false), []);
   // A queued cover draws with the queue's look (1.20.0, Big Edit items 1 and 2): her last font and color, or her default color.
@@ -292,7 +294,7 @@ export default function App() {
   const drawnNow = withLook(current, look);
   const shown = draft && current && draft.id === current.id ? draft
     : moving && current && moving.id === current.id ? placeBox(drawnNow, moving) : drawnNow;
-  const quoteOn = Boolean(quoteShown(shown, quotesStatus?.quoteOverlay) && quotesStatus?.unlocked); // 1.13.9: global hide, else the post's own (on by default)
+  const quoteOn = Boolean(quoteShown(shown, quotesStatus?.quoteOverlay) && quotesStatus?.unlocked) && !theater; // 1.13.9: global hide, else the post's own (on by default); off in theater mode (1.40.0 part 19)
   const activeSlides = useMemo(() => (shown?.slides || []).map((s, at) => ({ ...s, at }))
     .filter((s) => !s.deletedAt).sort((a, b) => (a.position ?? 0) - (b.position ?? 0)), [shown]);
   // The magnifier works on the cover or a photo slide, never in Story view or on a video (1.7).
@@ -637,7 +639,7 @@ export default function App() {
   }, [enterFrom]);
   const flyCard = (dir) => { stageApi.current?.fly(dir); };
   // Something open over the cover: the arrow keys and a trackpad's swipe (1.39.0) leave the deck alone.
-  const overlayOpen = Boolean(draft || zoom || infoOpen || sheet || remixOpen || addMenu || queuePick || postSheet);
+  const overlayOpen = Boolean(draft || zoom || infoOpen || sheet || remixOpen || addMenu || queuePick || theater || postSheet);
   const swipe = view === "cover" && current ? {
     onSwipe: commitSwipe, canSend: canSwipe, onIntent: setIntent, enterFrom, onEntered: () => setEnterFrom(null), wheelOff: overlayOpen,
   } : null;
@@ -946,21 +948,44 @@ export default function App() {
   const backToPlus = () => requestAnimationFrame(() => document.querySelector('button[aria-label="Add a slide"]')?.focus({ preventScroll: true }));
   const closeAddMenu = () => { setAddMenu(false); backToPlus(); };
   const closeQueuePick = () => { setQueuePick(false); backToPlus(); };
+  const closeTheater = () => { setTheater(false); backToPlus(); };
   // Choose From Queue: the photos she picked join this carousel, in the order she tapped them, as one step for Undo. They
   // land after its last photo, and the screen goes to the first of them. Answers why they didn't join, for the picker.
+  // The photos that just joined, as one step for Undo, and the screen on the first of them (Pick, Generate, Pick from shuffle).
+  const joinedCarousel = (item, n) => {
+    patchItem(item);
+    const first = item.slides.length - n;
+    const ats = Array.from({ length: n }, (_, i) => first + i);
+    history.current.push({ label: n === 1 ? "Add slide" : `Add ${n} slides`, itemId: item.id,
+      before: { slides: ats.map((at) => ({ at, state: "removed" })) }, after: { slides: ats.map((at) => ({ at, state: "active" })) } });
+    bumpHistory();
+    setSlide(item.slides.filter((s) => !s.deletedAt).length - n + 1);
+  };
   const addFromQueue = async (ids) => {
     const src = current;
     try {
       const { item } = await post(`/api/items/${src.id}/slides/from`, { itemIds: ids });
-      patchItem(item);
-      const first = item.slides.length - ids.length;
-      const ats = ids.map((_, i) => first + i);
-      history.current.push({ label: ids.length === 1 ? "Add slide" : `Add ${ids.length} slides`, itemId: item.id,
-        before: { slides: ats.map((at) => ({ at, state: "removed" })) }, after: { slides: ats.map((at) => ({ at, state: "active" })) } });
-      bumpHistory();
+      joinedCarousel(item, ids.length);
       setQueuePick(false);
-      setSlide(item.slides.filter((s) => !s.deletedAt).length - ids.length + 1);
+      setTheater(false);
       say(ids.length === 1 ? "Added 1 photo to the carousel." : `Added ${ids.length} photos to the carousel.`);
+      return null;
+    } catch (e) { return e.message; }
+  };
+  // Generate (1.40.0 part 19, room #1582): the photos that best match the text on the cover, as many as she set. The
+  // server matches the words; the page sends the text as it shows it, quote included only while it's on.
+  const generateSlides = async (count) => {
+    const src = current;
+    try {
+      const text = textBoxes(withLook(src, look), quoteOn).map((b) => b.quote).join(" ");
+      const r = await post(`/api/items/${src.id}/slides/generate`, { count, text });
+      joinedCarousel(r.item, r.added);
+      setAddMenu(false);
+      backToPlus();
+      const what = r.added === 1 ? "1 photo" : `${r.added} photos`;
+      say(!text.trim() ? `Added ${what}. There's no text on the cover to match, so they're from your queue.`
+        : r.matched === r.added ? `Added ${what} that match your text.`
+        : r.matched ? `Added ${what}. ${r.matched} match your text.` : `Added ${what}. None shared a word with your text.`);
       return null;
     } catch (e) { return e.message; }
   };
@@ -1266,7 +1291,7 @@ export default function App() {
           onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} loadError={loadErrorBar} listFailed={Boolean(loadError?.items)} />
       ) : (
         <>
-        <main className="review" inert={zoom || remixOpen || addMenu || queuePick || postSheet ? true : undefined}>
+        <main className="review" inert={zoom || remixOpen || addMenu || queuePick || theater || postSheet ? true : undefined}>
           <CoverHeader list={list} count={counts?.[list] ?? items.length} position={index + 1} total={items.length}
             canUndo={history.current.canUndo()} canRedo={history.current.canRedo()} locked={Boolean(draft)} away={playerUp}
             onBack={showLibrary} onInfo={() => setInfoOpen(true)} onSearch={() => setSearchOpen(true)} onUndo={() => step("undo")} onRedo={() => step("redo")} />
@@ -1385,11 +1410,15 @@ export default function App() {
       )}
 
       {addMenu && current && view === "cover" && (
-        <AddSlideMenu room={CAROUSEL_MAX - 1 - activeSlides.length} onFile={addSlide} onClose={closeAddMenu}
-          onQueue={() => { setAddMenu(false); setQueuePick(true); }} />
+        <AddSlideMenu room={CAROUSEL_MAX - 1 - activeSlides.length} onFile={addSlide} onClose={closeAddMenu} onGenerate={generateSlides}
+          onQueue={() => { setAddMenu(false); setQueuePick(true); }} onShuffle={() => { setAddMenu(false); setTheater(true); }} />
       )}
       {queuePick && current && view === "cover" && (
         <QueuePicker currentId={current.id} room={CAROUSEL_MAX - 1 - activeSlides.length} onAdd={addFromQueue} onClose={closeQueuePick} />
+      )}
+      {theater && current && view === "cover" && (
+        <ShuffleTheater cover={current} room={CAROUSEL_MAX - 1 - activeSlides.length} onAdd={addFromQueue} onClose={closeTheater}
+          skipIds={activeSlides.map((s) => s.fromItemId).filter((v) => v != null)} />
       )}
 
       {remixOpen && current && view === "cover" && (

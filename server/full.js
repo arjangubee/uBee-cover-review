@@ -8,6 +8,7 @@ import { canDraft, captionPrompt, captionState, draftProblems, needsDescription 
 import { cleanCtas } from "./captionCtas.js";
 import { downloadedSongs, matchSongClip } from "./songs.js";
 import { musicOf } from "./music.js";
+import { overlayTextOf, rankPhotos } from "./photoMatch.js";
 import { basisOf, offlineRationale, rationaleProblems, rationalePrompt, sameBasis } from "./rationale.js";
 import { overlayOf, quoteShown } from "../client/src/quoteOverlay.js";
 import { whyProblem } from "../client/src/reviewMath.js";
@@ -582,6 +583,35 @@ export function registerFull(app, upload) {
       fromItemId: sources[i].id, position: active + i, deletedAt: null }));
     store.saveDb();
     res.json({ item, added: photos.length });
+  });
+  // Generate (1.40.0 part 19, room #1582): she picks how many, and the photos that best match the text on the cover join
+  // the carousel, best first. Candidates are covers in the queue and approved with a photo, other than this one and any
+  // already in it. A plain word match, no model (photoMatch.js). text is the overlay text as the page shows it; without
+  // it, the quote and her boxes on the cover. matched counts the ones that shared a word with it.
+  app.post("/api/items/:id/slides/generate", async (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const count = Number(req.body?.count);
+    if (!Number.isInteger(count) || count < 1) return res.status(400).json({ error: "Send count, how many photos, 1 or more." });
+    const active = (item.slides || []).filter((s) => !s.deletedAt).length;
+    const room = CAROUSEL_MAX - 1 - active;
+    if (room <= 0) return res.status(409).json({ error: CAROUSEL_FULL });
+    if (count > room) return res.status(409).json({ error: `A carousel holds ${CAROUSEL_MAX} photos. This one has room for ${room} more.` });
+    const inIt = new Set((item.slides || []).filter((s) => !s.deletedAt).map((s) => s.fromItemId).filter((v) => v != null));
+    const cands = store.db.items.filter((i) => i.id !== item.id && ["queue", "approved"].includes(i.status) && i.imageUrl && !inIt.has(i.id));
+    if (!cands.length) return res.status(409).json({ error: "There are no other photos in the queue or approved to pick from." });
+    const text = typeof req.body?.text === "string" ? req.body.text.slice(0, 2000) : overlayTextOf(item);
+    // Best first. A photo that doesn't load is passed over for the next one, so one bad photo never stops the rest.
+    const ranked = rankPhotos(text, cands, item.id * 31 + active), took = [];
+    for (const p of ranked) {
+      if (took.length >= count) break;
+      try { took.push({ p, mediaUrl: await photoAsSlide(store.getItem(p.id)) }); } catch { /* the next one */ }
+    }
+    if (!took.length) return res.status(502).json({ error: "None of the photos came through. Try again." });
+    item.slides = item.slides || [];
+    took.forEach(({ p, mediaUrl }, i) => item.slides.push({ mediaUrl, mediaType: "image", title: String(p.title || "photo"),
+      fromItemId: p.id, position: active + i, deletedAt: null }));
+    store.saveDb();
+    res.json({ item, added: took.length, matched: took.filter(({ p }) => p.score > 0).length });
   });
   app.post("/api/items/:id/slides/:index/remove", (req, res) => {
     const item = mustItem(req, res); if (!item) return;

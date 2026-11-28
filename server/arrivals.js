@@ -35,7 +35,7 @@ export async function catchUp() {
   let changed = false;
   try {
     for (let page = 0; page < PAGES; page += 1) {
-      const data = await askHive("inbox", { after: s.cursor ?? null, limit: 100 });
+      const data = await askHive("inbox", { after: s.cursor ?? null, limit: 100, self_replies: true }); // her own replies too (room #1555)
       const events = Array.isArray(data.events) ? data.events : [];
       const counts = applyArrivals(events);
       for (const k of Object.keys(total)) total[k] += counts[k] || 0;

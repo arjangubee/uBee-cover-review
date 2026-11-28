@@ -89,6 +89,7 @@ export default function App() {
   const [addMenu, setAddMenu] = useState(false); // the carousel's + (1.37.0)
   const [queuePick, setQueuePick] = useState(false); // Choose From Queue (1.37.0)
   const [theater, setTheater] = useState(false); // Pick from shuffle (1.40.0 part 19): theater mode, quote off while open
+  const [findingQuote, setFindingQuote] = useState(false); // Get quote at work (1.40.0 part 20): a note stays up until it's done
   const [deckOrder, setDeckOrder] = useState("random"); // the deck's order (1.40.0 part 18): random or recent, as the server says
   const [postSheet, setPostSheet] = useState(null); // Schedule Post (1.38.0): the cover as she saw it when she opened it
   const [remixing, setRemixing] = useState([]); // remixes still being made: each comes next once it's done
@@ -1004,8 +1005,10 @@ export default function App() {
   // Replace Photo (1.36.0, Arjang Nov 26), in the remix menu: the photo she picks goes behind the same text. On the cover
   // it's the cover photo; on a carousel photo it's that photo. Quote, font, color, places, song and caption stay exactly
   // as they are. Face mosaics were placed on the old photo, so they go with it. Undo brings both back, as one step.
-  const replacePhoto = (file) => attempt(async () => {
-    const src = current, s = slide > 0 ? activeSlides[slide - 1] || null : null;
+  const replacePhoto = (file) => attempt(() => replacePhotoNow(file, slide > 0 ? activeSlides[slide - 1] || null : null));
+  // s is the carousel photo to replace, or null for the cover photo. Answers the cover as it is after.
+  const replacePhotoNow = async (file, s) => {
+    const src = current;
     const before = { photo: s ? { slide: s.at, mediaUrl: s.mediaUrl, mediaType: s.mediaType, title: s.title ?? "" } : { mediaUrl: src.imageUrl } };
     say("Replacing the photo.");
     const r = await upload(`/api/items/${src.id}/photo`, "photo", file, s ? { slide: s.at } : {});
@@ -1021,7 +1024,30 @@ export default function App() {
     history.current.push({ label: "Replace photo", itemId: src.id, before, after });
     bumpHistory();
     say(mosaics.length ? "Photo replaced. The text stayed, and the face mosaics came off with the old photo." : "Photo replaced. The text stayed the same.");
+    return item;
+  };
+  // Upload your own (1.40.0 part 20, room #1582, Arjang #1596): her photo goes in as this cover's photo, and with Get quote
+  // on, a quote from her list for it follows, each its own step for Undo. A short note stays up while the quote is found.
+  const uploadOwn = (file, wantQuote) => attempt(async () => {
+    setAddMenu(false);
+    backToPlus();
+    const item = await replacePhotoNow(file, null);
+    if (wantQuote && item) await getQuote(item);
   });
+  // Get quote (part 20, call #13): the server answers a quote from her list (a space with a model may have it look at
+  // the photo), and it goes on the cover as one step, turned on for this cover if she had it off.
+  async function getQuote(c) {
+    setFindingQuote(true);
+    try {
+      const r = await post(`/api/items/${c.id}/quote-fill`, {});
+      const on = ownQuote(c);
+      await record("Get quote", c.id,
+        { edit: { quote: String(c.quote ?? "") }, ...(on ? {} : { showQuote: Boolean(c.showQuote), set: Boolean(c.showQuoteSet) }) },
+        { edit: { quote: r.quote }, ...(on ? {} : { showQuote: true, set: true }) });
+      say(!quotesStatus?.unlocked ? "Quote set. Quotes show once your quotes are unlocked."
+        : globalHide(quotesStatus?.quoteOverlay) ? "Quote set. Quotes are hidden on every cover until you hold the T again." : "Here's a quote for your photo.");
+    } finally { setFindingQuote(false); }
+  }
   const searchPhotos = async (q) => (await api(`/api/photos/search?q=${encodeURIComponent(q)}`)).results;
   // Hold and drag (1.20.0, Big Edit item 9): the lifted box follows her thumb, and letting go saves the spot as one step.
   const moveText = (index, h, v, _at, w = null, s = null) => { if (!current) return; movingNow.current = { id: current.id, index, h, v, w, s }; setMoving(movingNow.current); };
@@ -1411,7 +1437,7 @@ export default function App() {
 
       {addMenu && current && view === "cover" && (
         <AddSlideMenu room={CAROUSEL_MAX - 1 - activeSlides.length} onFile={addSlide} onClose={closeAddMenu} onGenerate={generateSlides}
-          onQueue={() => { setAddMenu(false); setQueuePick(true); }} onShuffle={() => { setAddMenu(false); setTheater(true); }} />
+          onQueue={() => { setAddMenu(false); setQueuePick(true); }} onShuffle={() => { setAddMenu(false); setTheater(true); }} onUploadOwn={uploadOwn} />
       )}
       {queuePick && current && view === "cover" && (
         <QueuePicker currentId={current.id} room={CAROUSEL_MAX - 1 - activeSlides.length} onAdd={addFromQueue} onClose={closeQueuePick} />
@@ -1426,6 +1452,7 @@ export default function App() {
           onReplacePhoto={replacePhoto} slideNumber={slide > 0 && activeSlides[slide - 1] ? slide + 1 : null} />
       )}
 
+      {findingQuote && <div className="workingNote" role="status" aria-live="polite"><span className="spinDot" aria-hidden="true" />Finding a quote for your photo. This can take a moment.</div>}
       {toast && <div className="toast" role="status" aria-live="polite">{toast.text}</div>}
     </div>
   );

@@ -15,6 +15,7 @@ import { askCss, fmt, pokeReach, why } from "../client/src/beeline/beelineText.j
 import { composePasses, symphonyWhy } from "../client/src/reviewMath.js";
 import { deckKey, frontPlace, inRandomOrder, placeAfter } from "../server/deckOrder.js";
 import { overlayTextOf, rankPhotos } from "../server/photoMatch.js";
+import { offlineQuote, quoteDraftProblems, quotePrompt, stockText } from "../server/quoteFill.js";
 import { callsFolded, cleanKey, decide, fileUrl, forgetDevice, looksLikeKey, saveDevice, savedDevice, setCallsFolded } from "../client/src/beeline/beelineApi.js";
 
 // Smoke runs in a throwaway data folder, so it never touches a creator's real photos,
@@ -2692,6 +2693,28 @@ try {
     assert(overlayTextOf({ quote: "Hi there" }, false) === "", "a hidden quote isn't on the cover");
     const ranked = rankPhotos("ocean waves", [{ id: 1, description: "a desk" }, { id: 2, description: "ocean waves" }, { id: 3, title: "waves" }]);
     assert(ranked.map((x) => x.id).join() === "2,3,1" && ranked[0].score === 4, `ranking: ${JSON.stringify(ranked)}`);
+  });
+  await check("v1.40 part20 Get quote answers a quote from her list for the photo, never the one it has, and saves nothing (room #1582, call #13)", async () => {
+    const c = await newItem("own-photo.png");
+    await postJson(`/api/items/${c.id}/description`, { text: "waves on the ocean at sunset" });
+    const before = (await (await fetch(`${base}/api/items`)).json()).items.find((i) => i.id === c.id);
+    const r = await postJson(`/api/items/${c.id}/quote-fill`, {});
+    assert(r.source === "offline" && typeof r.quote === "string" && r.quote.trim(), `a quote: ${JSON.stringify(r)}`);
+    assert(r.quote !== before.quote, "never the quote it has");
+    const { quotes } = await (await fetch(`${base}/api/quotes`)).json();
+    assert(quotes.some((q) => q.text === r.quote), "a quote from her list, as written");
+    const after = (await (await fetch(`${base}/api/items`)).json()).items.find((i) => i.id === c.id);
+    assert(after.quote === before.quote, "it answers, the page saves");
+    const prompt = await (await fetch(`${base}/api/items/${c.id}/quote-prompt`)).json();
+    assert(/Pick the one quote/.test(prompt.prompt) && prompt.prompt.includes("waves on the ocean at sunset") && prompt.imageUrl === c.imageUrl, "the prompt a model gets");
+    const list = [{ text: "The ocean remembers every wave" }, { text: "Coffee first then the world" }];
+    assert(offlineQuote({ description: "ocean waves", quote: "" }, list) === "The ocean remembers every wave", "the word match picks the ocean one");
+    assert(offlineQuote({ description: "ocean waves", quote: "The ocean remembers every wave" }, list) === "Coffee first then the world", "not the cover's own");
+    assert(quoteDraftProblems("\u201CCoffee first then the world\u201D", list, "").length === 0, "a model's answer in quote marks is fine");
+    assert(/isn't on her list/.test(quoteDraftProblems("A brand new line", list, "")[0]), "a made-up quote is refused");
+    assert(/has now/.test(quoteDraftProblems("Coffee first then the world", list, "Coffee first then the world")[0]), "the same quote is refused");
+    assert(stockText("coffee FIRST then the world", list) === "Coffee first then the world", "saved as written on her list");
+    assert(quotePrompt({}, list).includes("- Coffee first then the world"), "the prompt lists her quotes");
   });
   await check("v1.37 Choose From Queue adds other covers' photos as slides, in the order picked, up to 10 photos with the cover", async () => {
     const main = await newItem("carousel.png");

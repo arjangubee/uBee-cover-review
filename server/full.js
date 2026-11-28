@@ -9,6 +9,7 @@ import { cleanCtas } from "./captionCtas.js";
 import { downloadedSongs, matchSongClip } from "./songs.js";
 import { musicOf } from "./music.js";
 import { overlayTextOf, rankPhotos } from "./photoMatch.js";
+import { offlineQuote, quotePrompt } from "./quoteFill.js";
 import { basisOf, offlineRationale, rationaleProblems, rationalePrompt, sameBasis } from "./rationale.js";
 import { overlayOf, quoteShown } from "../client/src/quoteOverlay.js";
 import { whyProblem } from "../client/src/reviewMath.js";
@@ -684,6 +685,20 @@ export function registerFull(app, upload) {
     item.description = String(req.body?.text ?? "").trim().slice(0, 1000);
     store.saveDb();
     res.json({ item });
+  });
+  // Get quote (1.40.0 part 20, room #1582, Arjang #1596, call #13): a quote for the photo she uploaded, from her own list.
+  // It answers the pick and saves nothing: the page puts it on the cover as one step for Undo. This server has no model,
+  // so it picks by word match (quoteFill.js). A space with a model maps quote-fill to its model call with quotePrompt and
+  // the photo, answers source "model" when quoteDraftProblems finds nothing wrong, and falls back to this pick otherwise.
+  app.get("/api/items/:id/quote-prompt", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    res.json({ prompt: quotePrompt(item, loadQuotes()), imageUrl: item.imageUrl, description: String(item.description ?? "") });
+  });
+  app.post("/api/items/:id/quote-fill", (req, res) => {
+    const item = mustItem(req, res); if (!item) return;
+    const quote = offlineQuote(item, loadQuotes(), item.id * 17 + Date.now() % 997);
+    if (!quote) return res.status(409).json({ error: "Your quote list has no other quote to pick from." });
+    res.json({ quote, source: "offline" });
   });
   // A model's draft lands only while the caption is still what it was when drafting began, so a typed caption wins.
   app.post("/api/items/:id/caption-draft", (req, res) => {

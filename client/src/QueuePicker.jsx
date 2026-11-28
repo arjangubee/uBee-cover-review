@@ -11,8 +11,10 @@ const PEEK_MS = 350; // a press this long shows the photo whole; a shorter one i
 // Pick from shuffle. Generate takes as many photos as she sets, the ones that best match the text on the cover. Pick is
 // Choose From Queue. Add is her phone's own picker (Photo Library, Take Photo or Video, Choose File, and Google Drive under
 // Browse when its app is on the phone). Pick from shuffle swipes through the queue one photo at a time.
-export function AddSlideMenu({ room, onGenerate, onQueue, onFile, onShuffle, onClose }) {
+export function AddSlideMenu({ room, onGenerate, onQueue, onFile, onShuffle, onUploadOwn, onClose }) {
   const fileRef = useRef(null);
+  const ownRef = useRef(null);
+  const [wantQuote, setWantQuote] = useState(true);
   const first = useRef(null);
   const full = room <= 0;
   const [count, setCount] = useState(Math.max(1, Math.min(3, room)));
@@ -65,6 +67,25 @@ export function AddSlideMenu({ room, onGenerate, onQueue, onFile, onShuffle, onC
         </button>
         <input ref={fileRef} type="file" accept="image/*,video/*" hidden
           onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) { onClose(); onFile(f); } }} />
+        {/* Upload your own (1.40.0 part 20, Arjang #1596): her photo becomes this cover's photo, with Get quote on by default. */}
+        {onUploadOwn && (
+          <>
+            <h3 className="addSlideSection">Upload your own</h3>
+            <div className="addSlideOption ownRow">
+              <button type="button" className="generateGo" disabled={generating} onClick={() => ownRef.current?.click()}>
+                <Icon name="photo" size={22} /> Upload your own
+              </button>
+              <button type="button" role="switch" aria-checked={wantQuote} className="callSwitch quoteSwitch" disabled={generating}
+                onClick={() => setWantQuote((v) => !v)}>
+                <span className="track" aria-hidden="true"><span className="knob" /></span>
+                <span className="callLabel">Get quote</span>
+              </button>
+            </div>
+            <p className="hint addSlideFoot">Your photo replaces this cover's photo. With Get quote on, a quote from your list goes on it.</p>
+            <input ref={ownRef} type="file" accept="image/*" hidden
+              onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) onUploadOwn(f, wantQuote); }} />
+          </>
+        )}
       </div>
     </div>
   );

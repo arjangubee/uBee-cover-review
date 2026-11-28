@@ -55,6 +55,18 @@ From Queue, as before), Add (the phone's own picker, as before) and Pick from sh
 carousel's photos, and shows one at a time over a dimmed screen with the quote off. Right or + keeps it, left or X skips
 it, and Done sends the kept ones to `slides/from` as one step for Undo. It stops keeping at the room left.
 
+### Covers: Upload your own and Get quote (part 20, room #1582, Arjang #1596, call #13)
+
+| Action | What a port needs |
+| --- | --- |
+| `POST /api/items/:id/quote-fill` (new) | No body. Answers `{ quote, source }` and saves nothing: the page puts the quote on the cover through `edit` as one step for Undo. Here `source` is "offline": `offlineQuote(item, her quotes)` from `server/quoteFill.js`, the best word match of her list against the description (3), caption (2) and title (1), never the quote the cover has. 409 when her list has no other quote. Call #13 (Arjang, Get quote only): a space with a model maps this to its model call with `quotePrompt(item, her quotes)` and the cover photo, keeps the answer only when `quoteDraftProblems(answer, her quotes, item.quote)` is empty, answers it as written on her list (`stockText`) with source "model", and falls back to the offline pick otherwise. The quote stays on her list either way, so QUOTE_IN_STOCK holds. |
+| `GET /api/items/:id/quote-prompt` (new) | Answers `{ prompt, imageUrl, description }`, the same prompt, for a model outside the server. |
+
+The page: the + menu has Upload your own under Carousel, with a Get quote switch, on by default. Her photo replaces this
+cover's photo through `POST /api/items/:id/photo`, as Replace Photo does (one step for Undo). With Get quote on,
+`quote-fill` follows, and its quote is saved through `edit` as a second step, turning the quote on for this cover if she
+had it off. A note, "Finding a quote for your photo", stays up until it's done. Photos only: a cover can't be a video.
+
 ### Chats: the light list, whole threads on open, mirroring on arrival
 
 | Action | What a port needs |

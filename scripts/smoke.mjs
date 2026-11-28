@@ -2988,6 +2988,26 @@ try {
       assert(x.needs_reply === false && x.thread_messages.at(-1).from === "me", "a comment that comes in already answered never shows as needing a reply");
     });
   });
+  await check("v1.40 Chats: an empty poll keeps the last catch-up's counts, and totals add up everything taken (room #1550)", async () => {
+    hive.inboxOn = true;
+    try {
+      await withCopy(4194, () => {}, async (c) => {
+        const conn = await c.post("/api/connectors/pollen", { code: hive.code });
+        assert(conn.ok === true, `Pollen is connected on the copy: ${JSON.stringify(conn).slice(0, 160)}`);
+        await c.post("/api/dm/listitems", { filter: "all", light: true });
+        let a;
+        for (let i = 0; i < 20; i++) { await wait(150); a = (await c.post("/api/dm/getsync")).arrivals; if (a.last_result?.comments_new) break; }
+        assert(a.last_result?.comments_new === 1 && a.totals?.comments_new === 1 && typeof a.last_result_at === "string", `the catch-up's counts are kept: ${JSON.stringify(a)}`);
+        const firstCheck = a.checked_at;
+        await wait(450);
+        await c.post("/api/dm/listitems", { filter: "all", light: true });
+        let b;
+        for (let i = 0; i < 20; i++) { await wait(150); b = (await c.post("/api/dm/getsync")).arrivals; if (b.checked_at !== firstCheck) break; }
+        assert(b.checked_at !== firstCheck, "a second poll ran");
+        assert(b.last_result.comments_new === 1 && b.last_result_at === a.last_result_at && b.totals.comments_new === 1, `an empty poll keeps them: ${JSON.stringify(b)}`);
+      }, { COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_ARRIVALS_MS: "300", COVER_REVIEW_PHOTO_ORIGINS: hiveBase });
+    } finally { hive.inboxOn = false; }
+  });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);
     const root = new URL("../", import.meta.url).pathname;

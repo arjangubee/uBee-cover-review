@@ -23,7 +23,8 @@ export function arrivalsStatus() {
   const s = state();
   // Why it's off, so the page can say so instead of a slow Refresh with no reason (room #1514).
   const off_reason = on() ? null : !store.settings.pollen?.code ? "pollen_not_connected" : "hive_without_inbox";
-  return { on: on(), off_reason, checked_at: iso(s.checkedAt), last_result: s.lastResult ?? null, last_error: s.lastError ?? null, last_arrival_at: s.lastArrivalAt ?? null };
+  return { on: on(), off_reason, checked_at: iso(s.checkedAt), last_result: s.lastResult ?? null, last_result_at: iso(s.lastResultAt),
+    totals: s.totals ?? null, last_error: s.lastError ?? null, last_arrival_at: s.lastArrivalAt ?? null };
 }
 
 /** Asks the Bee Hive for every arrival since the last one taken, and brings them in. */
@@ -43,7 +44,12 @@ export async function catchUp() {
       if (typeof data.cursor === "string") s.cursor = data.cursor;
       if (!data.more) break;
     }
-    Object.assign(s, { checkedAt: Date.now(), lastResult: total, lastError: null });
+    // An empty poll keeps the last result that brought something in, so a catch-up's counts aren't lost to the next
+    // poll 20 seconds later (room #1550). totals adds up everything taken since arrivals turned on.
+    const took = Object.values(total).some((n) => n > 0);
+    const totals = s.totals && typeof s.totals === "object" ? s.totals : { comments_new: 0, comments_seen: 0, dms_added: 0, dms_waiting: 0, errors: 0 };
+    for (const k of Object.keys(total)) totals[k] = (totals[k] || 0) + total[k];
+    Object.assign(s, { checkedAt: Date.now(), lastError: null, totals, ...(took || !s.lastResult ? { lastResult: total, lastResultAt: Date.now() } : {}) });
   } catch (e) {
     Object.assign(s, { checkedAt: Date.now(), lastError: String(e?.message || e).slice(0, 300) });
   }

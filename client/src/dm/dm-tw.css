@@ -652,6 +652,13 @@
 .dm-root .gap-\[3px\] {
     gap: 3px;
   }
+.dm-root .space-y-1 {
+    :where(& > :not(:last-child)) {
+      --tw-space-y-reverse: 0;
+      margin-block-start: calc(calc(var(--spacing) * 1) * var(--tw-space-y-reverse));
+      margin-block-end: calc(calc(var(--spacing) * 1) * calc(1 - var(--tw-space-y-reverse)));
+    }
+  }
 .dm-root .space-y-1\.5 {
     :where(& > :not(:last-child)) {
       --tw-space-y-reverse: 0;
@@ -758,6 +765,13 @@
 .dm-root .border-t {
     border-top-style: var(--tw-border-style);
     border-top-width: 1px;
+  }
+.dm-root .border-l-2 {
+    border-left-style: var(--tw-border-style);
+    border-left-width: 2px;
+  }
+.dm-root .border-\[var\(--border\)\] {
+    border-color: var(--border);
   }
 .dm-root .bg-\[\#1c1c1f\] {
     background-color: #1c1c1f;
@@ -959,6 +973,9 @@
   }
 .dm-root .pl-1\.5 {
     padding-left: calc(var(--spacing) * 1.5);
+  }
+.dm-root .pl-3 {
+    padding-left: calc(var(--spacing) * 3);
   }
 .dm-root .pl-9 {
     padding-left: calc(var(--spacing) * 9);

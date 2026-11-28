@@ -2193,6 +2193,13 @@ function CommentRow({ item, focused = false }) {
   const latest = latestMeaningfulMessage(item);
   const repliedOnInstagram = !published && !sending && (item.source === "holdout" || latest?.from === "me");
   const instagramReply = repliedOnInstagram && latest?.from === "me" ? latest.text : null;
+  // 1.40.0 (room #1528): the replies under the comment, hers and theirs, in order, the way Instagram shows them.
+  const replies = (() => {
+    if (published || sending) return [];
+    const msgs = (item.thread_messages || []).filter((m) => m && m.kind !== "reaction" && (m.text || m.kind === "text"));
+    const first = msgs.findIndex((m) => m.from === "them");
+    return first < 0 ? msgs.filter((m) => m.from === "me") : msgs.slice(first + 1);
+  })();
 
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState("");
@@ -2293,6 +2300,18 @@ function CommentRow({ item, focused = false }) {
           >
             {item.incoming_text || "Their words aren't on file."}
           </p>
+          {replies.length > 0 && (
+            <ol className="mt-1.5 space-y-1 border-l-2 border-[var(--border)] pl-3" aria-label="Replies on Instagram">
+              {replies.map((m, idx) => (
+                <li key={idx} className="text-sm leading-snug whitespace-pre-line">
+                  <span className="font-semibold" style={{ color: m.from === "me" ? "var(--sage)" : "var(--text)" }}>
+                    {m.from === "me" ? "You" : `@${handle || "them"}`}
+                  </span>{" "}
+                  {m.text || ""}
+                </li>
+              ))}
+            </ol>
+          )}
 
           {sentLines.length > 0 ? (
             <div className="mt-2">
@@ -2364,7 +2383,7 @@ function CommentRow({ item, focused = false }) {
           ) : repliedOnInstagram ? (
             <p className="mt-2 text-sm text-[var(--dim)]">
               <span className="font-semibold text-[var(--sage)]">Replied on Instagram</span>
-              {instagramReply ? `: ${instagramReply}` : ""}
+              {instagramReply && replies.length === 0 ? `: ${instagramReply}` : ""}
             </p>
           ) : editing ? (
             <div className="mt-2">

@@ -218,6 +218,7 @@ function threadTail(thread) {
   return tail.length > 6 ? [tail[0], ...tail.slice(-5)] : tail;
 }
 
+// The light list sends a DM's last message only, and a comment's whole thread, so its replies show under it (room #1528).
 function toItem(r, voice = currentVoice(), { light = false } = {}) {
   const editStatus = EDIT_STATES.includes(r.editStatus) ? r.editStatus : "none";
   const thread = cleanThread(r.threadMessages);
@@ -229,9 +230,10 @@ function toItem(r, voice = currentVoice(), { light = false } = {}) {
     actual_reply: r.revealed ? (r.actualReply ?? null) : null,
     draft_text: r.draftText ?? null, draft_mode: r.draftMode ?? null, draft_wanted: Boolean(r.draftWanted),
     revision_text: r.revisionText ?? null, feedback: r.feedback ?? null, verdict: r.verdict, revealed: Boolean(r.revealed),
+    answered_on_instagram_at: iso(r.answeredOnInstagramAt ?? null),
     publish_status: r.publishStatus, published_text: r.publishedText ?? null, publish_error: r.publishError ?? null,
     published_at: iso(r.publishedAt), has_target: Boolean(r.mediaId || r.commentId || r.threadId),
-    thread_messages: light ? threadTail(thread) : thread, created_at: iso(r.createdAt), reviewed_at: iso(r.reviewedAt),
+    thread_messages: light && r.kind !== "comment" ? threadTail(thread) : thread, created_at: iso(r.createdAt), reviewed_at: iso(r.reviewedAt),
     draft_voice_version: r.draftVoiceVersion ?? null, voice_stale: r.draftText != null && r.draftVoiceVersion !== voice,
     story_reply_not_captured: Boolean(r.storyReplyNotCaptured), label: LABELS.includes(r.label) ? r.label : null,
     // 1.22.0: a fact her Muse hasn't synced reads as the simulator's default.
@@ -393,6 +395,27 @@ function syncInto(r, a) {
   const last = cleanThread(r.threadMessages).at(-1);
   if (r.section === "general" && r.generalAt && last && last.from === "them" && last.at && Date.parse(last.at) > r.generalAt) {
     Object.assign(r, { section: "main", generalAt: null });
+  }
+  if (thread) settleComment(r);
+}
+
+// 1.40.0 (room #1528): a comment's thread can carry her own replies from Instagram (from "me"). When it ends on her reply
+// and nothing was sent from here, the comment is answered: it stops needing a reply, stops waiting for a draft, and a
+// draft she never touched is cleared, so it can never go out on top of what she already said. A draft she reviewed is
+// kept for her to see, and Send refuses it. Their new comment after her reply makes it need a reply again.
+function settleComment(r) {
+  if (r.kind !== "comment" || r.source !== "live" || r.publishStatus !== "unpublished") return;
+  const last = cleanThread(r.threadMessages).filter((m) => m.kind !== "reaction").at(-1);
+  if (!last) return;
+  if (last.from === "me") {
+    r.answeredOnInstagramAt = last.at && !Number.isNaN(Date.parse(last.at)) ? Date.parse(last.at) : (r.answeredOnInstagramAt ?? Date.now());
+    r.needsReply = false;
+    r.draftWanted = null;
+    const untouched = r.verdict === "pending" && !r.revisionText && !r.feedback && !Array.isArray(r.workLines);
+    if (untouched && r.draftText != null) Object.assign(r, { draftText: null, draftMode: null, draftVoiceVersion: null });
+  } else if (r.answeredOnInstagramAt) {
+    r.answeredOnInstagramAt = null;
+    r.needsReply = true;
   }
 }
 
@@ -629,6 +652,9 @@ const actions = {
     // 1.22.0: the texts she isn't sending this time stay with the chat as drafts.
     const remaining = a.remaining_text === undefined || a.remaining_text === null ? undefined : text(a.remaining_text, "remaining_text", { max: 4000 });
     if (r.source === "holdout") throw new DmError("This is a blind holdout: you already replied to it on Instagram, so there is nothing to publish.", 409);
+    if (r.kind === "comment" && r.answeredOnInstagramAt && r.publishStatus === "unpublished") {
+      throw new DmError("You already replied to this comment on Instagram, so this draft won't send.", 409);
+    }
     // 1.22.0 (the simulator's later send): a reply that went out can send more, such as the texts an earlier send left.
     const later = r.publishStatus === "published";
     if (later && r.editStatus === "editing") throw new DmError("An edit is on its way for this one. Let it land before sending more.", 409);
@@ -900,6 +926,7 @@ const actions = {
     })());
     if (!found) {
       const id = actions.createitem({ ...a, kind, source }).id;
+      settleComment(find(id));
       wantAhead(find(id));
       return { id, created: true, ...lacks(find(id)) };
     }

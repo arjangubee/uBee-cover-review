@@ -1772,7 +1772,7 @@ try {
     await dmFails("savereview", { id: dmIds.holdout, verdict: "maybe" }, 400);
     assert((await dm("savereview", { id: dmIds.holdout, verdict: "approved", feedback: " good " })).ok === true, "saved");
     const saved = await dmItem(dmIds.holdout);
-    assert(saved.revision_text === "Something tells me you started already" && saved.verdict === "approved" && saved.feedback === "good" && saved.reviewed_at, `saved: ${JSON.stringify(saved).slice(0, 300)}`);
+    assert(saved.revision_text === "Something tells me you started already" && saved.verdict === "approved" && saved.feedback === "good" && saved.reviewed_at, `saved: ${JSON.stringify({ r: saved.revision_text, v: saved.verdict, f: saved.feedback, at: saved.reviewed_at })}`);
     const opened = await dm("revealactual", { id: dmIds.holdout });
     assert(opened.actual_reply === "What I really said", "the real reply");
     const after = await dmItem(dmIds.holdout);
@@ -2952,6 +2952,40 @@ try {
       await d("setdraftahead", { on: false });
       const later = await comment("ca-4", "post-b", "hi");
       assert(!(await wantedIds()).includes(later.id), "turned off, new comments wait for nobody again");
+    });
+  });
+  await check("v1.40 Chats: a comment whose thread ends on her Instagram reply is answered; an untouched draft is cleared, a reviewed one can't send, and their new reply reopens it (room #1528)", async () => {
+    await withCopy(4194, () => {}, async (c) => {
+      const d = (name, body) => c.post(`/api/dm/${name}`, body || {});
+      const t = (min) => new Date(Date.now() - min * 60_000).toISOString();
+      const base = (id, thread, extra = {}) => d("importitem", { kind: "comment", source: "live", comment_id: id, sender: "dan.fan", incoming_text: "dangerous lil bounce",
+        media_id: "post-r", media_permalink: "https://www.instagram.com/p/r/", media_preview_url: "https://example.com/r.jpg", needs_reply: true, thread_messages: thread, ...extra });
+      const them = { from: "them", kind: "text", text: "dangerous lil bounce", at: t(60) };
+      const mine = { from: "me", kind: "text", text: "@dan.fan haha", at: t(50) };
+      const item = async (id) => (await d("listitems", { filter: "all" })).items.find((i) => i.id === id);
+      const a = await base("cr-1", [them]);
+      await d("generatedraft", { id: a.id, mode: "listening" });
+      await d("savedraft", { id: a.id, draft_text: "stale draft" });
+      await base("cr-1", [them, mine]);
+      let x = await item(a.id);
+      assert(x.needs_reply === false && x.draft_text === null && x.draft_wanted === false && typeof x.answered_on_instagram_at === "string",
+        `her Instagram reply answers it and clears the draft she never touched: ${JSON.stringify({ n: x.needs_reply, d: x.draft_text, a: x.answered_on_instagram_at })}`);
+      const b = await base("cr-2", [them]);
+      await d("generatedraft", { id: b.id, mode: "listening" });
+      await d("savedraft", { id: b.id, draft_text: "my reviewed one" });
+      await d("savereview", { id: b.id, verdict: "approved", revision_text: "my reviewed one", feedback: "" });
+      await base("cr-2", [them, mine]);
+      x = await item(b.id);
+      assert(x.draft_text === "my reviewed one" && x.needs_reply === false, "a draft she reviewed stays for her to see");
+      const refused = await (await fetch("http://localhost:4194/api/dm/publishitem", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: b.id, revision_text: "my reviewed one", verdict: "approved" }) }));
+      assert(refused.status === 409 && /already replied/.test((await refused.json()).error), "Send refuses a draft on a comment she already answered on Instagram");
+      await base("cr-2", [them, mine, { from: "them", kind: "text", text: "you are trouble", at: t(5) }]);
+      x = await item(b.id);
+      assert(x.needs_reply === true && x.answered_on_instagram_at === null, "their new reply after hers makes it need a reply again");
+      const c2 = await base("cr-3", [them, mine]);
+      x = await item(c2.id);
+      assert(x.needs_reply === false && x.thread_messages.at(-1).from === "me", "a comment that comes in already answered never shows as needing a reply");
     });
   });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {

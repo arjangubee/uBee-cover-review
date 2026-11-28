@@ -21,7 +21,9 @@ const iso = (t) => (typeof t === "number" ? new Date(t).toISOString() : null);
 /** For the page: whether arrivals are on, when the Bee Hive was last asked, what came in and any problem. */
 export function arrivalsStatus() {
   const s = state();
-  return { on: on(), checked_at: iso(s.checkedAt), last_result: s.lastResult ?? null, last_error: s.lastError ?? null, last_arrival_at: s.lastArrivalAt ?? null };
+  // Why it's off, so the page can say so instead of a slow Refresh with no reason (room #1514).
+  const off_reason = on() ? null : !store.settings.pollen?.code ? "pollen_not_connected" : "hive_without_inbox";
+  return { on: on(), off_reason, checked_at: iso(s.checkedAt), last_result: s.lastResult ?? null, last_error: s.lastError ?? null, last_arrival_at: s.lastArrivalAt ?? null };
 }
 
 /** Asks the Bee Hive for every arrival since the last one taken, and brings them in. */

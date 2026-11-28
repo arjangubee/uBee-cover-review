@@ -935,7 +935,8 @@ export function App({ active = true }) {
   };
   const syncTrouble = sync?.state === "stuck" || sync?.state === "failed";
   const updatedLabel = (() => {
-    if (syncing) return "Syncing with Instagram…";
+    // A pull waits for her Muse's next check-in, so say when it was asked and who picks it up (room #1514).
+    if (syncing) return sync.asked_at ? `Syncing with Instagram · asked ${syncedAgo(sync.asked_at)}. Your Muse picks it up at its next check-in` : "Syncing with Instagram…";
     if (sync?.state === "stuck") return "The Instagram sync hasn't answered in 10 minutes. Refresh to start it again";
     if (sync?.state === "failed") {
       // A pull that stopped partway says what still came in (Quill #1051: partial results reported, never silent).
@@ -960,8 +961,11 @@ export function App({ active = true }) {
       // 1.40.0 (Arjang #1445): a sync from hours ago says so, with when her Muse last looked for one.
       const old = Date.now() - Date.parse(sync.last_synced_at) > 3 * 3_600_000;
       const museQuiet = sync.muse_seen_at && Date.now() - Date.parse(sync.muse_seen_at) > 3_600_000;
-      if (old && museQuiet) return `Last full sync with Instagram ${syncedAgo(sync.last_synced_at)}. Your Muse last looked for one ${syncedAgo(sync.muse_seen_at)}`;
-      return `Synced with Instagram ${syncedAgo(sync.last_synced_at)}${what}`;
+      // With live arrivals off, everything waits on a pull, so the line says why (room #1514).
+      const why = live?.off_reason === "pollen_not_connected" ? ". Comments come in live once Pollen is connected"
+        : live?.off_reason === "hive_without_inbox" ? ". Live comments aren't on yet" : "";
+      if (old && museQuiet) return `Last full sync with Instagram ${syncedAgo(sync.last_synced_at)}. Your Muse last looked for one ${syncedAgo(sync.muse_seen_at)}${why}`;
+      return `Synced with Instagram ${syncedAgo(sync.last_synced_at)}${what}${why}`;
     }
     if (justRefreshed) return "Refreshed ✓ · you're up to date";
     if (!itemsQuery.dataUpdatedAt) return "Not loaded yet";

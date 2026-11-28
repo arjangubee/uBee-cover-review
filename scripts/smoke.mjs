@@ -3055,6 +3055,37 @@ try {
     assert(symphonyWhy({ ...said.item, why: { ...said.item.why, source: "" } }) === null, "a reason that isn't Symphony's shows no badge");
     assert(symphonyWhy({ ...said.item, why: { ...said.item.why, song: undefined } }) === null, "a Symphony reason with no song on record shows no badge");
   });
+  await check("v1.40 Chats: her reply sent again with its posted time is re-timed, and the comment re-settles (room #1575)", async () => {
+    const saved = hive.inbox;
+    const t = (min) => new Date(Date.now() - min * 60_000).toISOString();
+    const ch = { platform: "instagram", handle: "smoke_ig" };
+    const reply = (at) => ({ id: "rt", kind: "comment", from_self: true, parent_id: "c-rt-1", story_reply: false, event_id: "c-mine-rt", at, text: "@fan.rt haha",
+      channel: ch, from: { id: "100", username: "smoke_ig" }, media: { id: "m-rt", permalink: null, preview_url: null, caption: null } });
+    hive.inbox = [reply(t(1))]; // first sent with the time the Bee Hive got it
+    hive.inboxOn = true;
+    try {
+      await withCopy(4194, () => {}, async (c) => {
+        assert((await c.post("/api/connectors/pollen", { code: hive.code })).ok === true, "Pollen is connected on the copy");
+        const made = await c.post("/api/dm/importitem", { kind: "comment", source: "live", comment_id: "c-rt-1", sender: "fan.rt", incoming_text: "so cute",
+          media_id: "m-rt", media_permalink: "https://www.instagram.com/p/rt/", media_preview_url: "https://example.com/rt.jpg", needs_reply: true,
+          thread_messages: [{ from: "them", kind: "text", text: "so cute", at: t(60) }, { from: "them", kind: "text", text: "you there?", at: t(30) }] });
+        const read = async () => (await c.post("/api/dm/listitems", { filter: "all" })).items.find((i) => i.id === made.id);
+        await c.post("/api/dm/listitems", { filter: "all", light: true });
+        let x;
+        for (let i = 0; i < 20; i++) { await wait(150); x = await read(); if (x.thread_messages.some((m) => m.from === "me")) break; }
+        assert(x.thread_messages.at(-1).from === "me" && x.needs_reply === false, "with the wrong time her reply sorts last and hides their later message");
+        hive.inbox = [reply(t(1)), reply(t(50))]; // sent again with the time she posted it
+        await wait(450);
+        await c.post("/api/dm/listitems", { filter: "all", light: true });
+        for (let i = 0; i < 20; i++) { await wait(150); x = await read(); if (x.thread_messages.at(-1).from === "them") break; }
+        assert(x.thread_messages.map((m) => m.text).join("|") === "so cute|@fan.rt haha|you there?", `ordered by posted time: ${x.thread_messages.map((m) => m.text).join("|")}`);
+        assert(x.needs_reply === true && x.answered_on_instagram_at === null, "their later message needs her again");
+        assert(x.thread_messages.filter((m) => m.from === "me").length === 1, "still one copy of her reply");
+        const a = (await c.post("/api/dm/getsync")).arrivals;
+        assert(a.last_result.replies_retimed === 1, `counted as re-timed: ${JSON.stringify(a.last_result)}`);
+      }, { COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_ARRIVALS_MS: "300", COVER_REVIEW_PHOTO_ORIGINS: hiveBase });
+    } finally { hive.inboxOn = false; hive.inbox = saved; }
+  });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);
     const root = new URL("../", import.meta.url).pathname;

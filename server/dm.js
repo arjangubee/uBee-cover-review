@@ -500,7 +500,7 @@ function lightList(all, voice, sinceRaw) {
  * waits for a full sync, so a webhook DM never makes a second copy of a chat. Answers what happened.
  */
 export function applyArrivals(events) {
-  const counts = { comments_new: 0, comments_seen: 0, replies_added: 0, replies_waiting: 0, dms_added: 0, dms_waiting: 0, errors: 0 };
+  const counts = { comments_new: 0, comments_seen: 0, replies_added: 0, replies_retimed: 0, replies_waiting: 0, dms_added: 0, dms_waiting: 0, errors: 0 };
   const clip = (v, n) => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : undefined);
   for (const ev of Array.isArray(events) ? events : []) {
     try {
@@ -512,8 +512,19 @@ export function applyArrivals(events) {
         const r = parent ? rows().find((x) => x.kind === "comment" && x.commentId === parent) : null;
         const id = String(ev.event_id ?? "");
         if (!r || !id) { counts.replies_waiting += 1; continue; }
-        if (Array.isArray(r.arrivalIds) && r.arrivalIds.includes(id)) continue;
         const msg = { from: "me", kind: "text", text: clip(ev.text, 2000) ?? null, at: clip(ev.at, 40) ?? new Date().toISOString() };
+        if (Array.isArray(r.arrivalIds) && r.arrivalIds.includes(id)) {
+          // Seen before: only its time can be put right (room #1575: the Bee Hive first sent when it got the reply, not
+          // when she posted it). Her reply with the same words takes the posted time, and the thread is ordered again.
+          const thread = cleanThread(r.threadMessages);
+          const mine = thread.find((m) => m.from === "me" && m.text === msg.text && m.at !== msg.at);
+          if (mine && clip(ev.at, 40)) {
+            mine.at = msg.at;
+            syncInto(r, { thread_messages: thread.sort((x, y) => (Date.parse(x.at ?? "") || 0) - (Date.parse(y.at ?? "") || 0)) });
+            counts.replies_retimed += 1;
+          }
+          continue;
+        }
         const thread = [...cleanThread(r.threadMessages), msg]
           .sort((x, y) => (Date.parse(x.at ?? "") || 0) - (Date.parse(y.at ?? "") || 0)).slice(-50);
         syncInto(r, { thread_messages: thread });

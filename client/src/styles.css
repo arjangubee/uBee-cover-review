@@ -68,6 +68,16 @@ img { max-width: 100%; }
 .songOwner { display: block; font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 1.40.0: a 44 px press area with the row no taller than before (the margins take back what the height adds). */
 .songLine { display: block; max-width: 100%; min-height: 44px; margin: -7px 0; padding: 2px 0; border: 0; background: none; color: #a8a8a8; font-size: 15px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.songLineRow { display: flex; align-items: center; min-width: 0; }
+.songLineRow .songLine { flex: 0 1 auto; min-width: 0; }
+.symBadge { flex: none; display: inline-grid; place-items: center; width: 44px; height: 44px; margin: -7px -10px -7px -6px; padding: 0; border: 0; background: none; color: var(--accent); }
+.symBadge.open { color: #fff; }
+.symWhy { position: absolute; top: 100%; left: 0; right: 0; z-index: 32; max-height: 50vh; overflow: auto; margin-top: -4px; padding: 10px 14px 12px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--surface-2); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); }
+.symWhyHead { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 15px; }
+.symWhyHead strong { flex: 1; color: var(--text); }
+.symWhyClose { margin: -8px -10px -8px 0; }
+.symWhyText { margin: 6px 0 0; color: var(--text-2); font-size: 14px; line-height: 1.45; white-space: pre-line; }
+.symWhyFoot { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
 .songLine .u { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
 .songEdit { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
 .songEdit .field { padding: 8px 12px; }

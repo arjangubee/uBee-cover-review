@@ -12,6 +12,7 @@ import { bakedCta, cleanCtas, ctaFor, plainCaption, postedCaption } from "../ser
 import * as sharedCall from "../client/src/captionCall.js";
 import { bangRuleOf, capEndings, storyCapture, voiceVersion } from "../server/dmRules.js";
 import { askCss, fmt, pokeReach, why } from "../client/src/beeline/beelineText.js";
+import { symphonyWhy } from "../client/src/reviewMath.js";
 import { callsFolded, cleanKey, decide, fileUrl, forgetDevice, looksLikeKey, saveDevice, savedDevice, setCallsFolded } from "../client/src/beeline/beelineApi.js";
 
 // Smoke runs in a throwaway data folder, so it never touches a creator's real photos,
@@ -3042,6 +3043,17 @@ try {
         assert(again.thread_messages.filter((m) => m.from === "me").length === 1, "the same reply is added once");
       }, { COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_ARRIVALS_MS: "300", COVER_REVIEW_PHOTO_ORIGINS: hiveBase });
     } finally { hive.inboxOn = false; hive.inbox = saved; }
+  });
+  await check("v1.40 Covers: Symphony's badge shows only for its own reasoning on the song it judged, and drops when the song changes (room #1567)", async () => {
+    const item = await newItem("sym-why.png");
+    await postJson(`/api/items/${item.id}/edit`, { song: "Sabrina Carpenter - Espresso" });
+    const said = await postJson(`/api/items/${item.id}/why`, { text: "Lyric/meaning: the hook fits the photo.", source: "symphony" });
+    assert(said.item.why.source === "symphony" && said.item.why.song === "Sabrina Carpenter - Espresso", `the claim keeps the song it judged: ${JSON.stringify(said.item.why)}`);
+    assert(symphonyWhy(said.item)?.text.startsWith("Lyric/meaning"), "the badge shows for that song");
+    assert(symphonyWhy({ ...said.item, song: "sabrina carpenter  -  ESPRESSO!" }), "spacing and case don't matter");
+    assert(symphonyWhy({ ...said.item, song: "Gorillaz - Feel Good Inc." }) === null, "a changed song drops the badge");
+    assert(symphonyWhy({ ...said.item, why: { ...said.item.why, source: "" } }) === null, "a reason that isn't Symphony's shows no badge");
+    assert(symphonyWhy({ ...said.item, why: { ...said.item.why, song: undefined } }) === null, "a Symphony reason with no song on record shows no badge");
   });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);

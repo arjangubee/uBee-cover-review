@@ -47,6 +47,7 @@ const PATHS = {
   unlock: <><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 7.6-1.7" /></>,
   minusCircle: <><circle cx="12" cy="12" r="9" /><path d="M8 12h8" /></>,
   plusCircle: <><circle cx="12" cy="12" r="9.25" /><path d="M12 8v8" /><path d="M8 12h8" /></>,
+  shieldCheck: <><path d="M12 3.2l7 2.9v5.6c0 4.4-3 7.8-7 9.1-4-1.3-7-4.7-7-9.1V6.1z" /><path d="M8.8 12.1l2.3 2.3 4.3-4.5" /></>, // 1.40.0: Symphony picked this song
   checkCircle: <><circle cx="12" cy="12" r="10" fill="currentColor" stroke="none" /><path d="M7.6 12.4l3 3 5.8-6" stroke="#000" strokeWidth="2.2" /></>,
   prev: <><path d="M6.5 5.5v13" /><path d="M18.5 5.8v12.4l-9.6-6.2z" fill="currentColor" stroke="none" /></>,
   next: <><path d="M17.5 5.5v13" /><path d="M5.5 5.8v12.4l9.6-6.2z" fill="currentColor" stroke="none" /></>,

@@ -135,3 +135,12 @@ export function whyProblem(why) {
 }
 /** A cover passes its compose check only with all four: the steps (quote, song, image) and Why it matches. */
 export const composePasses = (beacons) => Boolean(beacons?.STEPS_VERIFIED && beacons?.WHY_WRITTEN);
+
+// 1.40.0 (room #1567): Symphony's own pick carries its reasoning in the cover's why, marked source "symphony" with the
+// song it judged. The badge shows only while the cover still has that song, so any change of song drops the claim.
+const songKey = (s) => String(s ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+export function symphonyWhy(item) {
+  const w = item?.why;
+  if (!w || String(w.source ?? "").toLowerCase() !== "symphony" || !String(w.text ?? "").trim()) return null;
+  return w.song && songKey(w.song) === songKey(item.song) ? w : null;
+}

@@ -104,7 +104,11 @@ export function cleanWhy(w) {
   const text = String(w?.text ?? "").trim().slice(0, 1200);
   if (!text) return null;
   const tags = (Array.isArray(w.tags) ? w.tags : []).map((t) => String(t).trim().slice(0, 40)).filter(Boolean).slice(0, 8);
-  return { text, tags, audience: String(w.audience ?? "").trim().slice(0, 200), source: String(w.source ?? "").trim().slice(0, 200), recordedAt: Date.now() };
+  // 1.40.0 (room #1567): the song the reason was written for, so a claim like "Symphony picked this" only shows while
+  // the cover still has that song.
+  const song = String(w.song ?? "").trim().slice(0, 300);
+  return { text, tags, audience: String(w.audience ?? "").trim().slice(0, 200), source: String(w.source ?? "").trim().slice(0, 200),
+    ...(song ? { song } : {}), recordedAt: Date.now() };
 }
 
 function cleanMosaics(list) {
@@ -746,6 +750,7 @@ export function registerFull(app, upload) {
     const item = mustItem(req, res); if (!item) return;
     const why = cleanWhy(req.body);
     if (!why) return res.status(400).json({ error: "Say why it matches, in a sentence or two." });
+    if (why.source.toLowerCase() === "symphony" && !why.song && item.song) why.song = item.song; // the song it judged
     item.why = why;
     if (item.beacons) recheckSaved(item); // its check reads the new reason at once (1.25.0)
     store.saveDb();

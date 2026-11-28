@@ -109,6 +109,7 @@ const hiveServer = http.createServer(async (req, res) => {
   if (body.action === "inbox") {
     hive.inboxCalls += 1;
     const from = body.after == null ? 0 : Number(String(body.after).split("|")[1]);
+    hive.lastInboxAsk = body; // 1.40.0: the real Bee Hive hands self replies only to a caller that asks (self_replies: true)
     if (!Number.isInteger(from)) return send(400, { error: "bad cursor" });
     const page = hive.inbox.slice(from, from + Math.min(Number(body.limit) || 100, 2));
     const end = from + page.length;
@@ -3028,6 +3029,7 @@ try {
         let a;
         for (let i = 0; i < 20; i++) { await wait(150); a = (await c.post("/api/dm/getsync")).arrivals; if (a.last_result?.comments_new) break; }
         assert(a.last_result.comments_new === 1 && a.last_result.replies_added === 1 && a.last_result.replies_waiting === 1, `counts: ${JSON.stringify(a.last_result)}`);
+        assert(hive.lastInboxAsk?.self_replies === true, "it asks the Bee Hive for her own replies");
         const items = (await c.post("/api/dm/listitems", { filter: "all" })).items;
         const dan = items.find((i) => i.kind === "comment" && i.incoming_text === "dangerous lil bounce");
         assert(dan && dan.needs_reply === false && dan.thread_messages.at(-1).from === "me" && dan.thread_messages.at(-1).text === "@dan.fan haha"

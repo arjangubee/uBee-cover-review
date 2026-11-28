@@ -31,7 +31,7 @@ export function arrivalsStatus() {
 export async function catchUp() {
   if (!on()) return { ok: false, reason: "off" };
   const s = state();
-  const total = { comments_new: 0, comments_seen: 0, dms_added: 0, dms_waiting: 0, errors: 0 };
+  const total = { comments_new: 0, comments_seen: 0, replies_added: 0, replies_waiting: 0, dms_added: 0, dms_waiting: 0, errors: 0 };
   let changed = false;
   try {
     for (let page = 0; page < PAGES; page += 1) {
@@ -39,7 +39,7 @@ export async function catchUp() {
       const events = Array.isArray(data.events) ? data.events : [];
       const counts = applyArrivals(events);
       for (const k of Object.keys(total)) total[k] += counts[k] || 0;
-      if (counts.comments_new || counts.dms_added || counts.comments_seen) changed = true;
+      if (counts.comments_new || counts.dms_added || counts.comments_seen || counts.replies_added) changed = true;
       if (events.length) s.lastArrivalAt = events.at(-1).at ?? s.lastArrivalAt ?? null;
       if (typeof data.cursor === "string") s.cursor = data.cursor;
       if (!data.more) break;
@@ -47,7 +47,7 @@ export async function catchUp() {
     // An empty poll keeps the last result that brought something in, so a catch-up's counts aren't lost to the next
     // poll 20 seconds later (room #1550). totals adds up everything taken since arrivals turned on.
     const took = Object.values(total).some((n) => n > 0);
-    const totals = s.totals && typeof s.totals === "object" ? s.totals : { comments_new: 0, comments_seen: 0, dms_added: 0, dms_waiting: 0, errors: 0 };
+    const totals = s.totals && typeof s.totals === "object" ? s.totals : {};
     for (const k of Object.keys(total)) totals[k] = (totals[k] || 0) + total[k];
     Object.assign(s, { checkedAt: Date.now(), lastError: null, totals, ...(took || !s.lastResult ? { lastResult: total, lastResultAt: Date.now() } : {}) });
   } catch (e) {

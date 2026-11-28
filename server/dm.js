@@ -500,10 +500,27 @@ function lightList(all, voice, sinceRaw) {
  * waits for a full sync, so a webhook DM never makes a second copy of a chat. Answers what happened.
  */
 export function applyArrivals(events) {
-  const counts = { comments_new: 0, comments_seen: 0, dms_added: 0, dms_waiting: 0, errors: 0 };
+  const counts = { comments_new: 0, comments_seen: 0, replies_added: 0, replies_waiting: 0, dms_added: 0, dms_waiting: 0, errors: 0 };
   const clip = (v, n) => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : undefined);
   for (const ev of Array.isArray(events) ? events : []) {
     try {
+      // 1.40.0 (room #1555): her own reply under a comment, read by Pollen and passed on by the Bee Hive with the id of
+      // the comment it answers. It joins that comment's thread as hers, in time order, once per reply id, and the
+      // comment settles (part11). It is never brought in as a comment of its own.
+      if (ev?.kind === "comment" && ev.from_self === true) {
+        const parent = String(ev.parent_id ?? "");
+        const r = parent ? rows().find((x) => x.kind === "comment" && x.commentId === parent) : null;
+        const id = String(ev.event_id ?? "");
+        if (!r || !id) { counts.replies_waiting += 1; continue; }
+        if (Array.isArray(r.arrivalIds) && r.arrivalIds.includes(id)) continue;
+        const msg = { from: "me", kind: "text", text: clip(ev.text, 2000) ?? null, at: clip(ev.at, 40) ?? new Date().toISOString() };
+        const thread = [...cleanThread(r.threadMessages), msg]
+          .sort((x, y) => (Date.parse(x.at ?? "") || 0) - (Date.parse(y.at ?? "") || 0)).slice(-50);
+        syncInto(r, { thread_messages: thread });
+        r.arrivalIds = [...(Array.isArray(r.arrivalIds) ? r.arrivalIds : []), id].slice(-200);
+        counts.replies_added += 1;
+        continue;
+      }
       if (ev?.kind === "comment") {
         const at = Date.parse(ev.at ?? "");
         const r = actions.importitem({

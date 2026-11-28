@@ -54,6 +54,17 @@ const museSeen = new Map(); // when her Muse last read syncwanted, to the second
 const DM_PULL_MS = Number(process.env.COVER_REVIEW_DM_PULL_MS) > 0 ? Number(process.env.COVER_REVIEW_DM_PULL_MS) : 5 * 60_000;
 const INTEREST_MS = 2 * 60_000;
 const chatsOpenAt = new Map(); // account space -> when Chats last read its list
+// A space can run on several server copies, and her Muse's check-in may land on a different one than her Chats reads.
+// So the time is also kept in the saved sync state, at most once a minute (well inside INTEREST_MS), and syncwanted
+// takes the later of the two.
+const OPEN_SAVE_MS = 60_000;
+function keepChatsOpen() {
+  const s = syncState();
+  const now = Date.now();
+  if (typeof s.chatsOpenAt === "number" && now - s.chatsOpenAt < OPEN_SAVE_MS) return;
+  s.chatsOpenAt = now;
+  store.saveDb();
+}
 
 class DmError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -880,7 +891,8 @@ const actions = {
     let save = false;
     if (!s.museSeenAt || now - s.museSeenAt > 3_600_000) { s.museSeenAt = now; save = true; }
     const inFlight = typeof s.askedAt === "number" && now - s.askedAt <= SYNC_STUCK_MS;
-    const open = now - (chatsOpenAt.get(currentSpace()) || 0) <= INTEREST_MS;
+    const seenOpen = Math.max(chatsOpenAt.get(currentSpace()) || 0, typeof s.chatsOpenAt === "number" ? s.chatsOpenAt : 0);
+    const open = now - seenOpen <= INTEREST_MS;
     const last = Math.max(s.lastSyncedAt ?? 0, s.lastErrorAt ?? 0, typeof s.askedAt === "number" ? s.askedAt : 0);
     if (open && !inFlight && now - last >= DM_PULL_MS) { s.askedAt = now; save = true; }
     if (save) store.saveDb();
@@ -1012,6 +1024,7 @@ export function registerDm(app) {
       const args = req.body && typeof req.body === "object" ? req.body : {};
       if (name === "listitems" && args.light === true) {
         chatsOpenAt.set(currentSpace(), Date.now()); // Chats is open: DM pulls are due while it is (1.40.0)
+        keepChatsOpen(); // and saved, so a server copy that didn't take this read knows it too
         catchUpSoon(); // and it asks the Bee Hive for arrivals
       }
       let out = run(args);

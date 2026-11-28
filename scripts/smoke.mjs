@@ -2901,6 +2901,21 @@ try {
       assert((await d("syncwanted")).wanted === true, "once the last pull is old enough and Chats is still open, the next one is due");
     }, { COVER_REVIEW_DM_PULL_MS: "1000" });
   });
+  await check("v1.40 Chats: a second server copy on the same data knows Chats is open, so her Muse's check-in can land on either (room #1511)", async () => {
+    await withCopy(4194, () => {}, async (c) => {
+      await c.post("/api/dm/listitems", { filter: "all", light: true }); // she opens Chats on this copy
+      const at = "http://localhost:4193";
+      owners.set(new URL(at).origin, "smoke_owner");
+      tokens.delete(new URL(at).origin);
+      const other = spawn("node", ["server/index.js"], { env: { ...process.env, PORT: "4193", COVER_REVIEW_NO_UPDATE_LOOP: "1", COVER_REVIEW_DATA_DIR: c.dir,
+        COVER_REVIEW_POLLEN_SYNC_MS: "3600000", COVER_REVIEW_DM_PULL_MS: "1000" }, stdio: "ignore" });
+      try {
+        for (let i = 0; i < 50; i++) { try { if ((await fetch(`${at}/api/health`)).ok) break; } catch {} await wait(200); }
+        const due = await (await fetch(`${at}/api/dm/syncwanted`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).json();
+        assert(due.wanted === true, `the other copy never saw the light read, yet a pull is due: ${JSON.stringify(due)}`);
+      } finally { other.kill(); }
+    }, { COVER_REVIEW_DM_PULL_MS: "1000" });
+  });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);
     const root = new URL("../", import.meta.url).pathname;

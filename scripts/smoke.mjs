@@ -2855,6 +2855,8 @@ try {
     const t = (min) => new Date(Date.now() - min * 60_000).toISOString();
     await dm("importitem", { kind: "dm", thread_id: "t-arr-known", sender: "known.fan", incoming_text: "first",
       thread_messages: [{ from: "them", kind: "text", text: "first", at: t(30) }, { from: "me", kind: "text", text: "hey you", at: t(20) }] });
+    const noInbox = (await dm("getsync")).arrivals;
+    assert(noInbox.on === false && noInbox.off_reason === "pollen_not_connected", `no Pollen code yet: the reason says so: ${JSON.stringify(noInbox)}`);
     hive.inboxOn = true;
     hive.inbox = [
       { id: "e1", kind: "comment", story_reply: false, event_id: "c-arr-1", at: t(5), text: "so pretty", channel: { platform: "instagram", handle: "smoke_ig" },
@@ -2877,19 +2879,24 @@ try {
     assert(!all.some((i) => i.incoming_text === "hi, new here"), "a DM with no username on file waits for a full sync instead of making a copy");
     assert(held.waited === true && held.items.length >= 2, `her open Chats heard of them: ${held.items.length} changed`);
     const s = await dm("getsync");
-    assert(s.arrivals.on === true && s.arrivals.last_error === null && s.arrivals.last_result.comments_new === 1 && s.arrivals.last_result.dms_added === 1 && s.arrivals.last_result.dms_waiting === 1, `the page sees what came in: ${JSON.stringify(s.arrivals)}`);
+    assert(s.arrivals.on === true && s.arrivals.off_reason === null && s.arrivals.last_error === null && s.arrivals.last_result.comments_new === 1 && s.arrivals.last_result.dms_added === 1 && s.arrivals.last_result.dms_waiting === 1, `the page sees what came in: ${JSON.stringify(s.arrivals)}`);
     const calls = hive.inboxCalls;
     await dm("listitems", { filter: "all", light: true });
     assert(hive.inboxCalls === calls, "asked again right away, it waits its 20 seconds and doesn't call the Bee Hive");
     const count = (await dm("listitems", { filter: "all" })).items.length;
     assert(count === all.length, "nothing was added twice");
     hive.inboxOn = false;
+    await fetch(`${base}/api/pollen/channels?refresh=1`);
+    const gone = (await dm("getsync")).arrivals;
+    assert(gone.on === false && gone.off_reason === "hive_without_inbox", `Pollen connected to a Bee Hive with no inbox: the reason says so: ${JSON.stringify(gone)}`);
   });
   await check("v1.40 Chats: while Chats is open, a DM pull is due every few minutes at her Muse's check-in; with Chats closed nothing is pulled (room #1495)", async () => {
     await withCopy(4194, () => {}, async (c) => {
       const d = (name, body) => c.post(`/api/dm/${name}`, body || {});
       const first = await d("syncwanted");
       assert(first.wanted === false, `Chats not open: nothing is due: ${JSON.stringify(first)}`);
+      const offWhy = (await d("getsync")).arrivals;
+      assert(offWhy.on === false && offWhy.off_reason === "pollen_not_connected", `with no Pollen code, the page hears why live arrivals are off: ${JSON.stringify(offWhy)}`);
       await d("listitems", { filter: "all", light: true }); // she opens Chats
       const due = await d("syncwanted");
       assert(due.wanted === true && typeof due.asked_at === "string", `with Chats open, a pull is due: ${JSON.stringify(due)}`);

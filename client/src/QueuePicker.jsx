@@ -70,7 +70,7 @@ export function AddSlideMenu({ room, onGenerate, onQueue, onFile, onShuffle, onU
         {/* Upload your own (1.40.0 part 20, Arjang #1596): her photo becomes this cover's photo, with Get quote on by default. */}
         {onUploadOwn && (
           <>
-            <h3 className="addSlideSection">Upload your own</h3>
+            <hr className="addSlideRule" />
             <div className="addSlideOption ownRow">
               <button type="button" className="generateGo" disabled={generating} onClick={() => ownRef.current?.click()}>
                 <Icon name="photo" size={22} /> Upload your own

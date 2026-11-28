@@ -64,9 +64,10 @@ img { max-width: 100%; }
 .modeSwitch button.on { background: var(--bg); color: #fff; border-color: #f5f5f5; }
 .modeSwitch button:disabled { opacity: 0.5; }
 /* The deck's order (1.40.0 part 18): Random | Recent on the Queue tab, a small pill pair under the tabs. */
-.deckOrder { display: flex; gap: 4px; width: fit-content; margin: -4px 0 12px; padding: 3px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); }
-.deckOrder button { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 15px; font-weight: 600; }
-.deckOrder button.on { background: var(--bg); color: var(--text); box-shadow: inset 0 0 0 1px #f5f5f5; }
+.deckOrder { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: -4px 0 12px; }
+.deckOrder button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 8px; border: 1px solid transparent;
+  border-radius: 12px; background: var(--surface); color: var(--muted); font-size: 15px; font-weight: 600; }
+.deckOrder button.on { background: var(--bg); color: #fff; border-color: #f5f5f5; }
 .songRow { display: flex; align-items: center; gap: 6px; padding: 8px 0 10px; }
 .songMeta { flex: 1; min-width: 0; }
 .songOwner { display: block; font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -454,7 +455,7 @@ textarea.field { resize: vertical; }
 .workingNote { position: fixed; left: 50%; bottom: calc(var(--host-bar) + 76px + env(safe-area-inset-bottom)); z-index: 89; display: flex; align-items: center; gap: 10px;
   max-width: calc(100% - 32px); padding: 10px 16px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--text);
   font-size: 14px; font-weight: 600; transform: translateX(-50%); pointer-events: none; }
-.spinDot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: spinDot 1s ease-in-out infinite; }
+.spinDot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--link); animation: spinDot 1s ease-in-out infinite; }
 @keyframes spinDot { 50% { opacity: 0.25; transform: scale(0.7); } }
 @media (prefers-reduced-motion: reduce) { .spinDot { animation: none; } }
 .app.editing .toast { bottom: calc(var(--host-bar) + 96px + env(safe-area-inset-bottom)); }
@@ -713,15 +714,15 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 .countStep .countBtn:disabled { color: var(--off); }
 .countStep span { min-width: 28px; text-align: center; font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .addSlideNote { margin: 8px 2px 0; }
-.addSlideSection { margin: 20px 2px 10px; color: var(--text-2); font-size: 15px; font-weight: 700; }
+.addSlideRule { height: 1px; margin: 16px 0; border: 0; background: var(--line); }
 .addSlideOption.ownRow { gap: 8px; padding: 0 12px 0 0; }
 .quoteSwitch { flex: none; min-height: 44px; }
 .addSlideFoot { margin: 8px 2px 0; font-size: 13px; }
 /* Pick from shuffle (1.40.0 part 19): theater mode. The rest of the screen dims, the photo sits in the middle, and the
    big Done button sits between skip and add, the same sides as the deck. */
-.theater { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; max-width: 560px; margin: 0 auto;
-  padding: calc(10px + env(safe-area-inset-top)) 16px calc(14px + var(--host-bar) + env(safe-area-inset-bottom));
-  background: rgba(0, 0, 0, 0.96); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.96); animation: qpPeek 0.18s ease-out; }
+.theater { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column;
+  padding: calc(10px + env(safe-area-inset-top)) max(16px, calc((100% - 528px) / 2)) calc(14px + var(--host-bar) + env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, 0.86); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); animation: qpPeek 0.18s ease-out; }
 .theaterHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .theaterCover { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .theaterCover img { flex: none; width: 40px; height: 50px; border-radius: 6px; object-fit: cover; }
@@ -730,9 +731,9 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 .theaterStage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; margin: 12px 0 8px; }
 .theaterCard { position: relative; max-width: 100%; max-height: 100%; touch-action: pan-y; -webkit-user-select: none; user-select: none;
   transition: transform 0.2s ease; cursor: grab; }
-.theaterCard img { display: block; max-width: 100%; max-height: calc(100dvh - 300px); border-radius: 14px; object-fit: contain; pointer-events: none; }
+.theaterCard img { display: block; max-width: 100%; max-height: calc(100dvh - 300px - var(--host-bar)); border-radius: 14px; object-fit: contain; pointer-events: none; }
 .theaterMark { position: absolute; top: 16px; display: grid; place-items: center; width: 72px; height: 72px; border-radius: 50%; background: rgba(0, 0, 0, 0.55); }
-.theaterMark.keep { left: 16px; color: var(--accent); }
+.theaterMark.keep { left: 16px; color: #fff; }
 .theaterMark.skip { right: 16px; color: var(--red); }
 .theaterKept { display: flex; gap: 6px; overflow-x: auto; min-height: 40px; }
 .theaterKept img { flex: none; width: 32px; height: 40px; border-radius: 4px; object-fit: cover; box-shadow: 0 0 0 1px #fff; }
@@ -740,9 +741,9 @@ button.mini, button.ghost.mini { min-height: 34px; padding: 0 12px; font-size: 1
 .theaterButtons { display: flex; align-items: center; gap: 12px; }
 .theaterSkip, .theaterKeep { display: grid; place-items: center; flex: none; width: 60px; height: 60px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--surface); }
 .theaterSkip { color: var(--red); }
-.theaterKeep { color: var(--accent); }
+.theaterKeep { color: #fff; }
 .theaterSkip:disabled, .theaterKeep:disabled { color: var(--off); }
-.theaterDone { flex: 1; min-height: 60px; border: 0; border-radius: 18px; background: var(--accent); color: #101010; font-size: 19px; font-weight: 800; }
+.theaterDone { flex: 1; min-height: 60px; border: 0; border-radius: 14px; background: var(--blue); color: #fff; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .theaterDone:disabled { opacity: 0.45; }
 @media (prefers-reduced-motion: reduce) { .theater { animation: none; } .theaterCard { transition: none; } }
 /* Choose From Queue (1.37.0): the queue's grid, tall enough to scroll through every photo. A picked photo has a thin white

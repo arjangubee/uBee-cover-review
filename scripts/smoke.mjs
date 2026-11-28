@@ -3008,6 +3008,39 @@ try {
       }, { COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_ARRIVALS_MS: "300", COVER_REVIEW_PHOTO_ORIGINS: hiveBase });
     } finally { hive.inboxOn = false; }
   });
+  await check("v1.40 Chats: her own Instagram reply from the Bee Hive joins its comment's thread and answers it, never as a comment of its own (room #1555)", async () => {
+    const saved = hive.inbox;
+    const t = (min) => new Date(Date.now() - min * 60_000).toISOString();
+    const ch = { platform: "instagram", handle: "smoke_ig" };
+    hive.inbox = [
+      { id: "r1", kind: "comment", story_reply: false, event_id: "c-par-1", at: t(30), text: "dangerous lil bounce", channel: ch,
+        from: { id: "901", username: "dan.fan" }, media: { id: "m-par", permalink: "https://www.instagram.com/p/par/", preview_url: "https://example.com/par.jpg", caption: "Sunday" } },
+      { id: "r2", kind: "comment", from_self: true, parent_id: "c-par-1", story_reply: false, event_id: "c-mine-1", at: t(20), text: "@dan.fan haha", channel: ch,
+        from: { id: "100", username: "smoke_ig" }, media: { id: "m-par", permalink: null, preview_url: null, caption: null } },
+      { id: "r3", kind: "comment", from_self: true, parent_id: "c-not-here", story_reply: false, event_id: "c-mine-2", at: t(10), text: "@someone hi", channel: ch,
+        from: { id: "100", username: "smoke_ig" }, media: { id: "m-par", permalink: null, preview_url: null, caption: null } },
+    ];
+    hive.inboxOn = true;
+    try {
+      await withCopy(4194, () => {}, async (c) => {
+        assert((await c.post("/api/connectors/pollen", { code: hive.code })).ok === true, "Pollen is connected on the copy");
+        await c.post("/api/dm/listitems", { filter: "all", light: true });
+        let a;
+        for (let i = 0; i < 20; i++) { await wait(150); a = (await c.post("/api/dm/getsync")).arrivals; if (a.last_result?.comments_new) break; }
+        assert(a.last_result.comments_new === 1 && a.last_result.replies_added === 1 && a.last_result.replies_waiting === 1, `counts: ${JSON.stringify(a.last_result)}`);
+        const items = (await c.post("/api/dm/listitems", { filter: "all" })).items;
+        const dan = items.find((i) => i.kind === "comment" && i.incoming_text === "dangerous lil bounce");
+        assert(dan && dan.needs_reply === false && dan.thread_messages.at(-1).from === "me" && dan.thread_messages.at(-1).text === "@dan.fan haha"
+          && typeof dan.answered_on_instagram_at === "string", `her reply joined the thread and answered it: ${JSON.stringify(dan || {}).slice(0, 300)}`);
+        assert(!items.some((i) => /^@(dan\.fan haha|someone hi)$/.test(i.incoming_text)), "her replies never come in as comments");
+        await wait(450);
+        await c.post("/api/dm/listitems", { filter: "all", light: true });
+        await wait(600);
+        const again = (await c.post("/api/dm/listitems", { filter: "all" })).items.find((i) => i.id === dan.id);
+        assert(again.thread_messages.filter((m) => m.from === "me").length === 1, "the same reply is added once");
+      }, { COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_ARRIVALS_MS: "300", COVER_REVIEW_PHOTO_ORIGINS: hiveBase });
+    } finally { hive.inboxOn = false; hive.inbox = saved; }
+  });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);
     const root = new URL("../", import.meta.url).pathname;

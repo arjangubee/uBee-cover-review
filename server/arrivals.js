@@ -24,7 +24,7 @@ export function arrivalsStatus() {
   // Why it's off, so the page can say so instead of a slow Refresh with no reason (room #1514).
   const off_reason = on() ? null : !store.settings.pollen?.code ? "pollen_not_connected" : "hive_without_inbox";
   return { on: on(), off_reason, checked_at: iso(s.checkedAt), last_result: s.lastResult ?? null, last_result_at: iso(s.lastResultAt),
-    totals: s.totals ?? null, last_error: s.lastError ?? null, last_arrival_at: s.lastArrivalAt ?? null };
+    totals: s.totals ?? null, last_error: s.lastError ?? null, last_arrival_at: s.lastArrivalAt ?? null, reset_at: iso(s.resetAt) };
 }
 
 /** Asks the Bee Hive for every arrival since the last one taken, and brings them in. */
@@ -56,6 +56,17 @@ export async function catchUp() {
   store.saveDb();
   if (changed) wakeReads(currentSpace());
   return { ok: !s.lastError, ...total };
+}
+
+/** Starts the catch-up over (part 22): the cursor goes, so the next one takes the Bee Hive's last 7 days again, right away.
+ *  Counts and totals stay. */
+export function resetArrivals() {
+  const s = state();
+  const was = typeof s.cursor === "string" ? s.cursor : null;
+  delete s.cursor;
+  s.resetAt = Date.now();
+  lastTry.delete(currentSpace()); // the next Chats read catches up at once, not after the 20 second rest
+  return { reset: true, cursor_was: was, reset_at: iso(s.resetAt) };
 }
 
 /** Starts a catch-up for this account unless one ran in the last 20 seconds or one is running. Never waits for it. */

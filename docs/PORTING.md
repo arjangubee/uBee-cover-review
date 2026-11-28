@@ -93,6 +93,12 @@ numbered and edited in place, and the same text changes in the chat. Copy into c
 stand, and sending the composer's text back takes the place of the drafts it came from. New Tailwind classes are in
 `client/src/dm/dm-tw.css` (rebuilt with `node scripts/dm-css.mjs`).
 
+### Chats: start the arrivals catch-up over (part 22, room #1614)
+
+| Action | What a port needs |
+| --- | --- |
+| `dm_resetarrivals` (new) | Body `{ confirm: "reset" }`, else 400. Clears `cursor` in this account's `dmArrivals` row, sets `resetAt` (now), keeps `totals` and the last result, and lets the next catch-up run at once instead of after its 20 second rest. Answers `{ reset: true, cursor_was, reset_at }`. The next catch-up asks the Bee Hive with `after: null`, so it takes its last 7 days again. Nothing is added twice: a comment it has counts as seen, a reply it has is re-timed (part 16) or threaded (part 17). It's the space's way to do the one cursor reset after porting 16 and 17. `dm_getsync`'s `arrivals` also answers `reset_at`. |
+
 ### Guard rails (this app's own server; a ported space has its platform's)
 
 `server/safety.js` is new. A route that fails after an await answers JSON and the app keeps running. Every error is

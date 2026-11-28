@@ -3189,6 +3189,44 @@ try {
       }, { COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_ARRIVALS_MS: "300", COVER_REVIEW_PHOTO_ORIGINS: hiveBase });
     } finally { hive.inboxOn = false; hive.inbox = saved; }
   });
+  await check("v1.40 part22 Chats: resetarrivals starts the catch-up over, so what came in before is re-timed, never added twice (room #1614)", async () => {
+    const saved = hive.inbox;
+    const t = (min) => new Date(Date.now() - min * 60_000).toISOString();
+    const ch = { platform: "instagram", handle: "smoke_ig" };
+    const reply = (at) => ({ id: "rs", kind: "comment", from_self: true, parent_id: "c-rs-1", story_reply: false, event_id: "c-mine-rs", at, text: "@fan.rs haha",
+      channel: ch, from: { id: "100", username: "smoke_ig" }, media: { id: "m-rs", permalink: null, preview_url: null, caption: null } });
+    hive.inbox = [reply(t(1))];
+    hive.inboxOn = true;
+    try {
+      await withCopy(4297, () => {}, async (c) => {
+        assert((await c.post("/api/connectors/pollen", { code: hive.code })).ok === true, "Pollen is connected on the copy");
+        const made = await c.post("/api/dm/importitem", { kind: "comment", source: "live", comment_id: "c-rs-1", sender: "fan.rs", incoming_text: "so cute",
+          media_id: "m-rs", media_permalink: "https://www.instagram.com/p/rs/", media_preview_url: "https://example.com/rs.jpg", needs_reply: true,
+          thread_messages: [{ from: "them", kind: "text", text: "so cute", at: t(60) }, { from: "them", kind: "text", text: "you there?", at: t(30) }] });
+        const read = async () => (await c.post("/api/dm/listitems", { filter: "all" })).items.find((i) => i.id === made.id);
+        await c.post("/api/dm/listitems", { filter: "all", light: true });
+        let x;
+        for (let i = 0; i < 20; i++) { await wait(150); x = await read(); if (x.thread_messages.some((m) => m.from === "me")) break; }
+        assert(x.thread_messages.at(-1).from === "me", "first taken with the wrong time");
+        hive.inbox = [reply(t(50))]; // the Bee Hive now dates it right, but the cursor is already past it
+        await wait(450);
+        await c.post("/api/dm/listitems", { filter: "all", light: true });
+        await wait(600);
+        x = await read();
+        assert(x.thread_messages.at(-1).from === "me", "without a reset, nothing changes");
+        const bad = await fetch("http://localhost:4297/api/dm/resetarrivals", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        assert(bad.status === 400, `a call without confirm is refused: ${bad.status}`);
+        const r = await c.post("/api/dm/resetarrivals", { confirm: "reset" });
+        assert(r.reset === true && r.cursor_was === "t|1" && r.reset_at, `the cursor is cleared: ${JSON.stringify(r)}`);
+        await c.post("/api/dm/listitems", { filter: "all", light: true }); // right away, no 20 second rest
+        for (let i = 0; i < 20; i++) { await wait(150); x = await read(); if (x.thread_messages.at(-1).from === "them") break; }
+        assert(x.thread_messages.map((m) => m.text).join("|") === "so cute|@fan.rs haha|you there?", `re-timed: ${x.thread_messages.map((m) => m.text).join("|")}`);
+        assert(x.thread_messages.filter((m) => m.from === "me").length === 1, "never added twice");
+        const a = (await c.post("/api/dm/getsync")).arrivals;
+        assert(a.reset_at && a.totals.replies_retimed >= 1, `getsync shows the reset and the re-time: ${JSON.stringify(a)}`);
+      }, { COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_ARRIVALS_MS: "300", COVER_REVIEW_PHOTO_ORIGINS: hiveBase });
+    } finally { hive.inboxOn = false; hive.inbox = saved; }
+  });
   await check("v1.40 Chats: a fan's reply inside a comment's thread joins that thread, and the comment settles on whoever wrote last (room #1575)", async () => {
     const saved = hive.inbox;
     const t = (min) => new Date(Date.now() - min * 60_000).toISOString();

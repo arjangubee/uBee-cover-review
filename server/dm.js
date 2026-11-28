@@ -24,7 +24,7 @@
 // edit the way it sends: it reads editswanted and reports back with confirmedit.
 import { createHash, randomUUID } from "node:crypto";
 import { currentSpace, runIn, store } from "./store.js";
-import { arrivalsStatus, catchUpSoon } from "./arrivals.js";
+import { arrivalsStatus, catchUpSoon, resetArrivals } from "./arrivals.js";
 import { STORY_PLACEHOLDER, capEndings, isNonMessageText, storyCapture, voiceVersion } from "./dmRules.js";
 
 const KINDS = ["dm", "comment"];
@@ -1007,6 +1007,14 @@ const actions = {
   /** Where the pull stands, for the page. */
   getsync() {
     return syncStatus();
+  },
+  // 1.40.0 part 22 (room #1614): the arrivals catch-up starts over. Its cursor is cleared, so the next catch-up takes the
+  // Bee Hive's last 7 days again. Nothing is added twice: a comment it has counts as seen, a reply it has is re-timed or
+  // left as is. It's how a release that changes how arrivals land (parts 16 and 17) reaches what came in before. confirm
+  // must be "reset", so a stray call can't do it. Answers the cursor it cleared, or null when there was none.
+  resetarrivals(args) {
+    if (args?.confirm !== "reset") throw new DmError('Send confirm: "reset" to start the arrivals catch-up over.');
+    return resetArrivals();
   },
   /** For her Muse: whether a pull is asked, and since when to look (the start of the last good pull, so nothing that
    *  arrived during it is missed; an import that meets a chat again changes nothing it shouldn't). */

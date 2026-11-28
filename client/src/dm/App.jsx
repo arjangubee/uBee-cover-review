@@ -2197,8 +2197,9 @@ function CommentRow({ item, focused = false }) {
   const replies = (() => {
     if (published || sending) return [];
     const msgs = (item.thread_messages || []).filter((m) => m && m.kind !== "reaction" && (m.text || m.kind === "text"));
-    const first = msgs.findIndex((m) => m.from === "them");
-    return first < 0 ? msgs.filter((m) => m.from === "me") : msgs.slice(first + 1);
+    // The thread starts with the comment itself only when the pull brought it; one that arrived carries replies only.
+    const lead = msgs[0]?.from === "them" && String(msgs[0].text ?? "").trim() === String(item.incoming_text ?? "").trim();
+    return lead ? msgs.slice(1) : msgs;
   })();
 
   const [editing, setEditing] = useState(false);

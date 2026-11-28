@@ -3086,6 +3086,41 @@ try {
       }, { COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_ARRIVALS_MS: "300", COVER_REVIEW_PHOTO_ORIGINS: hiveBase });
     } finally { hive.inboxOn = false; hive.inbox = saved; }
   });
+  await check("v1.40 Chats: a fan's reply inside a comment's thread joins that thread, and the comment settles on whoever wrote last (room #1575)", async () => {
+    const saved = hive.inbox;
+    const t = (min) => new Date(Date.now() - min * 60_000).toISOString();
+    const ch = { platform: "instagram", handle: "smoke_ig" };
+    const media = { id: "m-th", permalink: "https://www.instagram.com/p/th/", preview_url: "https://example.com/th.jpg", caption: "Sunday" };
+    const ev = (id, extra) => ({ id, kind: "comment", story_reply: false, channel: ch, media, ...extra });
+    hive.inbox = [
+      ev("e1", { event_id: "c-th-1", at: t(60), text: "dangerous lil bounce", from: { id: "901", username: "dan.th" } }),
+      ev("e2", { event_id: "c-th-me1", from_self: true, parent_id: "c-th-1", at: t(50), text: "@dan.th haha", from: { id: "100", username: "smoke_ig" } }),
+      ev("e3", { event_id: "c-th-2", parent_id: "c-th-1", at: t(30), text: "@smoke_ig 😎", from: { id: "901", username: "dan.th" } }),
+    ];
+    hive.inboxOn = true;
+    try {
+      await withCopy(4194, () => {}, async (c) => {
+        assert((await c.post("/api/connectors/pollen", { code: hive.code })).ok === true, "Pollen is connected on the copy");
+        const own = await c.post("/api/dm/importitem", { kind: "comment", source: "live", comment_id: "c-th-2", sender: "dan.th", incoming_text: "@smoke_ig 😎",
+          media_id: "m-th", media_permalink: media.permalink, media_preview_url: media.preview_url, needs_reply: true });
+        const items = async () => (await c.post("/api/dm/listitems", { filter: "all" })).items;
+        await c.post("/api/dm/listitems", { filter: "all", light: true });
+        let parent;
+        for (let i = 0; i < 20; i++) { await wait(150); parent = (await items()).find((x) => x.incoming_text === "dangerous lil bounce"); if (parent?.thread_messages.length === 2) break; }
+        assert(parent.thread_messages.map((m) => `${m.from}:${m.text}`).join("|") === "me:@dan.th haha|them:@smoke_ig 😎", `his reply joined the thread in order: ${JSON.stringify(parent.thread_messages)}`);
+        assert(parent.needs_reply === true, "he wrote last, so it needs her");
+        assert((await items()).find((x) => x.id === own.id).needs_reply === false, "the separate item for his reply stops needing one");
+        assert((await items()).filter((x) => x.incoming_text === "@smoke_ig 😎").length === 1, "no new item for it");
+        hive.inbox = [...hive.inbox, ev("e4", { event_id: "c-th-me2", from_self: true, parent_id: "c-th-1", at: t(20), text: "@dan.th 🦋", from: { id: "100", username: "smoke_ig" } })];
+        await wait(450);
+        await c.post("/api/dm/listitems", { filter: "all", light: true });
+        for (let i = 0; i < 20; i++) { await wait(150); parent = (await items()).find((x) => x.id === parent.id); if (parent.thread_messages.length === 3) break; }
+        assert(parent.thread_messages.at(-1).text === "@dan.th 🦋" && parent.needs_reply === false, "her later reply answers the thread");
+        const a = (await c.post("/api/dm/getsync")).arrivals;
+        assert(a.totals.replies_threaded === 1, `counted: ${JSON.stringify(a.totals)}`);
+      }, { COVER_REVIEW_BEE_HIVE_URL: `${hiveBase}/api/public/cover-review`, COVER_REVIEW_ARRIVALS_MS: "300", COVER_REVIEW_PHOTO_ORIGINS: hiveBase });
+    } finally { hive.inboxOn = false; hive.inbox = saved; }
+  });
   await check("no em or en dashes anywhere in the app's copy, code or docs (house rule)", async () => {
     const dashes = new RegExp(`[${String.fromCharCode(0x2014, 0x2013)}]`);
     const root = new URL("../", import.meta.url).pathname;

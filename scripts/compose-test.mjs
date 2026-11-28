@@ -36,6 +36,8 @@ async function withCopy(port, fn) {
     for (let i = 0; i < 60; i++) { try { if ((await fetch(`${at}/api/health`)).ok) break; } catch {} await wait(200); }
     const r = await (await fetch(`${at}/api/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ handle: "composer" }) })).json();
     const h = (x = {}) => ({ Authorization: `Bearer ${r.token}`, ...x });
+    // These checks read the queue's own order, so the deck reads recent (1.40.0 part 18: random is the default).
+    await fetch(`${at}/api/settings/deck-order`, { method: "POST", headers: h({ "Content-Type": "application/json" }), body: JSON.stringify({ order: "recent" }) });
     const api = {
       get: async (p) => (await fetch(`${at}${p}`, { headers: h() })).json(),
       post: async (p, b) => (await fetch(`${at}${p}`, { method: "POST", headers: h({ "Content-Type": "application/json" }), body: JSON.stringify(b || {}) })).json(),

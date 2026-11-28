@@ -43,6 +43,8 @@ async function withCopy(port, fn) {
     await start();
     const r = await (await fetch(`${at}/api/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ handle: "remixer" }) })).json();
     const h = (x = {}) => ({ Authorization: `Bearer ${r.token}`, ...x });
+    // These checks read the queue's own order, so the deck reads recent (1.40.0 part 18: random is the default).
+    await fetch(`${at}/api/settings/deck-order`, { method: "POST", headers: h({ "Content-Type": "application/json" }), body: JSON.stringify({ order: "recent" }) });
     const api = {
       dir,
       restart: async () => { await stop(); await start(); }, // what an update does: the server goes away and comes back

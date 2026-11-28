@@ -31,6 +31,18 @@ list switch, inside Passed) it calls `/api/items/rewind`. The button is on whene
 (`status.counts.rejected`), and with nothing to bring back it stays pressable and says so. A skip is a step Undo up
 top takes back too. With the queue clear and covers in Passed, the empty screen offers the same bring-back.
 
+### Covers: the deck's order, random or recent (part 18, room #1582 and #1583)
+
+| Action or field | What a port needs |
+| --- | --- |
+| Setting `deckOrder` (new, per account) | `{ order: "random" \| "recent", seed }`. No row means random. A random read with no seed makes one (a whole number from 1) and saves it. |
+| `GET /api/items?status=queue` | Answers `order` too. Recent is the order it always had: compose-passed covers, then the rest, then skipped. Random keeps the same three groups and sorts the first two by `deckKey(cover, seed)` from `server/deckOrder.js` (FNV-1a over `seed:id`, as a number from 0 up to 1, then the id). Skipped covers stay last, in skip order. Other lists are unchanged. |
+| `GET /api/settings/deck-order` and `POST` (new) | GET answers `{ order }`. POST `{ order }`: random saves a new seed every time (a new shuffle), recent keeps the seed. Any other order is 400. |
+| Field `deckPlace` (new, optional, each cover) | `{ seed, key }`, a place in the shuffle that counts only while `seed` is hers. `POST /api/items/rewind` sets a front place (`frontPlace`), and a finished remix that comes next takes the place right after its cover (`placeAfter`), so both lead in a random deck as they do in a recent one. A revision doesn't copy it. Nothing else writes it. Default none. |
+
+The page: All covers shows Random | Recent under the tabs on the Queue tab. A pick saves it, and the deck starts again
+from its first cover. Choose From Queue reads the same list, so it shows the queue in the deck's order.
+
 ### Chats: the light list, whole threads on open, mirroring on arrival
 
 | Action | What a port needs |

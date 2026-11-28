@@ -87,6 +87,7 @@ export default function App() {
   const [remixOpen, setRemixOpen] = useState(false); // the remix menu (1.17.0)
   const [addMenu, setAddMenu] = useState(false); // the carousel's + (1.37.0)
   const [queuePick, setQueuePick] = useState(false); // Choose From Queue (1.37.0)
+  const [deckOrder, setDeckOrder] = useState("random"); // the deck's order (1.40.0 part 18): random or recent, as the server says
   const [postSheet, setPostSheet] = useState(null); // Schedule Post (1.38.0): the cover as she saw it when she opened it
   const [remixing, setRemixing] = useState([]); // remixes still being made: each comes next once it's done
   // The swipe (1.34.0, Arjang Nov 26: like Tinder). intent is where the card on the stage is headed, for the swipe row's
@@ -158,6 +159,7 @@ export default function App() {
       if (keep === true && pendingId.current == null && currentIdNow.current != null) pendingId.current = currentIdNow.current;
       // A cover she just swiped away stays away while its decision is still on its way (1.34.0).
       setItems((Array.isArray(q.items) ? q.items : []).filter((i) => !leaving.current.has(i.id))); // a failed list keeps the covers she had
+      if (q.order === "random" || q.order === "recent") setDeckOrder(q.order);
     }
     setLoadError(failed.length ? { calls: failed, items: !q, why } : null);
     if (q) setLoads((n) => n + 1);
@@ -1202,6 +1204,19 @@ export default function App() {
     setIndex(0);
     setList(next);
   }
+  // Random or recent (1.40.0 part 18, room #1582 and #1583), from the Queue tab. Random makes a new shuffle each time
+  // she picks it. The deck starts again from its first cover.
+  async function changeDeckOrder(order) {
+    if (order === deckOrder) return;
+    await attempt(async () => {
+      await post("/api/settings/deck-order", { order });
+      setDeckOrder(order);
+      swipes.current = [];
+      setIndex(0);
+      await load();
+      say(order === "random" ? "Shuffled. Your queue is in a new random order." : "Your queue is back in its usual order.");
+    });
+  }
   async function showLibrary() {
     await attempt(() => flushPending());
     setView("library");
@@ -1247,6 +1262,7 @@ export default function App() {
         <LibraryView list={list} setList={switchList} items={items} counts={counts} pollenOn={Boolean(pollen?.connected)} canClose
           look={look} quoteOverlay={quotesStatus?.quoteOverlay ?? null} quotesUnlocked={Boolean(quotesStatus?.unlocked)}
           onOpen={openFromLibrary} onUpload={uploadPhotos} onClose={() => setView("cover")} onSongs={symphony?.connected ? () => showSongs("library") : null}
+          deckOrder={deckOrder} onDeckOrder={changeDeckOrder}
           onSchedule={(ids, stop) => setSheet({ items: items.filter((i) => ids.includes(i.id)), stop })} loadError={loadErrorBar} listFailed={Boolean(loadError?.items)} />
       ) : (
         <>

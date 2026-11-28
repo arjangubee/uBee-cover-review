@@ -500,7 +500,7 @@ function lightList(all, voice, sinceRaw) {
  * waits for a full sync, so a webhook DM never makes a second copy of a chat. Answers what happened.
  */
 export function applyArrivals(events) {
-  const counts = { comments_new: 0, comments_seen: 0, replies_added: 0, replies_retimed: 0, replies_waiting: 0, dms_added: 0, dms_waiting: 0, errors: 0 };
+  const counts = { comments_new: 0, comments_seen: 0, replies_added: 0, replies_retimed: 0, replies_threaded: 0, replies_waiting: 0, dms_added: 0, dms_waiting: 0, errors: 0 };
   const clip = (v, n) => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : undefined);
   for (const ev of Array.isArray(events) ? events : []) {
     try {
@@ -530,6 +530,25 @@ export function applyArrivals(events) {
         syncInto(r, { thread_messages: thread });
         r.arrivalIds = [...(Array.isArray(r.arrivalIds) ? r.arrivalIds : []), id].slice(-200);
         counts.replies_added += 1;
+        continue;
+      }
+      // 1.40.0 (room #1575): a fan's reply inside a comment's thread (its parent_id is that comment) joins the thread,
+      // as Instagram shows it, once per reply id, and the comment settles on whoever wrote last. A separate item made for
+      // it earlier stops needing a reply, since the thread now carries it. With no parent here it comes in on its own.
+      const parentId = ev?.kind === "comment" && !ev.from_self ? String(ev.parent_id ?? "") : "";
+      const parentRow = parentId ? rows().find((x) => x.kind === "comment" && x.commentId === parentId) : null;
+      if (parentRow && String(ev.event_id ?? "") && String(ev.event_id) !== parentId) {
+        const id = String(ev.event_id);
+        if (!(Array.isArray(parentRow.arrivalIds) && parentRow.arrivalIds.includes(id))) {
+          const msg = { from: "them", kind: "text", text: clip(ev.text, 2000) ?? null, at: clip(ev.at, 40) ?? new Date().toISOString() };
+          const thread = [...cleanThread(parentRow.threadMessages), msg]
+            .sort((x, y) => (Date.parse(x.at ?? "") || 0) - (Date.parse(y.at ?? "") || 0)).slice(-50);
+          syncInto(parentRow, { thread_messages: thread });
+          parentRow.arrivalIds = [...(Array.isArray(parentRow.arrivalIds) ? parentRow.arrivalIds : []), id].slice(-200);
+          counts.replies_threaded += 1;
+        }
+        const own = rows().find((x) => x.kind === "comment" && x.commentId === id);
+        if (own && own.needsReply !== false && own.publishStatus === "unpublished") Object.assign(own, { needsReply: false, draftWanted: null });
         continue;
       }
       if (ev?.kind === "comment") {
